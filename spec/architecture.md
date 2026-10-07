@@ -68,6 +68,7 @@ flowchart LR
 
     WORKER["Worker 背景工作程序"]
     PG[("PostgreSQL 16 + pgvector")]
+    RD[("Redis 7")]
     OBJ[("物件儲存 S3 / R2 / MinIO")]
 
     subgraph OpenAI["OpenAI 平台"]
@@ -89,8 +90,13 @@ flowchart LR
     SM --> SB
     SM --> AGENTS
     AGENTS --> LLM
-    API -->|"寫入 background_jobs"| PG
-    WORKER -->|"SKIP LOCKED 取工作"| PG
+    API -->|"交易內寫入 background_jobs（outbox）"| PG
+    API -->|"commit 後投遞工作"| RD
+    RD -->|"arq 取工作"| WORKER
+    WORKER --> PG
+    WORKER -->|"發布 evaluation_done 等事件"| RD
+    RD -->|"Pub/Sub：SSE 推播、live 指令路由"| API
+    API -->|"限流、冪等、鎖、快取"| RD
     WORKER --> OBJ
     WORKER --> STT
     WORKER --> TTS
@@ -104,11 +110,12 @@ flowchart LR
 |---|---|---|---|
 | `web` | Caddy | HTTPS、靜態前端、`/api` 反向代理、WebSocket 升級 | 1 |
 | `api` | `uvicorn app.main:app` | REST API、面試狀態機、**持有 Sideband WebSocket** | 1（見 §9 擴展） |
-| `worker` | `python -m app.workers.runner` | 履歷解析、題目生成、TTS、轉錄、評分、報告、Embedding | 1–N |
-| `postgres` | 託管服務或容器 | 業務資料、工作佇列、Log | 1 |
+| `worker` | `arq app.workers.settings.WorkerSettings` | 履歷解析、題目生成、TTS、轉錄、評分、報告、Embedding、排程工作 | 1–N |
+| `postgres` | 託管服務或容器 | 業務資料（唯一真實來源）、工作紀錄（outbox）、Log | 1 |
+| `redis` | 託管服務或容器（Redis 7） | 工作佇列 broker、Pub/Sub、限流、冪等鍵、分散式鎖、快取、面試即時暫存 | 1 |
 | `object storage` | S3 / Cloudflare R2（開發用 MinIO） | 履歷原檔、主題目 TTS 音訊、逐題回答音訊、大頭貼 | — |
 
-第一版用 **「一個模組化單體（modular monolith）＋一個 worker」**，不拆微服務。`api` 與 `worker` 共用同一份程式碼與資料模型。
+第一版用 **「一個模組化單體（modular monolith）＋一個 worker＋PostgreSQL＋Redis」**，不拆微服務。`api` 與 `worker` 共用同一份程式碼與資料模型。
 
 ---
 
@@ -125,7 +132,8 @@ flowchart LR
 | 主資料庫 | **PostgreSQL 16** | 交易一致性（狀態推進）、JSONB 存 AI 結構化輸出、陣列、部分索引、分區表 | — |
 | 向量 | **pgvector**（PostgreSQL 擴充） | 職缺契合度排序用 embedding；不必另開向量資料庫 | 職缺量 > 百萬筆再評估 |
 | 全文搜尋 | `pg_trgm` 三元組索引 | 中文斷詞在 PG 內建全文搜尋效果差，trigram 對中英混合關鍵字足夠 | 搜尋需求變重時改 Meilisearch / OpenSearch |
-| 背景工作佇列 | **PostgreSQL 工作表＋`SELECT … FOR UPDATE SKIP LOCKED`** | 少一個元件；工作建立和業務資料寫入可在**同一筆交易**完成，不會出現「資料寫了、工作沒排」 | 吞吐量到每秒數百工作時改 Redis＋arq / Celery |
+| 快取／訊息 | **Redis 7** | 佇列 broker、Pub/Sub、限流、冪等、鎖、快取，一個元件涵蓋多種需求；詳見 §4.3 | — |
+| 背景工作佇列 | **arq（asyncio，Redis broker）＋PostgreSQL `background_jobs` 作 outbox** | arq 原生 async，和 FastAPI／asyncpg 共用同一套非同步程式碼；內建重試、逾時、cron。Outbox 確保「資料寫了，工作一定會排」 | 需要多語言 worker 或複雜工作流程時改 Celery / Temporal |
 | 物件儲存 | **S3 相容**（正式：AWS S3 或 Cloudflare R2；開發：MinIO） | 音訊與履歷不進資料庫；預簽名 URL 讓前端直接下載 | — |
 | 即時語音 | **GPT‑Live（WebRTC＋後端 Sideband）** | 擬真聆聽、接話、插話處理 | 見 §6.6 降級模式 |
 | 文字 LLM | OpenAI Responses API＋**Structured Outputs（JSON Schema）** | 題目、評分輸出必須可驗證後才入庫 | 抽象成 `LLMClient`，未來可換供應商 |
@@ -134,7 +142,7 @@ flowchart LR
 | 履歷解析 | `pypdf` / `pdfplumber`、`python-docx`；掃描檔再丟 LLM 視覺讀取 | 先抽文字，再用 LLM 結構化 | — |
 | 認證 | Email＋密碼（argon2）、Google OAuth；Access JWT（15 分）＋Refresh Token（httpOnly Cookie，DB 存雜湊、輪替） | 前後端同網域，Cookie 最省事又安全 | — |
 | Log／觀測 | 結構化 stdout（`structlog`）＋**PostgreSQL 分區表**（LLM 呼叫、Live 事件、產品事件）＋Sentry | 見 §8 | — |
-| 部署 | Docker Compose（開發與 MVP）；正式環境用支援長連線 WebSocket 的容器平台 + 託管 PostgreSQL | Sideband 需長連線 | — |
+| 部署 | Docker Compose（開發與 MVP）；正式環境用支援長連線 WebSocket 的容器平台＋託管 PostgreSQL＋託管 Redis | Sideband 需長連線 | — |
 
 ### 4.2 為什麼 Log 用 PostgreSQL，而不是 MongoDB
 
@@ -146,7 +154,95 @@ flowchart LR
 | 大量寫入與清理 | **按月分區**，過期直接 `DROP PARTITION`，不留碎片 | TTL index |
 | 何時該換 | — | 單日事件量到千萬筆以上、或需要彈性分片時 |
 
-結論：**MVP 全部用 PostgreSQL**。系統運行 log（stdout）另外送到 log 平台（如 Grafana Loki、CloudWatch），不進資料庫。
+結論：**持久保存的 Log 用 PostgreSQL**；Redis 只當高頻事件的暫存緩衝（見 §4.3），不當 log 的最終存放處。系統運行 log（stdout）另外送到 log 平台（如 Grafana Loki、CloudWatch），不進資料庫。
+
+### 4.3 Redis 使用規劃
+
+**定位：Redis 存「短命、高頻、跨程序協調」的資料；PostgreSQL 是唯一的真實來源。** Redis 資料全部遺失時，系統要能自動恢復，不能遺失面試題目、作答紀錄或評分。
+
+#### 4.3.1 用途
+
+| 用途 | 說明 | 為什麼不用 PostgreSQL |
+|---|---|---|
+| **工作佇列 broker** | arq 佇列；分 `interactive`（面試中的 TTS、轉錄、追問用的快速轉錄）與 `default`（解析、生成、評分、報告）兩條，各自有 worker，避免批次工作塞住面試 | 低延遲取工作、不用輪詢資料庫 |
+| **Pub/Sub** | ① worker 完成評分 → 推給持有 SSE 連線的 API 實例；② API 實例 → 持有 sideband 的實例（多實例時路由 live 指令） | 跨程序即時通知 |
+| **Live 即時暫存** | 作答中的即時字幕片段、sideband 事件先寫 Redis Stream，再批次寫入 `live_events` | 字幕片段每秒數筆，逐筆寫 PG 浪費 |
+| **限流** | 登入失敗鎖定、題目生成、建立面試、AI 端點 | 計數器高頻寫入、自動過期 |
+| **冪等鍵** | 所有帶 `Idempotency-Key` 的 POST，24 小時內回傳同一結果 | 自動過期；處理中狀態防止並發重送 |
+| **分散式鎖** | 同一題組同時只有一個生成工作、同一場報告只建一次、sideband 擁有者租約 | `SET NX PX` 自動過期，不怕程序當掉留下死鎖 |
+| **快取** | Dashboard、職缺搜尋結果、TTS 音訊位置對照 | 減少重複查詢 |
+
+**不放進 Redis 的**：面試狀態與題目進度（只在 PostgreSQL，靠 `state_version` 控制）、作答紀錄、評分、refresh token、任何沒有 TTL 又無法重建的資料。
+
+#### 4.3.2 Key 設計
+
+所有 key 以 `ai:` 為前綴（同一個 Redis 給多環境用時改成 `ai:{env}:`）。
+
+| 用途 | Key | 型別 | TTL |
+|---|---|---|---|
+| 工作佇列 | `arq:queue:interactive`、`arq:queue:default`（arq 管理） | ZSET 等 | arq 管理 |
+| 冪等 | `ai:idem:{user_id}:{idempotency_key}` | HASH `{state: processing\|done, status_code, body}` | 24 h |
+| 限流 | `ai:rl:{action}:{user_id}:{window_start}` | STRING（INCR） | 視窗長度 |
+| 登入失敗 | `ai:rl:login_fail:{sha256(email)}` | STRING（INCR） | 15 min |
+| 鎖：題目生成 | `ai:lock:qgen:{set_id}` | STRING（擁有者 token） | 120 s |
+| 鎖：報告 | `ai:lock:report:{session_id}` | STRING | 60 s |
+| Sideband 擁有者 | `ai:live:owner:{session_id}` | STRING（instance_id） | 30 s，每 10 秒續約 |
+| Live 指令頻道 | `ai:live:cmd:{session_id}` | Pub/Sub channel | — |
+| 即時字幕緩衝 | `ai:live:tr:{attempt_id}` | LIST（RPUSH 片段） | 2 h |
+| Live 事件串流 | `ai:live:events` | STREAM（consumer group `pg-flusher`） | `MAXLEN ~ 100000` |
+| 報告進度推播 | `ai:evt:report:{session_id}` | Pub/Sub channel | — |
+| 快取：Dashboard | `ai:cache:dash:{user_id}` | STRING（JSON） | 60 s；報告完成時主動刪除 |
+| 快取：職缺搜尋 | `ai:cache:jobs:{resume_id}:{sha1(query)}` | STRING（JSON） | 120 s |
+| 快取：TTS | `ai:cache:tts:{sha1(text, voice, lang)}` | STRING（物件 key） | 30 天 |
+
+#### 4.3.3 工作投遞：Outbox 模式
+
+只用 Redis 佇列會有一個漏洞：資料庫交易成功、但投遞 Redis 前程序當掉，工作就消失了。所以保留 `background_jobs` 表當 **outbox**：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant API as FastAPI
+    participant PG as PostgreSQL
+    participant RD as Redis（arq）
+    participant W as Worker
+    participant SW as Sweeper（arq cron 每 30 秒）
+
+    API->>PG: BEGIN；寫業務資料＋INSERT background_jobs（queued）；COMMIT
+    API->>RD: enqueue_job(kind, _job_id = background_jobs.id)
+    API->>PG: UPDATE dispatched_at = now()
+    RD->>W: 取得工作
+    W->>PG: 檢查狀態仍為 queued／retrying → 改為 running
+    W->>W: 執行 handler（本身需冪等）
+    alt 成功
+        W->>PG: succeeded
+    else 失敗且可重試
+        W->>PG: retrying、attempts+1、last_error
+        W->>RD: arq Retry（指數退避）
+    else 超過上限
+        W->>PG: dead（告警）
+    end
+    SW->>PG: 找 queued 且（dispatched_at 為 NULL 或超過 60 秒）的工作
+    SW->>RD: 重新 enqueue（相同 _job_id，arq 會去重）
+```
+
+- `_job_id` 用資料庫 ID，重複投遞不會重複執行。
+- Redis 整個清空時，sweeper 會把所有未完成工作從 PostgreSQL 重新投遞。
+
+#### 4.3.4 設定與故障時的行為
+
+- 版本 Redis 7；`appendonly yes`、`appendfsync everysec`；`maxmemory-policy noeviction`（佇列資料不可被淘汰，所以**所有快取 key 一定要設 TTL**）。
+- 正式環境用託管服務（AWS ElastiCache、GCP Memorystore 等），開啟 TLS 與密碼；與 API／worker 同區域。
+- Python 用 `redis-py`（`redis.asyncio`）與 `arq`。
+
+| Redis 故障時 | 行為 |
+|---|---|
+| 工作佇列 | 工作仍寫在 `background_jobs`；面試**可以繼續進行**（狀態在 PG），報告延後；Redis 恢復後 sweeper 補投遞 |
+| 冪等 | 面試回答上傳退回使用 `answer_attempts.idempotency_key` 唯一約束，關鍵路徑不受影響；其他端點暫時不保證冪等 |
+| 限流 | Fail-open，改用程序內記憶體 token bucket；登入失敗鎖定暫時改為較嚴格的單機計數 |
+| Pub/Sub | SSE 失效，前端自動改為輪詢報告 |
+| 即時字幕緩衝 | 追問判斷改用剛上傳音訊做快速轉錄（見 [flows.md §15](flows.md)） |
+| Sideband 擁有者租約 | 單實例部署不受影響；多實例時暫停新的 live 連線，改用 `scripted` 模式 |
 
 ---
 
@@ -164,6 +260,7 @@ backend/
 │   │   ├── security.py         # 密碼雜湊、JWT、Cookie
 │   │   ├── errors.py           # 統一錯誤格式
 │   │   ├── storage.py          # S3 客戶端、預簽名 URL
+│   │   ├── redis.py            # redis.asyncio 連線池、key 命名、鎖、限流、冪等 middleware
 │   │   └── logging.py          # structlog、request_id
 │   ├── modules/
 │   │   ├── auth/               # 註冊、登入、OAuth、refresh
@@ -185,8 +282,9 @@ backend/
 │   │   ├── schemas/            # 每個 agent 的 JSON Schema
 │   │   └── agents/             # 見 §7
 │   └── workers/
-│       ├── queue.py            # enqueue / claim / complete / retry
-│       ├── runner.py           # 主迴圈
+│       ├── queue.py            # enqueue：寫 outbox＋投遞 arq；狀態更新
+│       ├── settings.py         # arq WorkerSettings（interactive / default 兩組）
+│       ├── cron.py             # sweeper、閒置場次、音訊清理、分區維護、live 事件寫入 PG
 │       └── handlers/           # 每種 job kind 一個 handler
 ├── alembic/
 └── tests/
@@ -300,7 +398,7 @@ sequenceDiagram
     FE->>FE: 開麥克風、開始逐題錄音
     U->>GL: 語音回答（WebRTC）
     GL-->>SB: 即時逐字稿片段
-    SB->>DB: live_events / attempt.live_transcript
+    SB->>SB: 即時字幕寫入 Redis（ai:live:tr、ai:live:events）
     GL-->>FE: 即時逐字稿片段（data channel，畫面顯示用）
     U->>FE: 再點麥克風（回答完畢）
     FE->>FE: 停止錄音、打開 AI 音訊閘門（允許短回應）
@@ -419,7 +517,7 @@ sequenceDiagram
 | 應用程式 log | stdout JSON → log 平台 | 14 天 | 除錯、錯誤追蹤（附 `request_id`、`session_id`） |
 | 例外 | Sentry | 依方案 | 告警 |
 | `llm_calls` | PostgreSQL 月分區 | 13 個月 | 每次 LLM／STT／TTS／Live 呼叫的模型、token、音訊秒數、成本、延遲、錯誤 → **單場面試成本**、單位經濟 |
-| `live_events` | PostgreSQL 月分區 | 30 天 | GPT‑Live sideband 原始事件；用於調查漏問、越界、轉錄問題 |
+| `live_events` | 先寫 Redis Stream，每 2 秒批次寫入 PostgreSQL 月分區 | 30 天 | GPT‑Live sideband 原始事件；用於調查漏問、越界、轉錄問題 |
 | `app_events` | PostgreSQL 月分區 | 13 個月 | 產品事件（開始面試、完成面試、生成題目…）＋稽核（登入、刪除履歷） |
 
 需要持續監看的品質指標（產品成敗關鍵）：
@@ -446,7 +544,7 @@ sequenceDiagram
 - 保留期限：回答音訊預設 180 天後刪除（逐字稿與評分保留）；使用者可隨時刪除單場面試或帳號（硬刪除音訊與履歷原檔）。
 - 所有資料查詢都以 `user_id` 限定範圍；物件 key 以 `users/{user_id}/…` 為前綴。
 - 上傳檢查：MIME 類型、檔案大小（履歷 10 MB、單題音訊 15 MB）、PDF 解析在 worker 中執行並設逾時。
-- Rate limit：登入、題目生成、建立面試以使用者為單位限流（PostgreSQL 計數或記憶體 token bucket，MVP 單機即可）。
+- Rate limit：登入、題目生成、建立面試、AI 相關端點以使用者為單位限流，計數放在 Redis（固定視窗 INCR＋TTL），見 §4.3。
 
 ### 9.2 成本估算（單場標準面試 5 題、約 15 分鐘，需以官方最新定價重新確認）
 
@@ -464,9 +562,10 @@ sequenceDiagram
 
 | 階段 | 觸發點 | 做法 |
 |---|---|---|
-| 單機 | MVP | 1 個 `api`（持有 sideband）＋1 個 `worker` |
-| 多 API 實例 | 同時面試 > 約 200 場 | 把 sideband 拆成獨立 `live-gateway` 服務；`api` 透過 PostgreSQL `LISTEN/NOTIFY`（channel = `live_cmd_{session_id}`）下指令，或改用 Redis Pub/Sub |
-| 佇列吞吐 | 背景工作每秒 > 數百 | 換成 Redis＋arq；`background_jobs` 表保留作稽核 |
+| 單機 | MVP | 1 個 `api`（持有 sideband）＋`interactive` 與 `default` worker 各 1 個＋Redis 1 個 |
+| 多 API 實例 | 同時面試 > 約 200 場 | 把 sideband 拆成獨立 `live-gateway` 服務；以 `ai:live:owner:{session_id}` 租約決定擁有者，`api` 透過 Redis Pub/Sub `ai:live:cmd:{session_id}` 下指令 |
+| 佇列吞吐 | 評分排隊時間變長 | 水平增加 `default` worker；`interactive` worker 獨立擴充，確保面試中延遲 |
+| Redis 負載 | 記憶體或連線數吃緊 | 快取與佇列拆成兩個 Redis 實例（快取可用 `allkeys-lru`，佇列維持 `noeviction`） |
 | 讀取壓力 | Dashboard／報告查詢變慢 | 加 read replica、報告 JSON 快取 |
 
 ---
@@ -475,7 +574,7 @@ sequenceDiagram
 
 | 階段 | 範圍 | 完成標準 |
 |---|---|---|
-| **P0 基礎** | 認證、個人檔案、履歷上傳解析、自訂職缺、資料表與 Alembic、worker 佇列 | 可上傳履歷並看到 AI 解析結果 |
+| **P0 基礎** | 認證、個人檔案、履歷上傳解析、自訂職缺、資料表與 Alembic、Redis＋arq worker 與 outbox、限流與冪等 middleware | 可上傳履歷並看到 AI 解析結果 |
 | **P1 題目** | 題目生成與編輯、面試建議 | 題目明顯依履歷＋職缺客製；出題理由可追溯 |
 | **P2 面試（scripted）** | 狀態機、TTS 主題目、逐題錄音上傳、轉錄、逐題評分、報告頁 | 符合 §1 三條驗收條件 |
 | **P3 面試（live）** | GPT‑Live WebRTC、sideband、音訊閘門、短回應、動態追問、降級機制 | 漏問率 0%、錯誤切題率 < 3% |

@@ -10,7 +10,8 @@
 1. **快照優先**：面試開始時，把職缺、履歷、題目**複製**進場次（`job_snapshot`、`resume_snapshot`、`session_questions`）。使用者日後修改，舊報告不變。
 2. **可編輯的草稿與凍結的紀錄分開**：`question_set_items` 是可編輯的題庫；`session_questions` 是某場面試**實際播放的題目**，建立後不可修改。
 3. **狀態推進用樂觀鎖**：`interview_sessions.state_version` 每次推進 +1，更新時必須帶上預期版本。
-4. **冪等**：回答上傳、背景工作都帶冪等鍵（`idempotency_key`、`dedupe_key`）。
+4. **冪等**：回答上傳、背景工作都帶冪等鍵（`idempotency_key`、`dedupe_key`）。API 層的通用冪等快取放 Redis，但**回答上傳**另有資料庫唯一約束兜底。
+10. **PostgreSQL 是唯一真實來源**：Redis（佇列、快取、鎖、即時字幕緩衝）裡的資料都必須能從 PostgreSQL 重建或可以遺失，見 [architecture.md §4.3](architecture.md)。
 5. **列舉值用 `text + CHECK`**，不用 PostgreSQL `ENUM`（新增值不必改型別，Alembic 遷移較單純）。
 6. **主鍵**：業務表用 `uuid`（`gen_random_uuid()`）；Log 類大表用 `bigint identity`，並按月分區。
 7. **時間**一律 `timestamptz`，儲存 UTC。
@@ -328,7 +329,7 @@ erDiagram
 | | `answer_attempts` | 每次作答：音訊、即時與最終逐字稿 | 逐字稿 |
 | 評分 | `evaluations` | 逐題評分與建議 | 逐題回顧 |
 | | `interview_reports` | 整場報告 | 面試評分 |
-| 系統 | `background_jobs` | 背景工作佇列 | — |
+| 系統 | `background_jobs` | 背景工作 outbox 與執行紀錄（實際佇列在 Redis／arq） | — |
 | Log | `llm_calls` | AI 呼叫與成本（月分區） | — |
 | | `live_events` | GPT‑Live sideband 事件（月分區） | — |
 | | `app_events` | 產品事件與稽核（月分區） | — |
@@ -768,28 +769,35 @@ CREATE INDEX ix_reports_user_trend ON interview_reports(user_id, created_at DESC
 
 ### 4.9 背景工作佇列
 
+實際的佇列在 Redis（arq），這張表是 **transactional outbox＋執行紀錄**：工作和業務資料在同一筆交易寫入，commit 後才投遞到 Redis；Redis 遺失資料時由 sweeper 從這張表重新投遞。
+
 ```sql
 CREATE TABLE background_jobs (
-  id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  kind          text NOT NULL,               -- parse_resume, generate_questions, synthesize_tts, transcribe_attempt, evaluate_attempt, build_report…
-  payload       jsonb NOT NULL,
-  status        text NOT NULL DEFAULT 'queued'
-                CHECK (status IN ('queued','running','succeeded','failed','dead')),
-  priority      smallint NOT NULL DEFAULT 100, -- 越小越優先；面試中的 TTS / 轉錄給 10
-  run_at        timestamptz NOT NULL DEFAULT now(),
-  attempts      smallint NOT NULL DEFAULT 0,
-  max_attempts  smallint NOT NULL DEFAULT 5,
-  dedupe_key    text,
-  locked_by     text,
-  locked_at     timestamptz,
-  last_error    text,
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  finished_at   timestamptz
+  id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,   -- 也當作 arq 的 _job_id
+  kind           text NOT NULL,              -- parse_resume, generate_questions, synthesize_tts, transcribe_attempt, evaluate_attempt, build_report…
+  queue          text NOT NULL DEFAULT 'default' CHECK (queue IN ('interactive','default')),
+  payload        jsonb NOT NULL,
+  status         text NOT NULL DEFAULT 'queued'
+                 CHECK (status IN ('queued','running','retrying','succeeded','dead')),
+  run_at         timestamptz NOT NULL DEFAULT now(),  -- 延遲執行（arq _defer_until）
+  dispatched_at  timestamptz,                -- 最近一次投遞到 Redis 的時間
+  attempts       smallint NOT NULL DEFAULT 0,
+  max_attempts   smallint NOT NULL DEFAULT 5,
+  dedupe_key     text,
+  worker_id      text,
+  started_at     timestamptz,
+  last_error     text,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  finished_at    timestamptz
 );
-CREATE INDEX ix_jobs_claim ON background_jobs(priority, run_at) WHERE status = 'queued';
-CREATE UNIQUE INDEX uq_jobs_dedupe ON background_jobs(dedupe_key) WHERE dedupe_key IS NOT NULL AND status IN ('queued','running');
-CREATE INDEX ix_jobs_stuck ON background_jobs(locked_at) WHERE status = 'running';
+-- sweeper：找尚未投遞或投遞後遺失的工作
+CREATE INDEX ix_jobs_undispatched ON background_jobs(run_at) WHERE status IN ('queued','retrying');
+CREATE UNIQUE INDEX uq_jobs_dedupe ON background_jobs(dedupe_key)
+  WHERE dedupe_key IS NOT NULL AND status IN ('queued','running','retrying');
+CREATE INDEX ix_jobs_stuck ON background_jobs(started_at) WHERE status = 'running';
 ```
+
+`queue = interactive` 給面試進行中需要低延遲的工作（`synthesize_tts`、`transcribe_attempt`），由獨立的 worker 處理，不會被批次工作塞住。完成超過 30 天的工作列由每日排程刪除。
 
 ### 4.10 Log 表（月分區）
 
@@ -899,14 +907,16 @@ BEGIN;
   UPDATE answer_attempts
      SET status = 'saved', is_final = true, answer_ended_at = $ended_at,
          audio_key = $audio_key, audio_bytes = $bytes, audio_duration_ms = $dur,
-         live_transcript = $live_text, idempotency_key = $idem_key
+         live_transcript = $live_text,  -- 從 Redis ai:live:tr:{attempt_id} 取出拼接
+         idempotency_key = $idem_key
    WHERE id = $attempt_id AND status = 'answering';
 
   UPDATE session_questions SET status = 'answered' WHERE id = $question_id;
 
-  INSERT INTO background_jobs(kind, payload, priority, dedupe_key)
-  VALUES ('transcribe_attempt', jsonb_build_object('attempt_id', $attempt_id), 10,
-          'transcribe:' || $attempt_id);
+  INSERT INTO background_jobs(kind, queue, payload, dedupe_key)
+  VALUES ('transcribe_attempt', 'interactive', jsonb_build_object('attempt_id', $attempt_id),
+          'transcribe:' || $attempt_id)
+  RETURNING id;   -- COMMIT 後以此 id 投遞到 Redis
 
   -- 2. 依追問判斷結果：建立追問子題，或指向下一道主題目
   -- 3. 推進場次
@@ -919,20 +929,34 @@ COMMIT;
 
 音訊檔先上傳到物件儲存，**成功後**才進這個交易；交易失敗時物件留著，由每日清理工作刪除沒有被引用的音訊。
 
-### 6.3 Worker 取工作
+### 6.3 工作投遞與 Sweeper
 
 ```sql
-UPDATE background_jobs SET status = 'running', locked_by = $worker_id, locked_at = now(), attempts = attempts + 1
- WHERE id = (
-   SELECT id FROM background_jobs
-    WHERE status = 'queued' AND run_at <= now()
-    ORDER BY priority, run_at
-    FOR UPDATE SKIP LOCKED
-    LIMIT 1)
+-- API：COMMIT 後投遞成功，標記已投遞
+UPDATE background_jobs SET dispatched_at = now() WHERE id = $job_id;
+
+-- Worker 開始執行（防止重複投遞造成重複執行）
+UPDATE background_jobs
+   SET status = 'running', worker_id = $worker_id, started_at = now(), attempts = attempts + 1
+ WHERE id = $job_id AND status IN ('queued','retrying')
 RETURNING *;
+-- 0 列 → 已有其他 worker 執行或已完成，直接結束
+
+-- Sweeper（arq cron，每 30 秒）：重新投遞未投遞、或投遞後在 Redis 遺失的工作
+SELECT id, kind, queue, payload, run_at
+  FROM background_jobs
+ WHERE status IN ('queued','retrying')
+   AND run_at <= now()
+   AND (dispatched_at IS NULL OR dispatched_at < now() - interval '60 seconds')
+ ORDER BY run_at
+ LIMIT 500;
+
+-- 卡住回收：running 超過 10 分鐘視為 worker 當掉
+UPDATE background_jobs SET status = 'retrying', dispatched_at = NULL
+ WHERE status = 'running' AND started_at < now() - interval '10 minutes';
 ```
 
-失敗重試：`run_at = now() + (2 ^ attempts) * interval '10 seconds'`；超過 `max_attempts` 改為 `dead`。`locked_at` 超過 10 分鐘的 `running` 工作視為卡住，重設為 `queued`。
+失敗重試：worker 將狀態改為 `retrying`、寫入 `last_error`，並以 arq `Retry(defer=10s × 2^attempts)` 重新排程；超過 `max_attempts` 改為 `dead` 並告警。
 
 ### 6.4 職缺列表（含契合度）
 
@@ -978,6 +1002,6 @@ SELECT DISTINCT (ended_at AT TIME ZONE 'Asia/Taipei')::date AS d
 ## 8. 遷移與維運
 
 - 遷移工具：Alembic；每個遷移可往回復原。新增 NOT NULL 欄位時先加可為 NULL＋回填＋再加約束。
-- 連線池：SQLAlchemy async pool（`pool_size=10`、`max_overflow=10`）；正式環境前面可加 PgBouncer（transaction mode，注意 `LISTEN/NOTIFY` 需走直連）。
+- 連線池：SQLAlchemy async pool（`pool_size=10`、`max_overflow=10`）；正式環境前面可加 PgBouncer（transaction mode）。跨程序通知走 Redis Pub/Sub，不使用 `LISTEN/NOTIFY`。
 - 備份：託管服務每日快照＋PITR 7 天。
-- 本機開發：`docker compose up postgres minio`，映像使用 `pgvector/pgvector:pg16`。
+- 本機開發：`docker compose up postgres redis minio`，映像使用 `pgvector/pgvector:pg16`、`redis:7-alpine`。

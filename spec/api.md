@@ -52,6 +52,8 @@
 | 404 | `NOT_FOUND` | 資源不存在或不屬於你 |
 | 409 | `STATE_CONFLICT` | 面試狀態版本不符或階段不允許此操作 |
 | 409 | `ACTIVE_SESSION_EXISTS` | 已有進行中的面試 |
+| 409 | `REQUEST_IN_PROGRESS` | 同一個 Idempotency-Key 的請求仍在處理中 |
+| 422 | `IDEMPOTENCY_KEY_REUSED` | 同一個 Idempotency-Key 搭配不同的請求內容 |
 | 409 | `RESOURCE_NOT_READY` | 履歷／職缺尚在解析、TTS 尚未完成 |
 | 413 | `FILE_TOO_LARGE` | 檔案過大 |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | 檔案類型不支援 |
@@ -79,7 +81,26 @@
 ### 1.6 冪等與並行控制
 
 - 建立型 `POST` 可帶 `Idempotency-Key: <uuid>`，24 小時內同一 key 回傳第一次的結果。**面試回答上傳必帶**。
+  - 實作：middleware 以 Redis `ai:idem:{user_id}:{key}` 記錄。第一次請求先寫入 `processing`；同 key 的請求還在處理中時回 `409 REQUEST_IN_PROGRESS`（前端稍後重試）；完成後存入狀態碼與回應 body，之後同 key 直接回傳。
+  - 同一 key 但 body 不同回 `422 IDEMPOTENCY_KEY_REUSED`。
+  - Redis 不可用時，回答上傳退回使用 `answer_attempts.idempotency_key` 唯一約束判斷，仍保證不重複寫入。
 - 面試狀態推進端點必帶 `expected_version`（來自上一次回應的 `state_version`），不符回 `409 STATE_CONFLICT`。
+
+### 1.7 限流
+
+計數放在 Redis（固定視窗，`ai:rl:{action}:{user_id}:{window}`）。超過回 `429 RATE_LIMITED`，附 `Retry-After` 標頭；回應一律帶 `X-RateLimit-Limit`、`X-RateLimit-Remaining`。
+
+| action | 範圍 | 限制（free 方案預設，可由設定調整） |
+|---|---|---|
+| `login_fail` | 每個 Email | 15 分鐘內失敗 5 次即鎖定 15 分鐘 |
+| `register` | 每個 IP | 每小時 10 次 |
+| `resume_upload` | 每位使用者 | 每天 20 次 |
+| `question_gen` | 每位使用者 | 每小時 20 次 |
+| `prep_gen` | 每位使用者 | 每小時 20 次 |
+| `interview_create` | 每位使用者 | 每天 10 場（另受方案每月用量限制） |
+| `default` | 每位使用者 | 每分鐘 120 次 |
+
+Redis 不可用時 fail-open，改用程序內記憶體計數。
 
 ---
 
@@ -798,7 +819,9 @@ event: error
 data: {"code":"UPSTREAM_ERROR"}
 ```
 
-連線最長 120 秒；前端斷線後改為輪詢 `GET report`。
+實作：worker 完成評分或報告時發布到 Redis Pub/Sub `ai:evt:report:{session_id}`；持有 SSE 連線的 API 實例訂閱該頻道後轉送。為避免訂閱前漏掉事件，SSE 建立後先送一次目前進度（`event: snapshot`），再轉送後續事件。
+
+連線最長 120 秒；前端斷線後或 Redis 不可用時改為輪詢 `GET report`。
 
 ### `GET /interviews/{id}/answers/{aid}/audio`
 
@@ -860,18 +883,27 @@ data: {"code":"UPSTREAM_ERROR"}
 
 ## 13. 背景工作一覽（非 HTTP，供實作參考）
 
-| kind | 觸發 | 結果 |
+工作以 arq 執行（Redis broker），並寫入 PostgreSQL `background_jobs` 作 outbox，見 [architecture.md §4.3.3](architecture.md)。
+
+| kind | 佇列 | 觸發 | 結果 |
+|---|---|---|---|
+| `parse_resume` | default | `POST /resumes` | `resumes.parsed_json`、`analysis_json`、`embedding`；接著排 `compute_matches` |
+| `parse_job` | default | `POST /jobs`（raw_text） | `job_posts` 欄位、`embedding` |
+| `compute_matches` | default | 履歷解析完成、設為主要、職缺匯入 | `job_matches`；清除 `ai:cache:jobs:{resume_id}:*` |
+| `generate_prep` | default | `POST /preps` | `interview_preps`、`prep_checklist_items` |
+| `generate_questions` | default | `POST …/generations`（持有 `ai:lock:qgen:{set_id}`） | `question_set_items` |
+| `build_rubric` | default | 使用者新增／修改題目、從建議加入題目 | `question_set_items.rubric` |
+| `synthesize_tts` | **interactive** | `POST /interviews` | `session_questions.tts_audio_key`；全部完成後場次改為 `ready` |
+| `transcribe_attempt` | **interactive** | `complete` | `answer_attempts.final_transcript`；接著排 `evaluate_attempt` |
+| `evaluate_attempt` | default | 轉錄完成 | `evaluations`；發布 `evaluation_done`；若場次已結束且全部完成，排 `build_report` |
+| `build_report` | default | 最後一題評分完成（持有 `ai:lock:report:{session_id}`） | `interview_reports`；發布 `report_ready`；清除 `ai:cache:dash:{user_id}` |
+
+排程工作（arq cron，由 `default` worker 中的一個實例執行）：
+
+| 名稱 | 頻率 | 結果 |
 |---|---|---|
-| `parse_resume` | `POST /resumes` | `resumes.parsed_json`、`analysis_json`、`embedding`；接著排 `compute_matches` |
-| `parse_job` | `POST /jobs`（raw_text） | `job_posts` 欄位、`embedding` |
-| `compute_matches` | 履歷解析完成、設為主要、職缺匯入 | `job_matches` |
-| `generate_prep` | `POST /preps` | `interview_preps`、`prep_checklist_items` |
-| `generate_questions` | `POST …/generations` | `question_set_items` |
-| `build_rubric` | 使用者新增／修改題目、從建議加入題目 | `question_set_items.rubric` |
-| `synthesize_tts` | `POST /interviews` | `session_questions.tts_audio_key`；全部完成後場次改為 `ready` |
-| `transcribe_attempt` | `complete` | `answer_attempts.final_transcript`；接著排 `evaluate_attempt` |
-| `evaluate_attempt` | 轉錄完成 | `evaluations`；若場次已結束且全部完成，排 `build_report` |
-| `build_report` | 最後一題評分完成 | `interview_reports` |
-| `expire_idle_sessions` | 每分鐘排程 | 無心跳場次改為 `aborted`，排剩下的評分與報告 |
-| `purge_expired_audio` | 每日排程 | 刪除超過保留期限的音訊 |
-| `maintain_partitions` | 每日排程 | 建立下個月分區、刪除過期分區 |
+| `sweep_outbox` | 每 30 秒 | 重新投遞未投遞或在 Redis 遺失的工作 |
+| `flush_live_events` | 每 2 秒 | 從 Redis Stream `ai:live:events` 批次寫入 `live_events` |
+| `expire_idle_sessions` | 每分鐘 | 無心跳場次改為 `aborted`，排剩下的評分與報告 |
+| `purge_expired_audio` | 每日 | 刪除超過保留期限的音訊 |
+| `maintain_partitions` | 每日 | 建立下個月分區、刪除過期分區、清除 30 天前完成的工作列 |

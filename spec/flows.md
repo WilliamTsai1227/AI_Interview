@@ -342,6 +342,7 @@ sequenceDiagram
     participant SB as Sideband 管理器
     participant GL as GPT-Live
     participant DB as PostgreSQL
+    participant RD as Redis
 
     FE->>FE: new RTCPeerConnection，加入麥克風 track（先 disabled）
     FE->>FE: 建立 data channel，遠端音軌接到 GainNode（gain=0）
@@ -351,9 +352,10 @@ sequenceDiagram
     alt 成功
         GL-->>API: sdp_answer ＋ 對話識別碼
         API->>DB: UPDATE interview_sessions live_session_ref
-        API->>SB: 開啟 sideband WebSocket
+        API->>RD: SET ai:live:owner:{session_id} = instance_id（NX，TTL 30 秒）
+        API->>SB: 開啟 sideband WebSocket，訂閱 ai:live:cmd:{session_id}
         SB->>GL: 系統指示（角色、風格、語言、禁止自行出題）
-        SB->>DB: live_events: connected
+        SB->>RD: XADD ai:live:events connected
         API-->>FE: 200 sdp_answer
         FE->>FE: setRemoteDescription，連線建立
     else 失敗
@@ -377,6 +379,7 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant SB as Sideband
     participant GL as GPT-Live
+    participant RD as Redis
     participant OBJ as 物件儲存
     participant W as Worker
 
@@ -396,7 +399,7 @@ sequenceDiagram
     U->>GL: 語音回答（WebRTC）
     GL-->>FE: 即時字幕（data channel）→ 右側逐字稿
     GL-->>SB: 即時字幕
-    SB->>DB: live_events，累積 live_transcript
+    SB->>RD: RPUSH ai:live:tr:{A}；XADD ai:live:events
 
     opt 靜音超過 12 秒
         FE->>FE: 短暫打開 AI 閘門
@@ -409,15 +412,20 @@ sequenceDiagram
     API->>SB: allow_reaction()
     GL-->>U: 「嗯，了解，謝謝你的分享。」
     FE->>API: POST attempts/A/complete（audio、Idempotency-Key）
+    API->>RD: 冪等檢查 ai:idem:{uid}:{key}（SET processing）
     API->>OBJ: 上傳音訊
-    API->>DB: 交易：attempt saved、Q answered、排 transcribe_attempt
+    API->>RD: 取出 ai:live:tr:{A} 拼成 live_transcript
+    API->>DB: 交易：attempt saved、Q answered、寫 outbox transcribe_attempt
+    API->>RD: 投遞 arq interactive 佇列
     API->>API: Follow-up Decider（≤ 3 秒）
     API->>DB: 推進到追問或下一題，state_version+1
+    API->>RD: 冪等結果存回（TTL 24 小時）
     API-->>FE: next
     FE->>FE: 關閉 AI 閘門
 
     par 背景
-        W->>DB: transcribe_attempt → evaluate_attempt
+        RD->>W: transcribe_attempt → evaluate_attempt
+        W->>DB: 寫入逐字稿與評分
     end
 
     alt next.type = followup
@@ -553,9 +561,14 @@ flowchart TD
     D -->|"413／415"| L["提示重答本題（新 attempt）"]
 
     subgraph 伺服器端冪等
-        S1["收到 complete"] --> S2{"idempotency_key 已存在？"}
-        S2 -- 是 --> S3["回傳上次結果，不重複寫入"]
-        S2 -- 否 --> S4["正常處理"]
+        S1["收到 complete"] --> S2{"Redis ai:idem 有這個 key？"}
+        S2 -->|"done"| S3["回傳上次結果，不重複寫入"]
+        S2 -->|"processing"| S5["409 REQUEST_IN_PROGRESS，前端稍後重試"]
+        S2 -->|"沒有"| S6["SET NX 寫入 processing"]
+        S2 -->|"Redis 不可用"| S7{"answer_attempts.idempotency_key 已存在？"}
+        S7 -- 是 --> S3
+        S7 -- 否 --> S4
+        S6 --> S4["正常處理，完成後把結果存回 Redis"]
     end
 ```
 
@@ -644,11 +657,13 @@ flowchart TD
     G1 --> M
     L --> M{"場次已結束 且 所有 final attempt 都評分完成？"}
     M -- 否 --> M1["等待"]
-    M -- 是 --> N["build_report（dedupe_key=report:session_id）"]
+    M -- 是 --> N["build_report（dedupe_key＋Redis 鎖 ai:lock:report:{session_id}）"]
     N --> O["程式計算總分、五維度平均、平均作答時間、與上次差距"]
     O --> P["Report Aggregator：總結評語、下次練習重點"]
     P --> Q["interview_reports status=ready"]
-    Q --> R["SSE 推送 report_ready"]
+    L --> L1["PUBLISH ai:evt:report:{session_id} evaluation_done"]
+    Q --> R["PUBLISH report_ready；清除 ai:cache:dash:{user_id}"]
+    R --> R1["持有 SSE 的 API 實例轉送給前端"]
 ```
 
 ## 20. 查看報告與加入題庫
@@ -660,13 +675,20 @@ sequenceDiagram
     participant FE as 前端（面試評分）
     participant API as FastAPI
     participant DB as PostgreSQL
+    participant RD as Redis
+    participant W as Worker
     participant OBJ as 物件儲存
 
     FE->>API: GET /interviews/{id}/report
     alt status = processing
         API-->>FE: 已完成題目＋其餘骨架
         FE->>API: GET /report/events（SSE）
+        API->>RD: SUBSCRIBE ai:evt:report:{session_id}
+        API-->>FE: event snapshot（目前進度）
+        W->>RD: PUBLISH evaluation_done × N
+        RD-->>API: 訊息
         API-->>FE: evaluation_done × N
+        W->>RD: PUBLISH report_ready
         API-->>FE: report_ready
         FE->>API: GET /interviews/{id}/report
     end
@@ -689,27 +711,53 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    A["GET /dashboard"] --> B["最近一份報告 → 上次分數、最弱題型"]
+    A0["GET /dashboard"] --> A1{"Redis ai:cache:dash:{user_id} 命中？"}
+    A1 -- 是 --> Z["直接回傳（TTL 60 秒）"]
+    A1 -- 否 --> A["查詢 PostgreSQL"]
+    A --> B["最近一份報告 → 上次分數、最弱題型"]
     A --> C["最近 8 份報告 → 趨勢圖"]
     A --> D["近 60 天完成場次日期 → 連續天數、本週打卡"]
     A --> E["最近 4 場面試 → 最近的面試列表"]
     A --> F["最弱維度 → 內建提示庫 → 今日小提醒"]
     A --> G["job_matches 主要履歷前 3 名 → 推薦職缺"]
     B & C & D & E & F & G --> H["組成單一 JSON 回應"]
+    H --> H1["寫入 Redis 快取"]
 ```
 
 ## 22. 背景工作生命週期
 
+佇列在 Redis（arq），PostgreSQL `background_jobs` 是 outbox 與執行紀錄。完整投遞時序見 [architecture.md §4.3.3](architecture.md)。
+
 ```mermaid
 stateDiagram-v2
     [*] --> queued: INSERT（與業務資料同一交易）
-    queued --> running: Worker SKIP LOCKED 取得
+    queued --> queued: COMMIT 後投遞 arq，寫 dispatched_at
+    queued --> running: Worker 取得，條件更新成功
     running --> succeeded: handler 成功
-    running --> queued: 失敗且 attempts < max，run_at 指數退避
+    running --> retrying: 失敗且 attempts < max，arq Retry 指數退避
+    retrying --> running: 重試時間到
     running --> dead: 失敗且 attempts ≥ max
-    running --> queued: locked_at 超過 10 分鐘（卡住回收）
+    running --> retrying: started_at 超過 10 分鐘（卡住回收）
     succeeded --> [*]
     dead --> [*]: 告警，人工處理
+```
+
+```mermaid
+flowchart LR
+    subgraph PG["PostgreSQL"]
+        OB[("background_jobs outbox")]
+    end
+    subgraph RD["Redis"]
+        QI["arq:queue:interactive"]
+        QD["arq:queue:default"]
+    end
+    API["FastAPI"] -->|"交易內寫入"| OB
+    API -->|"COMMIT 後投遞"| QI & QD
+    SW["sweep_outbox 每 30 秒"] -->|"未投遞或遺失"| OB
+    SW -->|"重新投遞（相同 _job_id）"| QI & QD
+    QI --> WI["interactive worker：TTS、轉錄"]
+    QD --> WD["default worker：解析、生成、評分、報告、排程"]
+    WI & WD -->|"更新狀態"| OB
 ```
 
 ```mermaid
@@ -722,7 +770,7 @@ flowchart LR
     Q["generate_questions"]
     P["generate_prep"]
     BR["build_rubric"]
-    CRON["排程：expire_idle_sessions／purge_expired_audio／maintain_partitions"]
+    CRON["arq cron：sweep_outbox／flush_live_events／expire_idle_sessions／purge_expired_audio／maintain_partitions"]
 ```
 
 ## 23. AI 呼叫與 Log 記錄
