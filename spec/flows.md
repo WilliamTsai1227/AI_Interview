@@ -1,6 +1,6 @@
 # AI Interview — 各功能系統流程圖
 
-> 版本：v0.1・所有圖皆為 Mermaid 格式
+> 版本：v0.2・所有圖皆為 Mermaid 格式・對齊 ChatGPT 風格 UI 原型與 UX 檢查
 > 相關文件：[architecture.md](architecture.md)・[api.md](api.md)・[postgresql.md](postgresql.md)
 
 ## 目錄
@@ -8,24 +8,24 @@
 1. [註冊與登入](#1-註冊與登入)
 2. [Token 自動更新](#2-token-自動更新)
 3. [履歷上傳與 AI 解析](#3-履歷上傳與-ai-解析)
-4. [個人檔案與完整度](#4-個人檔案與完整度)
-5. [職缺搜尋與契合度](#5-職缺搜尋與契合度)
-6. [自訂職缺（貼上 JD）](#6-自訂職缺貼上-jd)
-7. [面試建議生成](#7-面試建議生成)
+4. [設定（偏好、履歷、帳號）](#4-設定偏好履歷帳號)
+5. [職缺庫搜尋與契合度](#5-職缺庫搜尋與契合度)
+6. [加入目標職缺（自動出題＋面試建議）](#6-加入目標職缺自動出題面試建議)
+7. [面試建議](#7-面試建議)
 8. [題目生成（Question Planner Agent）](#8-題目生成question-planner-agent)
 9. [題目編輯與排序](#9-題目編輯與排序)
-10. [建立面試場次（快照＋TTS）](#10-建立面試場次快照tts)
+10. [開始面試（麥克風權限＋快照＋TTS）](#10-開始面試麥克風權限快照tts)
 11. [即時語音面試：連線](#11-即時語音面試連線)
 12. [即時語音面試：逐題主流程](#12-即時語音面試逐題主流程)
 13. [面試狀態機](#13-面試狀態機)
 14. [前端音訊與麥克風閘門](#14-前端音訊與麥克風閘門)
 15. [追問決策](#15-追問決策)
 16. [回答上傳失敗與重試](#16-回答上傳失敗與重試)
-17. [斷線重連與降級](#17-斷線重連與降級)
-18. [跳過題目與提前結束](#18-跳過題目與提前結束)
+17. [暫停、離開、斷線與繼續](#17-暫停離開斷線與繼續)
+18. [跳過、重錄與結束面試](#18-跳過重錄與結束面試)
 19. [評分管線（轉錄 → 逐題評分 → 報告）](#19-評分管線轉錄--逐題評分--報告)
-20. [查看報告與加入題庫](#20-查看報告與加入題庫)
-21. [首頁 Dashboard](#21-首頁-dashboard)
+20. [面試報告：列表與詳情](#20-面試報告列表與詳情)
+21. [新使用者上手流程](#21-新使用者上手流程)
 22. [背景工作生命週期](#22-背景工作生命週期)
 23. [AI 呼叫與 Log 記錄](#23-ai-呼叫與-log-記錄)
 24. [使用者完整旅程](#24-使用者完整旅程)
@@ -62,7 +62,7 @@ sequenceDiagram
     API->>DB: INSERT refresh_tokens（雜湊）
     API->>DB: INSERT app_events auth.login
     API-->>FE: access_token + Set-Cookie refresh_token
-    FE->>FE: access_token 存記憶體，導向首頁
+    FE->>FE: access_token 存記憶體，導向新面試頁（不要求先填個人資料）
 ```
 
 ## 2. Token 自動更新
@@ -125,23 +125,21 @@ sequenceDiagram
     API-->>FE: parsed + analysis（履歷亮點／可以更好）
 ```
 
-## 4. 個人檔案與完整度
+## 4. 設定（偏好、履歷、帳號）
+
+不提供經歷、技能、手機等表單；個人資料以履歷為準。
 
 ```mermaid
 flowchart LR
-    subgraph 編輯
-        A["基本資料表單"] -->|"PATCH /me/profile"| S[(user_profiles)]
-        B["技能標籤 新增／移除"] -->|"PUT /me/skills"| K[(user_skills)]
-        C["工作經歷"] -->|"POST / PATCH / DELETE /me/experiences"| E[(work_experiences)]
-        D["大頭貼"] -->|"POST /me/avatar"| O[(物件儲存)]
+    subgraph 設定視窗
+        A["一般：主題、預設長度／語言／風格"] -->|"PATCH /me preferences"| U[("users.preferences")]
+        B["履歷：上傳、設為主要、刪除"] -->|"POST / PATCH / DELETE /resumes"| R[("resumes")]
+        C["求職意向（選填）：職位、地點"] -->|"PATCH /me preferences"| U
+        D["帳號：名稱、用量、刪除紀錄／帳號"] -->|"PATCH /me、DELETE /me/interviews、DELETE /me"| X[("users 與所有資料")]
     end
-    S --> G["GET /me"]
-    K --> G
-    E --> G
-    R[("resumes 主要履歷")] --> G
-    G --> H["計算完整度 12 項"]
-    H --> I["回傳 percent 與 missing"]
-    I --> J["前端：完整度環＋「再填 N 項就完成了」"]
+    R --> P["GET /resumes/{id}：唯讀顯示「Ava 從履歷讀到的」經歷、技能、亮點"]
+    N["新面試頁每次開始面試"] -->|"自動寫回長度／風格／語言"| U
+    U --> Q["下次打開新面試頁的預設值"]
 ```
 
 ## 5. 職缺搜尋與契合度
@@ -164,39 +162,74 @@ sequenceDiagram
 
     U->>FE: 輸入關鍵字、地區、快速篩選
     FE->>API: GET /jobs?q=&city=&filters=&sort=match
-    API->>DB: job_posts（trigram 搜尋）LEFT JOIN job_matches、saved_jobs
-    API-->>FE: 職缺列表（含 match_score、is_saved）
+    API->>DB: job_posts（trigram 搜尋）LEFT JOIN job_matches、target_jobs
+    API-->>FE: 職缺列表（含 match_score、target_id）
     U->>FE: 點選職缺
     FE->>API: GET /jobs/{id}
-    API-->>FE: 詳情（關於、工作內容、條件）
-    alt 收藏
-        FE->>API: PUT /jobs/{id}/save
-    else 生成面試建議
-        FE->>FE: 帶 job_id 前往面試建議頁
-    else 模擬面試
-        FE->>FE: 帶 job_id 前往面試頁
+    API-->>FE: 詳情視窗（關於、工作內容、條件）
+    U->>FE: 練習這個職缺／題組／面試建議
+    FE->>API: POST /targets { job_post_id }（已是目標職缺則直接使用）
+    API-->>FE: 202 目標職缺（題組 preparing）
+    FE->>FE: 前往新面試頁／題組頁／面試建議頁，顯示「Ava 正在出題⋯」
+```
+
+## 6. 加入目標職缺（自動出題＋面試建議）
+
+使用者只做一件事：貼上職缺（或在職缺庫點「練習這個職缺」）。題組與面試建議由系統自動準備。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as 使用者
+    participant FE as 前端
+    participant API as FastAPI
+    participant DB as PostgreSQL
+    participant W as Worker
+    participant AI as OpenAI
+
+    U->>FE: 「貼上新職缺」視窗貼上內容，按「加入目標職缺」
+    FE->>API: POST /targets { raw_text }
+    API->>API: 基本檢查（長度、是否有職稱字樣）
+    alt 看不出是職缺
+        API-->>FE: 422 JD_UNREADABLE
+        FE->>U: 「至少要有職稱和工作內容」
+    else 可以解析
+        API->>DB: 交易：INSERT job_posts（source=user, pending）、target_jobs、question_sets（preparing）＋ outbox parse_job
+        API-->>FE: 202 目標職缺物件
+        FE->>U: 自動選好這個職缺；「本次題目」顯示「Ava 正在依職缺和履歷出題⋯」，開始按鈕暫時停用
+        W->>AI: JD Parser
+        W->>DB: UPDATE job_posts（parsed）＋ embedding
+        par 自動準備
+            W->>AI: Question Planner（initial，8 題，涵蓋各題型）
+            W->>DB: INSERT question_set_items、question_sets.status=ready
+        and
+            W->>AI: Prep Analyzer
+            W->>DB: INSERT interview_preps、prep_checklist_items
+        end
+        loop 每 2 秒（直到 question_set.status = ready）
+            FE->>API: GET /targets/{id}
+        end
+        FE->>U: 題目預覽出現，「開始面試」可按；toast「Ava 已幫你準備 8 題」
     end
 ```
 
-## 6. 自訂職缺（貼上 JD）
-
 ```mermaid
 flowchart TD
-    A["使用者貼上 JD 原文"] --> B["POST /jobs { raw_text }"]
-    B --> C["INSERT job_posts source=user, parse_status=pending"]
-    C --> D["排 parse_job"]
-    D --> E["Worker：JD Parser Agent"]
-    E --> F{"Pydantic 驗證通過？"}
-    F -- 否 --> G["重試一次，仍失敗則 parse_status=failed"]
-    G --> H["前端顯示手動填寫表單"]
-    F -- 是 --> I["UPDATE job_posts 結構化欄位"]
-    I --> J["Embedding → job_posts.embedding"]
-    J --> K["排 compute_matches"]
-    I --> L["前端輪詢拿到 parsed，讓使用者確認與修改"]
-    L --> M["PATCH /jobs/{id}"]
+    A{"從哪裡加入？"} -->|"貼上職缺內容"| B["POST /targets { raw_text }"]
+    A -->|"職缺庫：練習這個職缺／題組／面試建議"| C["POST /targets { job_post_id }"]
+    B --> D["parse_job"]
+    D --> E{"解析成功？"}
+    E -- 否 --> E1["重試一次；仍失敗：job_posts.parse_status=failed，目標職缺顯示「請修正職缺內容」與編輯表單（PATCH /targets）"]
+    E -- 是 --> F["generate_questions(initial) ＋ generate_prep"]
+    C --> F
+    F --> G["題組 ready → 新面試可開始；面試建議頁有內容"]
+    H{"已經是目標職缺？"} -.-> C
+    H -- 曾移出 --> I["status 改回 active，找回原本的題組與報告"]
 ```
 
-## 7. 面試建議生成
+## 7. 面試建議
+
+面試建議在加入目標職缺時就自動產生，打開頁面就有內容。
 
 ```mermaid
 sequenceDiagram
@@ -208,36 +241,35 @@ sequenceDiagram
     participant W as Worker
     participant AI as OpenAI
 
-    U->>FE: 選擇職缺與履歷
-    FE->>API: GET /preps/latest?job_post_id&resume_id
-    alt 已有建議
-        API-->>FE: 顯示既有結果
-    else 沒有，或使用者按「重新生成」
-        FE->>API: POST /preps
-        API->>DB: 檢查履歷與職缺已解析
-        API->>DB: INSERT interview_preps（pending）＋ 工作 generate_prep
-        API-->>FE: 202
-        W->>DB: 讀取履歷 parsed_json、職缺
-        W->>AI: Prep Analyzer Agent
-        AI-->>W: 契合度、評語、優勢、補強、清單、方向、可能題目
-        W->>W: 驗證（機率 0–100、清單 ≤ 8、題目 ≤ 6）
-        W->>DB: UPDATE interview_preps ready ＋ INSERT prep_checklist_items
-        FE->>API: GET /preps/{id}（輪詢）
-        API-->>FE: 結果
+    U->>FE: 打開面試建議（預設選上次練習的目標職缺）
+    FE->>API: GET /targets/{id}/prep
+    alt status = ready
+        API-->>FE: 契合度、優勢、補強、方向、可能題目、清單
+    else pending / running
+        API-->>FE: 進度
+        FE->>U: 骨架＋「Ava 正在比對你的履歷和職缺⋯」，完成後自動顯示
+    end
+    opt 按「重新生成」或換了履歷
+        FE->>API: POST /targets/{id}/prep/regenerate
+        W->>AI: Prep Analyzer
+        W->>DB: 新的 interview_preps（勾選狀態依相同文字沿用）
     end
     U->>FE: 勾選準備清單
-    FE->>API: PATCH /preps/{id}/checklist/{item_id}
-    U->>FE: 「全部加入題庫」
-    FE->>API: POST /preps/{id}/likely-questions/add-to-set
+    FE->>API: PATCH /preps/{id}/checklist/{item_id}（樂觀更新）
+    U->>FE: 「可能題目加入題組」
+    FE->>API: POST /preps/{id}/likely-questions/add
     API->>DB: INSERT question_set_items source=prep（去重）＋ 排 build_rubric
     API-->>FE: added / skipped_duplicates
+    U->>FE: 「開始模擬面試」
+    FE->>FE: 前往新面試頁（職缺已選好）
 ```
 
 ## 8. 題目生成（Question Planner Agent）
 
 ```mermaid
 flowchart TD
-    A["使用者設定：職缺、題型、難度、題數、補充需求"] --> B["POST /question-sets/{id}/generations"]
+    A0["觸發：加入目標職缺（initial）／題庫生成輸入框／開始面試時題數不足"] --> A["參數：題型、難度、題數、使用者輸入的需求（都有預設值）"]
+    A --> B["POST /targets/{id}/questions/generate"]
     B --> C{"該題組已有生成工作進行中？"}
     C -- 是 --> C1["409"]
     C -- 否 --> D["INSERT question_generations pending ＋ 工作 generate_questions"]
@@ -245,7 +277,7 @@ flowchart TD
 
     subgraph 輸入組裝
         E1["職缺：職稱、工作內容、條件、標籤"]
-        E2["履歷：經歷、專案、量化成果、技能"]
+        E2["履歷：經歷、專案、量化成果、技能（沒有履歷則略過）"]
         E3["面試建議中的「需要補強」（若有）"]
         E4["題組既有題目（避免重複）"]
         E5["參數：題型、難度、題數、補充需求"]
@@ -280,56 +312,53 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["題組畫面"] --> B{"使用者動作"}
-    B -- 上移／下移 --> C["前端交換陣列"] --> C1["PUT /question-sets/{id}/order"]
+    A0["題庫生成：先選目標職缺"] --> A
+    B -- 上移／下移 --> C["前端交換陣列"] --> C1["PUT /targets/{id}/questions/order"]
     C1 --> C2["交易內批次更新 order_no（可延遲唯一約束）"]
     B -- 編輯 --> D["PATCH items/{item_id}"] --> D1{"text 有變？"}
     D1 -- 是 --> D2["排 build_rubric 重新產生評分規準"]
     D1 -- 否 --> D3["只更新 category / difficulty"]
     B -- 新增 --> E["POST items（source=user）"] --> D2
     B -- 刪除 --> F["DELETE items/{item_id}"] --> F1["軟刪除＋剩餘題目重新排號"]
-    B -- 用這組題目面試 --> G["帶 question_set_id 前往面試頁"]
+    B -- 用這組題目面試 --> G["前往新面試頁（職缺已選好）"]
 ```
 
-## 10. 建立面試場次（快照＋TTS）
+## 10. 開始面試（麥克風權限＋快照＋TTS）
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor U as 使用者
-    participant FE as 前端（面試設定）
+    participant FE as 前端（新面試）
     participant API as FastAPI
     participant DB as PostgreSQL
     participant W as Worker
     participant AI as OpenAI
     participant OBJ as 物件儲存
 
-    U->>FE: 選職缺、長度、風格、語言、題組
-    U->>FE: 同意錄音，按「開始面試」
-    FE->>FE: getUserMedia 取得麥克風權限
-    FE->>API: POST /interviews
-    API->>DB: 檢查方案用量、是否已有進行中場次
-    API->>DB: 讀取題組前 N 題
-    alt 題數不足且 auto_fill
-        API->>AI: Question Planner 補題（同步，逾時 15 秒）
-        API->>DB: 補的題目寫回題組
+    Note over FE: 預設帶入上次的職缺、履歷、長度、風格、語言
+    U->>FE: 按「開始面試」
+    alt 有暫停中的面試
+        FE->>U: 「回到那場面試／結束它並開始新的」
     end
-    API->>DB: BEGIN
-    API->>DB: INSERT interview_sessions（preparing、job_snapshot、resume_snapshot）
-    API->>DB: INSERT session_questions × N（從題組複製，含 rubric）
-    API->>DB: INSERT background_jobs synthesize_tts（優先序 10）
-    API->>DB: COMMIT
-    API-->>FE: 201 場次＋題目清單
-    W->>DB: 取出 synthesize_tts
-    loop 每道主題目＋開場白
-        W->>OBJ: 檢查快取 tts/{hash(text, voice, lang)}.mp3
-        alt 快取不存在
-            W->>AI: TTS
-            W->>OBJ: 上傳音訊
+    FE->>FE: getUserMedia 取得麥克風權限（第一次會顯示說明）
+    alt 權限被拒或沒有麥克風
+        FE->>U: 說明如何在瀏覽器開啟麥克風，不建立場次
+    else 取得權限
+        FE->>API: POST /interviews { target_id, length_mode, persona, language, recording_consent }
+        API->>DB: 檢查方案用量、未結束場次、題組狀態
+        API->>DB: 讀取題組前 N 題
+        alt 題數不足
+            API->>AI: Question Planner 補題（同步，逾時 15 秒）
+            API->>DB: 補的題目寫回題組
         end
-        W->>DB: UPDATE session_questions.tts_audio_key
+        API->>DB: 交易：INSERT interview_sessions（快照）、session_questions × N、outbox synthesize_tts；寫回 preferences、last_practiced_at
+        API-->>FE: 201 場次＋題目清單
+        FE->>U: 對話區顯示「Ava 準備中⋯」
+        W->>OBJ: TTS 快取命中就沿用，否則 TTS 後上傳
+        W->>DB: 全部完成 → status=ready
+        FE->>API: GET /interviews/{id}（輪詢到 ready）→ live/connect → start
     end
-    W->>DB: UPDATE interview_sessions status=ready
-    FE->>API: GET /interviews/{id}（輪詢到 ready）
 ```
 
 ## 11. 即時語音面試：連線
@@ -452,9 +481,14 @@ stateDiagram-v2
     preparing --> aborted: TTS 失敗且重試用盡
     ready --> in_progress: POST start
     ready --> aborted: 30 分鐘未開始
+    in_progress --> paused: pause（按暫停／離開頁面）或心跳中斷 2 分鐘
+    paused --> in_progress: resume（24 小時內）
+    paused --> completed: 超過 24 小時且有作答
+    paused --> aborted: 超過 24 小時且沒有作答
+    paused --> completed: end（有作答）
     in_progress --> completed: 最後一題完成
-    in_progress --> completed: POST end（使用者提前結束）
-    in_progress --> aborted: 10 分鐘無心跳
+    in_progress --> completed: end（有作答）
+    in_progress --> aborted: end（沒有作答）
     completed --> [*]
     aborted --> [*]
 ```
@@ -470,6 +504,7 @@ stateDiagram-v2
     awaiting_answer --> answering: answers（點麥克風）
     awaiting_answer --> asking: skip
     answering --> finalizing: complete 請求進入處理
+    answering --> awaiting_answer: discard（重錄）或 pause
     finalizing --> answering: 上傳或入庫失敗
     finalizing --> asking: 成功，有追問或下一題
     finalizing --> done: 成功，沒有下一題
@@ -486,9 +521,11 @@ stateDiagram-v2
 stateDiagram-v2
     [*] --> answering: 開始作答
     answering --> saved: 音訊與紀錄入庫
+    answering --> discarded: 使用者按「重錄」或暫停
     answering --> interrupted: 斷線逾時、提前結束
     answering --> failed: 上傳重試用盡
     saved --> [*]: is_final = true，進入評分
+    discarded --> [*]: 不評分，24 小時後刪除錄音
     interrupted --> [*]: 不評分
     failed --> [*]: 不評分
 ```
@@ -572,57 +609,73 @@ flowchart TD
     end
 ```
 
-## 17. 斷線重連與降級
+## 17. 暫停、離開、斷線與繼續
+
+任何中斷都進入「暫停」，24 小時內都能回來，不讓使用者白練。
 
 ```mermaid
 flowchart TD
-    A{"發生什麼"} --> B["頁面重新整理／網路短暫中斷"]
-    A --> C["WebRTC 斷線"]
-    A --> D["長時間離開"]
+    A{"發生什麼"} --> B["按「暫停」"]
+    A --> C["離開面試頁（點側欄、切到別頁）"]
+    A --> D["重新整理／網路短斷"]
+    A --> E["心跳中斷 2 分鐘"]
+    A --> F["WebRTC 斷線"]
 
-    B --> B1["GET /interviews/{id}"]
-    B1 --> B2{"phase"}
-    B2 -->|"asking / awaiting_answer"| B3["重新播放目前題目"]
-    B2 -- answering --> B4{"本機還有錄音 Blob？"}
-    B4 -- 是 --> B5["補送 complete"]
-    B4 -- 否 --> B6["後端將 attempt 標記 interrupted，phase 退回 awaiting_answer"]
-    B6 --> B7["提示「我們從這題重新開始」，attempt_no+1"]
-    B2 -- done --> B8["導向報告"]
+    B & C --> P1{"正在錄音？"}
+    P1 -- 是 --> P2["丟掉未送出的錄音（attempt discarded），回到「輪到你了」"]
+    P1 -- 否 --> P3
+    P2 --> P3["POST /pause（reason=user／page_leave）：status=paused，停止計時，關閉 GPT-Live"]
+    E --> P3
+    P3 --> P4["側欄顯示「面試暫停中・繼續」；新面試頁顯示「繼續面試／結束並產生報告」"]
 
-    C --> C1["ICE 斷線偵測"]
-    C1 --> C2["重新 live/connect 一次"]
-    C2 --> C3{"成功？"}
-    C3 -- 是 --> C4["sideband 重送目前題目上下文，繼續"]
-    C3 -- 否 --> C5["降級 scripted：只用 TTS＋錄音，狀態機不變"]
+    D --> D1["GET /interviews/{id}"]
+    D1 --> D2{"phase"}
+    D2 -->|"asking / awaiting_answer"| D3["重新播放目前題目"]
+    D2 -->|"answering"| D4{"本機還有錄音 Blob？"}
+    D4 -- 是 --> D5["補送 complete"]
+    D4 -- 否 --> D6["attempt 標記 interrupted，回到「輪到你了」"]
+    D2 -->|"done"| D7["顯示報告卡片"]
 
-    D --> D1["10 分鐘無心跳"]
-    D1 --> D2["expire_idle_sessions：status=aborted"]
-    D2 --> D3["已 saved 的題目照常評分並產生報告"]
+    F --> F1["重新 live/connect 一次"]
+    F1 --> F2{"成功？"}
+    F2 -- 是 --> F3["sideband 重送目前題目上下文，繼續"]
+    F2 -- 否 --> F4["降級 scripted：只用 TTS＋錄音，狀態機不變；對話中顯示「改用標準語音」"]
+
+    P4 --> R{"使用者回來？"}
+    R -->|"24 小時內按「繼續」"| R1["POST /resume → live/connect；對話插入「已回到面試・從第 N 題繼續」"]
+    R1 --> R2{"目前題目已播放？"}
+    R2 -- 是 --> R3["回到「輪到你了」"]
+    R2 -- 否 --> R4["重新播放目前題目"]
+    R -->|"超過 24 小時"| X{"有作答？"}
+    X -- 有 --> X1["自動結束（expired），產生報告"]
+    X -- 沒有 --> X2["aborted，不產生報告"]
 ```
 
-## 18. 跳過題目與提前結束
+## 18. 跳過、重錄與結束面試
 
 ```mermaid
 flowchart TD
-    A["使用者按「跳過這題」"] --> B["POST questions/{qid}/skip"]
-    B --> C{"phase 是 asking 或 awaiting_answer？"}
-    C -- 否 --> C1["409；回答中請先完成回答"]
-    C -- 是 --> D["session_questions.status=skipped"]
-    D --> E["GPT-Live：「沒關係，我們換下一題。」"]
-    E --> F{"還有下一道主題目？"}
-    F -- 是 --> G["phase=asking 下一題"]
-    F -- 否 --> H["status=completed"]
+    A["按「跳過」（輪到你回答時）"] --> B["POST questions/{qid}/skip"]
+    B --> D["session_questions.status=skipped，報告顯示「已跳過」"]
+    D --> E["Ava：「沒關係，我們換下一題。」→ 下一題或結束"]
 
-    X["使用者按「結束並看評分」"] --> Y{"正在 answering？"}
-    Y -- 是 --> Y1["前端先停止錄音並送 complete"]
-    Y1 --> Z["POST /interviews/{id}/end"]
-    Y -- 否 --> Z
-    Z --> Z1["status=completed、end_reason=user_ended"]
-    Z1 --> Z2["關閉 sideband 與 WebRTC"]
-    Z2 --> Z3["未作答主題目維持 pending，報告標示「未作答」"]
-    Z3 --> Z4{"所有已存回答都評分完成？"}
-    Z4 -- 是 --> Z5["立即排 build_report"]
-    Z4 -- 否 --> Z6["等最後一個 evaluate_attempt 完成時排 build_report"]
+    R["錄音中按「重錄」"] --> R1["前端停止錄音、丟掉 Blob"]
+    R1 --> R2["POST attempts/{aid}/discard"]
+    R2 --> R3["attempt=discarded，phase 回到 awaiting_answer"]
+    R3 --> R4["使用者再按麥克風 → attempt_no+1（不限次數，只評最後送出的那次）"]
+
+    X["按「結束面試」"] --> Y["確認視窗：已回答 N 題會產生報告，未回答的 M 題不會評分"]
+    Y -- 繼續面試 --> Y0["關閉視窗"]
+    Y -- 結束 --> Z0{"正在錄音？"}
+    Z0 -- 是 --> Z1["先送 complete 保留這題"]
+    Z0 -- 否 --> Z
+    Z1 --> Z["POST /interviews/{id}/end"]
+    Z --> Z2{"有任何作答？"}
+    Z2 -- 有 --> Z3["status=completed，關閉 sideband 與 WebRTC，前往報告詳情（評分中）"]
+    Z2 -- 沒有 --> Z4["status=aborted，不產生報告，回到新面試頁"]
+    Z3 --> Z5{"所有已存回答都評分完成？"}
+    Z5 -- 是 --> Z6["立即排 build_report"]
+    Z5 -- 否 --> Z7["等最後一個 evaluate_attempt 完成時排 build_report"]
 ```
 
 ## 19. 評分管線（轉錄 → 逐題評分 → 報告）
@@ -662,67 +715,80 @@ flowchart TD
     O --> P["Report Aggregator：總結評語、下次練習重點"]
     P --> Q["interview_reports status=ready"]
     L --> L1["PUBLISH ai:evt:report:{session_id} evaluation_done"]
-    Q --> R["PUBLISH report_ready；清除 ai:cache:dash:{user_id}"]
+    Q --> R["PUBLISH report_ready"]
     R --> R1["持有 SSE 的 API 實例轉送給前端"]
 ```
 
-## 20. 查看報告與加入題庫
+## 20. 面試報告：列表與詳情
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor U as 使用者
-    participant FE as 前端（面試評分）
+    participant FE as 前端（面試報告）
     participant API as FastAPI
     participant DB as PostgreSQL
     participant RD as Redis
     participant W as Worker
     participant OBJ as 物件儲存
 
+    U->>FE: 點側欄「面試報告」
+    FE->>API: GET /interviews
+    API->>DB: 已結束且有報告的場次＋彙總
+    API-->>FE: 共 N 場、平均、最高；每列分數與比上次（評分中的列顯示「評分中」）
+    FE->>U: 依時間分組（最近 7 天／更早），可搜尋職缺或公司
+    U->>FE: 點一列
     FE->>API: GET /interviews/{id}/report
     alt status = processing
         API-->>FE: 已完成題目＋其餘骨架
+        FE->>U: 「Ava 正在逐題轉錄和評分，通常不到一分鐘，完成後會通知你」
         FE->>API: GET /report/events（SSE）
         API->>RD: SUBSCRIBE ai:evt:report:{session_id}
         API-->>FE: event snapshot（目前進度）
-        W->>RD: PUBLISH evaluation_done × N
-        RD-->>API: 訊息
-        API-->>FE: evaluation_done × N
-        W->>RD: PUBLISH report_ready
-        API-->>FE: report_ready
+        W->>RD: PUBLISH evaluation_done × N、report_ready
+        API-->>FE: evaluation_done × N、report_ready
         FE->>API: GET /interviews/{id}/report
     end
-    API->>DB: reports、session_questions、final attempts、evaluations
-    API-->>FE: 總分、五維度、指標、逐題回顧
-    FE->>U: 顯示總分環、逐題卡片（逐字稿標示 highlight）
-    U->>FE: 播放某題錄音
+    API-->>FE: 總分、比上次、總評、五個面向、逐題回顧
+    U->>FE: 「聽我的錄音」
     FE->>API: GET /answers/{aid}/audio
-    API->>OBJ: 產生 5 分鐘預簽名 URL
-    API-->>FE: url
-    U->>FE: 「加入題庫複習」
+    API->>OBJ: 5 分鐘預簽名 URL
+    U->>FE: 「弱項加入題組」
     FE->>API: POST /report/add-to-set
-    API->>DB: 分數 < 80 的題目複製到題組（source=report，去重）
-    API-->>FE: added
+    API->>DB: 分數 < 80 的題目加到該目標職缺題組最前面（source=report，去重）
     U->>FE: 「再練一次」
-    FE->>FE: 帶相同職缺與題組前往面試頁
+    FE->>FE: 前往新面試頁（同一個目標職缺已選好）
+    opt 刪除報告
+        U->>FE: 更多 → 刪除這份報告 → 確認
+        FE->>API: DELETE /interviews/{id}
+    end
 ```
 
-## 21. 首頁 Dashboard
+## 21. 新使用者上手流程
+
+目標：從註冊到開始第一場面試 **< 3 分鐘**，只需要貼上一段職缺內容。
 
 ```mermaid
-flowchart LR
-    A0["GET /dashboard"] --> A1{"Redis ai:cache:dash:{user_id} 命中？"}
-    A1 -- 是 --> Z["直接回傳（TTL 60 秒）"]
-    A1 -- 否 --> A["查詢 PostgreSQL"]
-    A --> B["最近一份報告 → 上次分數、最弱題型"]
-    A --> C["最近 8 份報告 → 趨勢圖"]
-    A --> D["近 60 天完成場次日期 → 連續天數、本週打卡"]
-    A --> E["最近 4 場面試 → 最近的面試列表"]
-    A --> F["最弱維度 → 內建提示庫 → 今日小提醒"]
-    A --> G["job_matches 主要履歷前 3 名 → 推薦職缺"]
-    B & C & D & E & F & G --> H["組成單一 JSON 回應"]
-    H --> H1["寫入 Redis 快取"]
+flowchart TD
+    A["註冊／Google 登入"] --> B["GET /me：onboarding = { has_resume: false, has_target: false }"]
+    B --> C["新面試頁（引導狀態）：「先告訴 Ava 你想應徵哪個職缺」"]
+    C --> D["主按鈕：「貼上職缺內容」；次要：「或從職缺庫挑選」"]
+    C --> E["履歷列：「上傳履歷」（選填：沒有履歷也能練，題目只依職缺出）"]
+    D --> F["POST /targets → 自動出題＋面試建議（約 10 秒，顯示進度）"]
+    E -.-> E1["POST /resumes → 解析完成後補到目標職缺並更新面試建議"]
+    F --> G["題目預覽出現，「開始面試」可按（長度／風格／語言已有預設值）"]
+    G --> H["開始面試 → 麥克風權限說明 → 第一題"]
+    H --> I["完成 → 報告卡片（評分中 → 完成通知）"]
+    I --> J["報告：逐題建議 → 弱項加入題組 → 再練一次"]
 ```
+
+| 畫面狀態 | 判斷依據 | 顯示 |
+|---|---|---|
+| 沒有目標職缺 | `onboarding.has_target = false` | 標題「先告訴 Ava 你想應徵哪個職缺」，主按鈕「貼上職缺內容」，開始按鈕停用並說明原因 |
+| 題組出題中 | `question_set.status = preparing` | 題目預覽骨架＋「Ava 正在依職缺和履歷出題⋯」，開始按鈕停用 |
+| 沒有履歷 | `onboarding.has_resume = false` | 履歷列顯示「上傳履歷」與「選填」說明；面試建議頁提示上傳後可看到優勢與落差 |
+| 有暫停中的面試 | `active_interview != null` | 橫幅「你有一場暫停中的面試」：繼續面試／結束並產生報告 |
+| 沒有任何報告 | 報告列表為空 | 「完成第一場面試後，逐題評分和改善建議會出現在這裡」＋「開始第一場面試」 |
 
 ## 22. 背景工作生命週期
 
@@ -762,15 +828,16 @@ flowchart LR
 
 ```mermaid
 flowchart LR
+    T0["POST /targets"] --> J
     R["parse_resume"] --> M["compute_matches"]
     J["parse_job"] --> M
+    J --> Q["generate_questions（initial）"]
+    J --> P["generate_prep"]
     TQ["synthesize_tts"] --> RDY["場次 ready"]
     T["transcribe_attempt"] --> EV["evaluate_attempt"]
     EV --> RP["build_report（全部完成時）"]
-    Q["generate_questions"]
-    P["generate_prep"]
     BR["build_rubric"]
-    CRON["arq cron：sweep_outbox／flush_live_events／expire_idle_sessions／purge_expired_audio／maintain_partitions"]
+    CRON["arq cron：sweep_outbox／flush_live_events／pause_lost_sessions／expire_paused_sessions／purge_expired_audio／maintain_partitions"]
 ```
 
 ## 23. AI 呼叫與 Log 記錄
@@ -803,19 +870,23 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A["註冊／登入"] --> B["上傳履歷 → AI 解析"]
-    B --> C{"要練哪個職缺？"}
-    C -- 平台職缺 --> D["職缺找尋：看契合度"]
-    C -- 自己的目標職缺 --> E["貼上 JD → AI 解析"]
-    D --> F["面試建議：優勢、補強、可能題目"]
+    A["註冊／登入"] --> C{"有目標職缺？"}
+    C -- 沒有 --> D["貼上職缺內容（或從職缺庫挑選）"]
+    D --> E["Ava 自動出題＋產生面試建議"]
+    C -- 有 --> F["新面試頁：上次的設定已選好"]
     E --> F
-    F --> G["題目生成與編輯：依履歷＋職缺出題，可修改排序"]
-    G --> H["AI 語音面試：系統逐題播放、使用者回答、逐題錄音入庫"]
-    H --> I["背景：逐題轉錄 → 逐題評分 → 報告"]
-    I --> J["面試評分：逐題原題、逐字稿、做得好、改善建議、可以這樣說"]
+    B["上傳履歷（選填）"] -.-> E
+    F --> G{"想先準備？"}
+    G -- 看面試建議 --> P["面試建議：優勢、補強、可能題目 → 加入題組"]
+    G -- 調整題目 --> Q["題庫生成：請 Ava 出題、編輯、排序"]
+    P --> F
+    Q --> F
+    G -- 直接開始 --> H["面試：逐題播放、回答、可重錄／跳過／暫停"]
+    H --> I["Ava 逐題評分（評分中 → 完成通知）"]
+    I --> J["報告：逐題原題、逐字稿、聽錄音、做得好、改善建議、可以這樣說"]
     J --> K{"下一步"}
-    K -- 弱項題加入題庫 --> G
-    K -- 再練一次 --> H
+    K -- 弱項加入題組 --> F
+    K -- 再練一次 --> F
     K -- 換職缺 --> C
-    J --> L["首頁：分數趨勢、連續練習、下次提醒"]
 ```
+

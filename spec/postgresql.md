@@ -11,12 +11,14 @@
 2. **可編輯的草稿與凍結的紀錄分開**：`question_set_items` 是可編輯的題庫；`session_questions` 是某場面試**實際播放的題目**，建立後不可修改。
 3. **狀態推進用樂觀鎖**：`interview_sessions.state_version` 每次推進 +1，更新時必須帶上預期版本。
 4. **冪等**：回答上傳、背景工作都帶冪等鍵（`idempotency_key`、`dedupe_key`）。API 層的通用冪等快取放 Redis，但**回答上傳**另有資料庫唯一約束兜底。
-10. **PostgreSQL 是唯一真實來源**：Redis（佇列、快取、鎖、即時字幕緩衝）裡的資料都必須能從 PostgreSQL 重建或可以遺失，見 [architecture.md §4.3](architecture.md)。
 5. **列舉值用 `text + CHECK`**，不用 PostgreSQL `ENUM`（新增值不必改型別，Alembic 遷移較單純）。
 6. **主鍵**：業務表用 `uuid`（`gen_random_uuid()`）；Log 類大表用 `bigint identity`，並按月分區。
 7. **時間**一律 `timestamptz`，儲存 UTC。
 8. **AI 結構化輸出**存 `jsonb`，但**查詢與排序會用到的欄位**（分數、狀態）獨立成一般欄位。
 9. **軟刪除**只用在使用者可見、可能需要復原的內容（履歷、職缺、題目）；個資刪除請求一律硬刪除。
+10. **PostgreSQL 是唯一真實來源**：Redis（佇列、快取、鎖、即時字幕緩衝）裡的資料都必須能從 PostgreSQL 重建或可以遺失，見 [architecture.md §4.3](architecture.md)。
+11. **目標職缺是練習的單位**：使用者把職缺加入「目標職缺」（`target_jobs`）後，系統自動建立它的題組（一對一）與面試建議；面試、報告都掛在目標職缺下。
+12. **履歷是個人資料的唯一來源**：經歷、技能、成果都從履歷解析（`resumes.parsed_json`），不另外讓使用者填寫表單。
 
 ---
 
@@ -26,34 +28,28 @@
 
 ```mermaid
 erDiagram
-    users ||--o| user_profiles : has
     users ||--o{ oauth_identities : links
     users ||--o{ refresh_tokens : issues
-    users ||--o{ user_skills : has
-    users ||--o{ work_experiences : has
     users ||--o{ resumes : uploads
-    users ||--o{ job_posts : "creates (custom)"
-    users ||--o{ saved_jobs : saves
-    job_posts ||--o{ saved_jobs : "saved in"
+    users ||--o{ job_posts : "creates (pasted JD)"
+    users ||--o{ target_jobs : targets
+    job_posts ||--o{ target_jobs : "targeted by"
+    resumes |o--o{ target_jobs : "default resume"
     resumes ||--o{ job_matches : scored
     job_posts ||--o{ job_matches : scored
 
-    users ||--o{ interview_preps : requests
-    resumes ||--o{ interview_preps : input
-    job_posts ||--o{ interview_preps : input
-    interview_preps ||--o{ prep_checklist_items : contains
-
-    users ||--o{ question_sets : owns
-    job_posts ||--o{ question_sets : targets
-    resumes |o--o{ question_sets : "based on"
+    target_jobs ||--|| question_sets : "has one"
     question_sets ||--o{ question_set_items : contains
     question_sets ||--o{ question_generations : runs
     question_generations |o--o{ question_set_items : produced
 
+    target_jobs ||--o{ interview_preps : analyzed
+    resumes ||--o{ interview_preps : input
+    interview_preps ||--o{ prep_checklist_items : contains
+
     users ||--o{ interview_sessions : takes
-    job_posts ||--o{ interview_sessions : target
-    resumes ||--o{ interview_sessions : uses
-    question_sets |o--o{ interview_sessions : source
+    target_jobs ||--o{ interview_sessions : "practiced in"
+    resumes |o--o{ interview_sessions : uses
     interview_sessions ||--o{ session_questions : "snapshots"
     session_questions |o--o{ session_questions : "follow-ups"
     question_set_items |o--o{ session_questions : "copied from"
@@ -73,14 +69,15 @@ erDiagram
     interview_sessions {
         uuid id PK
         uuid user_id FK
+        uuid target_job_id FK
         uuid job_post_id FK
-        uuid resume_id FK
-        uuid question_set_id FK "nullable"
+        uuid resume_id FK "nullable"
+        uuid question_set_id FK
         text length_mode "quick|standard|deep"
         text persona "warm|real|tough"
         text language "zh|en|mixed"
         text voice_mode "live|scripted"
-        text status "preparing|ready|in_progress|completed|aborted"
+        text status "preparing|ready|in_progress|paused|completed|aborted"
         text phase "idle|asking|awaiting_answer|answering|finalizing|done"
         uuid current_question_id FK
         uuid current_attempt_id FK
@@ -90,6 +87,7 @@ erDiagram
         int planned_question_count
         timestamptz recording_consent_at
         timestamptz last_heartbeat_at
+        timestamptz paused_at
         timestamptz started_at
         timestamptz ended_at
         text end_reason
@@ -120,7 +118,7 @@ erDiagram
         uuid session_question_id FK
         int attempt_no
         bool is_final
-        text status "answering|saved|interrupted|failed"
+        text status "answering|saved|discarded|interrupted|failed"
         timestamptz answer_started_at
         timestamptz answer_ended_at
         text audio_key
@@ -172,13 +170,19 @@ erDiagram
 
 ```mermaid
 erDiagram
-    question_sets {
+    target_jobs {
         uuid id PK
         uuid user_id FK
         uuid job_post_id FK
-        uuid resume_id FK
-        text name
-        timestamptz deleted_at
+        uuid resume_id FK "預設履歷"
+        text status "active|archived"
+        timestamptz last_practiced_at
+    }
+    question_sets {
+        uuid id PK
+        uuid user_id FK
+        uuid target_job_id FK,UK
+        text status "preparing|ready"
     }
     question_set_items {
         uuid id PK
@@ -207,6 +211,7 @@ erDiagram
     interview_preps {
         uuid id PK
         uuid user_id FK
+        uuid target_job_id FK
         uuid resume_id FK
         uuid job_post_id FK
         text status
@@ -225,6 +230,8 @@ erDiagram
         bool is_checked
         int sort_order
     }
+    target_jobs ||--|| question_sets : "has one"
+    target_jobs ||--o{ interview_preps : analyzed
     question_sets ||--o{ question_set_items : contains
     question_sets ||--o{ question_generations : runs
     question_generations |o--o{ question_set_items : produced
@@ -240,22 +247,10 @@ erDiagram
         citext email UK
         text password_hash
         text display_name
-        text avatar_key
         text plan "free|pro"
         text role "user|admin"
         text status
-    }
-    user_profiles {
-        uuid user_id PK,FK
-        text full_name
-        text current_title
-        numeric years_experience
-        text phone
-        text bio
-        text_array desired_roles
-        text desired_locations
-        text expected_salary
-        text portfolio_url
+        jsonb preferences "預設長度、風格、語言、求職意向"
     }
     resumes {
         uuid id PK
@@ -282,7 +277,15 @@ erDiagram
         text about
         jsonb duties
         jsonb requirements
+        text raw_text
         vector embedding
+    }
+    target_jobs {
+        uuid id PK
+        uuid user_id FK
+        uuid job_post_id FK
+        uuid resume_id FK
+        text status
     }
     job_matches {
         uuid resume_id PK,FK
@@ -291,14 +294,9 @@ erDiagram
         smallint score
         text method
     }
-    saved_jobs {
-        uuid user_id PK,FK
-        uuid job_post_id PK,FK
-    }
-    users ||--o| user_profiles : has
     users ||--o{ resumes : uploads
-    users ||--o{ saved_jobs : saves
-    job_posts ||--o{ saved_jobs : in
+    users ||--o{ target_jobs : targets
+    job_posts ||--o{ target_jobs : "targeted by"
     resumes ||--o{ job_matches : scored
     job_posts ||--o{ job_matches : scored
 ```
@@ -312,23 +310,21 @@ erDiagram
 | 帳號 | `users` | 帳號、方案、狀態 | 登入 |
 | | `oauth_identities` | Google 等第三方登入 | 登入 |
 | | `refresh_tokens` | Refresh token 雜湊、輪替 | — |
-| 個人檔案 | `user_profiles` | 基本資料、求職意向 | 個人檔案 |
-| | `user_skills` | 技能標籤 | 個人檔案・技能 |
-| | `work_experiences` | 工作與學歷 | 個人檔案・工作經歷 |
-| | `resumes` | 履歷原檔位置、解析結果、AI 建議、embedding | 個人檔案・履歷 |
-| 職缺 | `job_posts` | 平台職缺與使用者自訂職缺 | 職缺找尋 |
-| | `saved_jobs` | 收藏 | 職缺・收藏 |
+| | （`users.preferences`） | 預設面試長度／風格／語言、求職意向 | 設定 |
+| 履歷 | `resumes` | 履歷原檔位置、解析結果（經歷、技能、成果）、AI 建議、embedding | 設定・履歷 |
+| 職缺 | `job_posts` | 平台職缺與使用者貼上的職缺 | 職缺 |
+| | `target_jobs` | 目標職缺：使用者正在準備的職缺，記住預設履歷 | 側欄・目標職缺 |
 | | `job_matches` | 履歷×職缺契合度快取 | 職缺・契合度 |
-| 準備 | `interview_preps` | 面試建議分析結果 | 面試建議 |
+| 準備 | `interview_preps` | 面試建議分析結果（每個目標職缺自動產生） | 面試建議 |
 | | `prep_checklist_items` | 準備清單勾選狀態 | 面試建議・清單 |
-| 題庫 | `question_sets` | 題組（每使用者×職缺可多組） | 題目生成與編輯 |
-| | `question_set_items` | 題組中的題目（可編輯、排序） | 題目卡片 |
-| | `question_generations` | 一次 AI 生成工作與參數 | 生成題目 |
-| 面試 | `interview_sessions` | 一場面試、狀態機 | AI 語音面試 |
+| 題組 | `question_sets` | 題組，與目標職缺一對一 | 題庫生成 |
+| | `question_set_items` | 題組中的題目（可編輯、排序） | 題庫生成・題目列 |
+| | `question_generations` | 一次 AI 生成工作與參數 | 題庫生成・輸入框 |
+| 面試 | `interview_sessions` | 一場面試、狀態機（可暫停、24 小時內繼續） | 新面試、面試進行中 |
 | | `session_questions` | 該場**實際使用**的主題目與追問（快照） | 進度、題目 |
-| | `answer_attempts` | 每次作答：音訊、即時與最終逐字稿 | 逐字稿 |
-| 評分 | `evaluations` | 逐題評分與建議 | 逐題回顧 |
-| | `interview_reports` | 整場報告 | 面試評分 |
+| | `answer_attempts` | 每次作答：音訊、即時與最終逐字稿（重錄會產生新的一筆） | 逐字稿 |
+| 評分 | `evaluations` | 逐題評分與建議 | 報告・逐題回顧 |
+| | `interview_reports` | 整場報告 | 面試報告 |
 | 系統 | `background_jobs` | 背景工作 outbox 與執行紀錄（實際佇列在 Redis／arq） | — |
 | Log | `llm_calls` | AI 呼叫與成本（月分區） | — |
 | | `live_events` | GPT‑Live sideband 事件（月分區） | — |
@@ -365,6 +361,7 @@ CREATE TABLE users (
   role               text NOT NULL DEFAULT 'user' CHECK (role IN ('user','admin')),
   status             text NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','deleted')),
   locale             text NOT NULL DEFAULT 'zh-TW',
+  preferences        jsonb NOT NULL DEFAULT '{}',              -- 見 §5；新面試頁的預設值
   email_verified_at  timestamptz,
   last_login_at      timestamptz,
   created_at         timestamptz NOT NULL DEFAULT now(),
@@ -393,44 +390,9 @@ CREATE TABLE refresh_tokens (
 );
 CREATE INDEX ix_refresh_tokens_user ON refresh_tokens(user_id) WHERE revoked_at IS NULL;
 
-CREATE TABLE user_profiles (
-  user_id            uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  full_name          text,
-  current_title      text,
-  years_experience   numeric(3,1),
-  phone              text,
-  bio                text,
-  desired_roles      text[] NOT NULL DEFAULT '{}',
-  desired_locations  text,
-  expected_salary    text,                   -- 自由輸入，例如「80,000 – 90,000」
-  portfolio_url      text,
-  updated_at         timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE user_skills (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  name        text NOT NULL CHECK (length(name) BETWEEN 1 AND 40),
-  sort_order  int  NOT NULL DEFAULT 0,
-  created_at  timestamptz NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX uq_user_skills_name ON user_skills(user_id, lower(name));
-
-CREATE TABLE work_experiences (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  kind          text NOT NULL CHECK (kind IN ('work','education')),
-  organization  text NOT NULL,
-  title         text NOT NULL,
-  start_date    date,
-  end_date      date,                        -- NULL 且 is_current=true 表示「現在」
-  is_current    boolean NOT NULL DEFAULT false,
-  description   text,
-  sort_order    int NOT NULL DEFAULT 0,
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  updated_at    timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX ix_work_experiences_user ON work_experiences(user_id, sort_order);
+-- 不另外建 user_profiles / user_skills / work_experiences：
+-- 經歷、技能、成果一律從履歷解析（resumes.parsed_json），使用者不用重複填寫；
+-- 名稱在 users.display_name，偏好與求職意向在 users.preferences。
 ```
 
 ### 4.3 履歷
@@ -505,12 +467,20 @@ CREATE INDEX ix_job_posts_search  ON job_posts USING gin (search_text gin_trgm_o
 CREATE INDEX ix_job_posts_tags    ON job_posts USING gin (tags);
 CREATE INDEX ix_job_posts_emb     ON job_posts USING hnsw (embedding vector_cosine_ops);
 
-CREATE TABLE saved_jobs (
-  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  job_post_id  uuid NOT NULL REFERENCES job_posts(id) ON DELETE CASCADE,
-  created_at   timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (user_id, job_post_id)
+-- 目標職缺：使用者正在準備的職缺。加入時系統自動建立題組並產生面試建議
+CREATE TABLE target_jobs (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id            uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  job_post_id        uuid NOT NULL REFERENCES job_posts(id) ON DELETE CASCADE,
+  resume_id          uuid REFERENCES resumes(id) ON DELETE SET NULL,   -- 這個職缺預設用的履歷，可為空（沒有履歷也能練）
+  status             text NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
+  last_practiced_at  timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, job_post_id)
 );
+CREATE INDEX ix_target_jobs_user ON target_jobs(user_id, last_practiced_at DESC NULLS LAST) WHERE status = 'active';
+-- 「移出目標職缺」= status 改為 archived；題組與報告都保留，重新加入就能找回
 
 CREATE TABLE job_matches (
   resume_id    uuid NOT NULL REFERENCES resumes(id) ON DELETE CASCADE,
@@ -531,7 +501,8 @@ CREATE INDEX ix_job_matches_rank ON job_matches(resume_id, score DESC);
 CREATE TABLE interview_preps (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id           uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  resume_id         uuid NOT NULL REFERENCES resumes(id),
+  target_job_id     uuid NOT NULL REFERENCES target_jobs(id) ON DELETE CASCADE,
+  resume_id         uuid REFERENCES resumes(id),          -- 沒有履歷時只依職缺分析
   job_post_id       uuid NOT NULL REFERENCES job_posts(id),
   status            text NOT NULL DEFAULT 'pending'
                     CHECK (status IN ('pending','running','ready','failed')),
@@ -548,7 +519,7 @@ CREATE TABLE interview_preps (
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX ix_preps_latest ON interview_preps(user_id, job_post_id, resume_id, created_at DESC);
+CREATE INDEX ix_preps_latest ON interview_preps(target_job_id, created_at DESC);
 
 CREATE TABLE prep_checklist_items (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -564,17 +535,15 @@ CREATE INDEX ix_prep_checklist ON prep_checklist_items(prep_id, sort_order);
 ### 4.6 題庫
 
 ```sql
+-- 題組：每個目標職缺剛好一組（MVP 不支援一個職缺多組，介面與 API 都比較單純）
 CREATE TABLE question_sets (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  job_post_id  uuid NOT NULL REFERENCES job_posts(id),
-  resume_id    uuid REFERENCES resumes(id),
-  name         text NOT NULL,
-  created_at   timestamptz NOT NULL DEFAULT now(),
-  updated_at   timestamptz NOT NULL DEFAULT now(),
-  deleted_at   timestamptz
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_job_id  uuid NOT NULL UNIQUE REFERENCES target_jobs(id) ON DELETE CASCADE,
+  status         text NOT NULL DEFAULT 'preparing' CHECK (status IN ('preparing','ready')),  -- 加入目標職缺後自動出第一組題目
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX ix_question_sets_user_job ON question_sets(user_id, job_post_id) WHERE deleted_at IS NULL;
 
 CREATE TABLE question_generations (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -622,8 +591,9 @@ CREATE INDEX ix_set_items_text_trgm ON question_set_items USING gin (text gin_tr
 CREATE TABLE interview_sessions (
   id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id                 uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_job_id           uuid NOT NULL REFERENCES target_jobs(id),
   job_post_id             uuid NOT NULL REFERENCES job_posts(id),
-  resume_id               uuid NOT NULL REFERENCES resumes(id),
+  resume_id               uuid REFERENCES resumes(id),       -- 沒有履歷也能練
   question_set_id         uuid REFERENCES question_sets(id) ON DELETE SET NULL,
   length_mode             text NOT NULL CHECK (length_mode IN ('quick','standard','deep')),
   persona                 text NOT NULL CHECK (persona IN ('warm','real','tough')),
@@ -631,7 +601,7 @@ CREATE TABLE interview_sessions (
   voice_mode              text NOT NULL CHECK (voice_mode IN ('live','scripted')),
   voice_mode_degraded_at  timestamptz,       -- live 降級為 scripted 的時間
   status                  text NOT NULL DEFAULT 'preparing'
-                          CHECK (status IN ('preparing','ready','in_progress','completed','aborted')),
+                          CHECK (status IN ('preparing','ready','in_progress','paused','completed','aborted')),
   phase                   text NOT NULL DEFAULT 'idle'
                           CHECK (phase IN ('idle','asking','awaiting_answer','answering','finalizing','done')),
   current_question_id     uuid,              -- FK 於下方補上（循環參照）
@@ -644,17 +614,20 @@ CREATE TABLE interview_sessions (
   live_session_ref        text,              -- 供 sideband 連線用的對話 ID
   recording_consent_at    timestamptz,
   last_heartbeat_at       timestamptz,
+  paused_at               timestamptz,       -- 使用者按暫停、離開頁面或斷線超過 2 分鐘；24 小時內可繼續
+  paused_total_sec        int NOT NULL DEFAULT 0,  -- 暫停時間不計入作答時間
   started_at              timestamptz,
   ended_at                timestamptz,
-  end_reason              text CHECK (end_reason IN ('completed','user_ended','idle_timeout','error')),
+  end_reason              text CHECK (end_reason IN ('completed','user_ended','expired','error')),  -- expired：暫停超過 24 小時
   duration_sec            int,
   created_at              timestamptz NOT NULL DEFAULT now(),
   updated_at              timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX ix_sessions_user_recent ON interview_sessions(user_id, created_at DESC);
 CREATE INDEX ix_sessions_active ON interview_sessions(last_heartbeat_at) WHERE status = 'in_progress';
--- 同一使用者同時間只能有一場進行中的面試
-CREATE UNIQUE INDEX uq_sessions_one_active ON interview_sessions(user_id) WHERE status IN ('ready','in_progress');
+CREATE INDEX ix_sessions_paused ON interview_sessions(paused_at) WHERE status = 'paused';
+-- 同一使用者同時間只能有一場未結束的面試（前端會顯示「繼續／結束」而不是報錯）
+CREATE UNIQUE INDEX uq_sessions_one_active ON interview_sessions(user_id) WHERE status IN ('preparing','ready','in_progress','paused');
 
 CREATE TABLE session_questions (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -688,7 +661,7 @@ CREATE TABLE answer_attempts (
   attempt_no           smallint NOT NULL,
   is_final             boolean NOT NULL DEFAULT false,
   status               text NOT NULL DEFAULT 'answering'
-                       CHECK (status IN ('answering','saved','interrupted','failed')),
+                       CHECK (status IN ('answering','saved','discarded','interrupted','failed')),  -- discarded：使用者按「重錄」
   answer_started_at    timestamptz NOT NULL,
   answer_ended_at      timestamptz,
   audio_key            text,                 -- users/{uid}/sessions/{sid}/answers/{attempt_id}.webm
@@ -866,6 +839,7 @@ Log 表**刻意不加外鍵**：寫入要快，且刪除使用者時 log 以 `us
 
 | 欄位 | 格式 |
 |---|---|
+| `users.preferences` | `{ "default_length":"standard", "default_persona":"warm", "default_language":"zh", "desired_roles":["資深前端工程師"], "desired_locations":["台北市","可遠端"] }` |
 | `resumes.parsed_json` | `{ "name", "email", "phone", "summary", "years_experience", "experiences":[{"org","title","start","end","bullets":[]}], "education":[…], "skills":[], "projects":[{"name","role","impact"}], "achievements":["轉換率提升 12%"] }` |
 | `resumes.analysis_json` | `{ "highlights":["成果有量化數字"], "improvements":["補上帶人或 mentor 經驗"] }` |
 | `interview_sessions.job_snapshot` | `{ "job_post_id","company_name","title","about","duties":[],"requirements":[],"tags":[] }` |
@@ -961,10 +935,10 @@ UPDATE background_jobs SET status = 'retrying', dispatched_at = NULL
 ### 6.4 職缺列表（含契合度）
 
 ```sql
-SELECT j.*, COALESCE(m.score, 0) AS match_score, (s.user_id IS NOT NULL) AS is_saved
+SELECT j.*, COALESCE(m.score, 0) AS match_score, t.id AS target_job_id
   FROM job_posts j
   LEFT JOIN job_matches m ON m.job_post_id = j.id AND m.resume_id = $primary_resume_id
-  LEFT JOIN saved_jobs  s ON s.job_post_id = j.id AND s.user_id = $user_id
+  LEFT JOIN target_jobs t ON t.job_post_id = j.id AND t.user_id = $user_id AND t.status = 'active'
  WHERE j.deleted_at IS NULL AND j.status = 'active'
    AND (j.source = 'catalog' OR j.owner_user_id = $user_id)
    AND ($q IS NULL OR j.search_text ILIKE '%' || $q || '%')
@@ -973,14 +947,41 @@ SELECT j.*, COALESCE(m.score, 0) AS match_score, (s.user_id IS NOT NULL) AS is_s
  LIMIT 20;
 ```
 
-### 6.5 首頁連續練習天數
+### 6.5 面試報告列表（含彙總）
 
 ```sql
--- 以使用者時區計算；連續天數在應用程式中從最近一天往回數
-SELECT DISTINCT (ended_at AT TIME ZONE 'Asia/Taipei')::date AS d
-  FROM interview_sessions
- WHERE user_id = $user_id AND status = 'completed' AND ended_at > now() - interval '60 days'
- ORDER BY d DESC;
+-- 列表：依時間排序，前端分成「最近 7 天」「更早」
+SELECT s.id, s.ended_at, s.planned_question_count, s.persona, s.duration_sec,
+       j.company_name, j.title,
+       r.status AS report_status, r.overall_score, r.delta_vs_prev,
+       (SELECT count(*) FROM answer_attempts a WHERE a.session_id = s.id AND a.is_final) AS answered_count
+  FROM interview_sessions s
+  JOIN job_posts j ON j.id = s.job_post_id
+  LEFT JOIN interview_reports r ON r.session_id = s.id
+ WHERE s.user_id = $user_id AND s.status = 'completed' AND r.session_id IS NOT NULL
+ ORDER BY s.ended_at DESC
+ LIMIT 20;
+
+-- 標題列彙總：共幾場、平均、最高
+SELECT count(*) AS total, round(avg(overall_score)) AS avg_score, max(overall_score) AS best_score
+  FROM interview_reports
+ WHERE user_id = $user_id AND status = 'ready';
+```
+
+### 6.6 暫停逾時
+
+```sql
+-- 每分鐘：心跳中斷超過 2 分鐘的面試改為暫停（不是作廢）
+UPDATE interview_sessions SET status = 'paused', paused_at = now(), state_version = state_version + 1
+ WHERE status = 'in_progress' AND last_heartbeat_at < now() - interval '2 minutes';
+
+-- 每 10 分鐘：暫停超過 24 小時的面試自動結束；有作答就產生報告，沒有就 aborted
+UPDATE interview_sessions
+   SET status = CASE WHEN EXISTS (SELECT 1 FROM answer_attempts a WHERE a.session_id = interview_sessions.id AND a.is_final)
+                     THEN 'completed' ELSE 'aborted' END,
+       end_reason = 'expired', ended_at = now()
+ WHERE status = 'paused' AND paused_at < now() - interval '24 hours'
+RETURNING id, status;   -- status = completed 的排 build_report
 ```
 
 ---
@@ -995,7 +996,10 @@ SELECT DISTINCT (ended_at AT TIME ZONE 'Asia/Taipei')::date AS d
 | `live_events` | 30 天 | `DROP` 舊分區 |
 | `llm_calls`、`app_events` | 13 個月 | `DROP` 舊分區 |
 | `refresh_tokens` | 過期後 7 天 | 每日清理 |
+| 暫停中的面試 | 24 小時 | 自動結束；有作答就產生報告（`end_reason = expired`） |
+| 被重錄掉的回答（`discarded`） | 24 小時 | 每日刪除音訊物件與列 |
 | 刪除帳號 | 立即 | 硬刪除 `users`（CASCADE）＋刪除 `users/{id}/` 下所有物件；log 中的 `user_id` 設為 NULL |
+| 移出目標職缺 | 保留 | `target_jobs.status = archived`，題組、面試建議、報告都保留，重新加入即恢復 |
 
 ---
 

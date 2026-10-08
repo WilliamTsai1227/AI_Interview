@@ -1,642 +1,967 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>AI Interview</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Noto+Sans+TC:wght@400;500;700&display=swap">
 <style>
-/* Layout: app shell — left rail of rounded nav, roomy main column of soft cards; collapses to a top bar + scrollable nav chips on phones */
+/* Layout: ChatGPT-style — collapsible left sidebar (nav, saved jobs, recent interviews, account), main column with a slim header and centered 768px content; empty state is a centered composer. Monochrome, light/dark. Sidebar becomes a drawer on phones. */
 :root{
-  --bg:#F4F6F9; --surface:#FFFFFF; --surface-2:#EDF1F6; --line:#DFE4EC;
-  --ink:#131B2E; --ink-2:#4F5B70; --ink-3:#8590A3;
-  --leaf:#1E4D8C; --leaf-ink:#FFFFFF; --leaf-soft:#E4ECF7;
-  --sun:#E8A33A; --sun-soft:#FBF0DC; --sun-ink:#7A4E07;
-  --peach:#F07A5A; --peach-soft:#FDE7E0; --peach-ink:#A23D21;
-  --sky:#2F86C9; --sky-soft:#E0EEF8;
-  --good:#1F8A5B; --warn:#B97A0C; --bad:#CF4B32;
-  --hero:#14284B; --hero-2:#1E4D8C; --hero-ink:#FFFFFF; --hero-ink-2:#C5D3E8;
-  --shadow:0 1px 2px rgba(19,27,46,.05),0 4px 16px rgba(19,27,46,.05);
-  --f-display:"Plus Jakarta Sans","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
-  --f-body:"Plus Jakarta Sans","Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
-  --f-num:"Plus Jakarta Sans","Noto Sans TC",system-ui,sans-serif;
-  --r-lg:16px; --r-md:12px; --r-sm:8px;
+  color-scheme:light;
+  --bg:#ffffff; --side:#f9f9f9; --surface:#f4f4f4; --surface-2:#e8e8e8; --hover:rgba(0,0,0,.05); --active:rgba(0,0,0,.08);
+  --line:rgba(0,0,0,.09); --line-2:rgba(0,0,0,.16);
+  --ink:#0d0d0d; --ink-2:#5d5d5d; --ink-3:#8f8f8f;
+  --inv:#0d0d0d; --inv-ink:#ffffff; --code:#f9f9f9; --rec:#e02e2a; --mark:rgba(0,0,0,.08);
+  --pop:#ffffff; --shadow:0 0 0 1px rgba(0,0,0,.06),0 6px 24px rgba(0,0,0,.08); --scrim:rgba(0,0,0,.35);
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0E1420; --surface:#151D2C; --surface-2:#1C2638; --line:#28344A;
-  --ink:#E6ECF5; --ink-2:#A3AFC2; --ink-3:#717E94;
-  --leaf:#7BA7E8; --leaf-ink:#0B1626; --leaf-soft:#1C2D4A;
-  --sun:#F0B85A; --sun-soft:#382B16; --sun-ink:#F5D08E;
-  --peach:#FF9677; --peach-soft:#3A2420; --peach-ink:#FFBFA9;
-  --sky:#6CB2EA; --sky-soft:#17304A;
-  --good:#5CC796; --warn:#E5B04A; --bad:#F27A62;
-  --hero:#16243F; --hero-2:#1F3A66; --hero-ink:#FFFFFF; --hero-ink-2:#B4C3DB;
-  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25); color-scheme:dark}}
+  color-scheme:dark;
+  --bg:#212121; --side:#171717; --surface:#303030; --surface-2:#3c3c3c; --hover:rgba(255,255,255,.06); --active:rgba(255,255,255,.1);
+  --line:rgba(255,255,255,.09); --line-2:rgba(255,255,255,.16);
+  --ink:#ececec; --ink-2:#b4b4b4; --ink-3:#8f8f8f;
+  --inv:#ececec; --inv-ink:#0d0d0d; --code:#171717; --rec:#ff5f57; --mark:rgba(255,255,255,.12);
+  --pop:#353535; --shadow:0 0 0 1px rgba(255,255,255,.07),0 10px 30px rgba(0,0,0,.45); --scrim:rgba(0,0,0,.6);
+}}
 :root[data-theme="dark"]{
-  --bg:#0E1420; --surface:#151D2C; --surface-2:#1C2638; --line:#28344A;
-  --ink:#E6ECF5; --ink-2:#A3AFC2; --ink-3:#717E94;
-  --leaf:#7BA7E8; --leaf-ink:#0B1626; --leaf-soft:#1C2D4A;
-  --sun:#F0B85A; --sun-soft:#382B16; --sun-ink:#F5D08E;
-  --peach:#FF9677; --peach-soft:#3A2420; --peach-ink:#FFBFA9;
-  --sky:#6CB2EA; --sky-soft:#17304A;
-  --good:#5CC796; --warn:#E5B04A; --bad:#F27A62;
-  --hero:#16243F; --hero-2:#1F3A66; --hero-ink:#FFFFFF; --hero-ink-2:#B4C3DB;
-  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25); color-scheme:dark}
-
-*{box-sizing:border-box}
+  color-scheme:dark;
+  --bg:#212121; --side:#171717; --surface:#303030; --surface-2:#3c3c3c; --hover:rgba(255,255,255,.06); --active:rgba(255,255,255,.1);
+  --line:rgba(255,255,255,.09); --line-2:rgba(255,255,255,.16);
+  --ink:#ececec; --ink-2:#b4b4b4; --ink-3:#8f8f8f;
+  --inv:#ececec; --inv-ink:#0d0d0d; --code:#171717; --rec:#ff5f57; --mark:rgba(255,255,255,.12);
+  --pop:#353535; --shadow:0 0 0 1px rgba(255,255,255,.07),0 10px 30px rgba(0,0,0,.45); --scrim:rgba(0,0,0,.6);
+}
+*,*::before,*::after{box-sizing:border-box}
 html,body{height:100%}
-body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased}
-h1,h2,h3,h4{font-family:var(--f-display);font-weight:700;letter-spacing:-.01em;margin:0;text-wrap:balance;line-height:1.3}
-h1{font-size:clamp(1.6rem,1.2rem + 1.4vw,2.2rem)}
-h2{font-size:1.35rem}
-h3{font-size:1.05rem}
-p{margin:0}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 var(--font);-webkit-font-smoothing:antialiased;overflow:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4,p{margin:0}
+a{color:inherit;text-decoration:none}
 button,input,select,textarea{font:inherit;color:inherit}
-button{cursor:pointer}
-:focus-visible{outline:3px solid var(--sun);outline-offset:2px;border-radius:8px}
-.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+button{cursor:pointer;background:none;border:0;padding:0}
+:focus-visible{outline:2px solid var(--ink-3);outline-offset:2px;border-radius:8px}
+svg{flex:none;display:block}
+.num{font-variant-numeric:tabular-nums}
+::selection{background:var(--mark)}
 
-/* shell */
-.app{display:grid;grid-template-columns:248px minmax(0,1fr);min-height:100%}
-.rail{position:sticky;top:0;height:100vh;padding:24px 16px;display:flex;flex-direction:column;gap:6px;border-right:1px solid var(--line);background:var(--surface)}
-.brand{display:flex;align-items:center;gap:10px;padding:4px 10px 18px}
-.brand b{font-family:var(--f-display);font-weight:800;font-size:1.12rem;letter-spacing:-.01em;display:block;line-height:1.2}
-.brand small{display:block;color:var(--ink-3);font-size:.7rem;letter-spacing:.14em;text-transform:uppercase}
-.nav{display:flex;flex-direction:column;gap:4px}
-.nav a{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:10px;color:var(--ink-2);text-decoration:none;font-weight:500;transition:background .15s,color .15s}
-.nav a svg{width:20px;height:20px;flex:none}
-.nav a:hover{background:var(--surface-2);color:var(--ink)}
-.nav a.on{background:var(--leaf-soft);color:var(--leaf)}
-.nav .sep{font-size:.68rem;color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase;font-weight:700;padding:14px 14px 4px}
-.rail-foot{margin-top:auto;display:flex;flex-direction:column;gap:10px}
-.mini-me{display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;background:var(--surface-2)}
-.mini-me .av{width:36px;height:36px;font-size:.95rem}
-.mini-me div{line-height:1.3;font-size:.85rem}
-.mini-me small{color:var(--ink-3)}
-.theme-btn{border:1px solid var(--line);background:transparent;border-radius:10px;padding:8px 12px;font-size:.85rem;color:var(--ink-2);display:flex;align-items:center;gap:8px;justify-content:center}
+/* ---------- shell ---------- */
+.app{display:flex;height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));overflow:hidden}
+.side{width:260px;flex:none;background:var(--side);display:flex;flex-direction:column;transition:margin-left .22s ease;border-right:1px solid var(--line);min-height:0}
+.app.collapsed .side{margin-left:-260px}
+.side-top{display:flex;align-items:center;gap:2px;padding:8px 8px 6px 10px;height:52px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:1rem;margin-right:auto;padding:4px 8px;border-radius:8px}
+.brand:hover{background:var(--hover)}
+.brand svg{width:22px;height:22px}
+.ib{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;color:var(--ink-2);transition:background .12s,color .12s}
+.ib:hover{background:var(--hover);color:var(--ink)}
+.ib svg{width:20px;height:20px}
+.ib.sm{width:30px;height:30px}
+.ib.sm svg{width:17px;height:17px}
+.ib:disabled{opacity:.3;cursor:default;background:none}
+.side-scroll{flex:1;overflow-y:auto;padding:4px 8px 12px;min-height:0}
+.nav-i{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:.92rem;color:var(--ink);white-space:nowrap;overflow:hidden;width:100%;text-align:left;transition:background .12s}
+.nav-i:hover{background:var(--hover)}
+.nav-i.on{background:var(--active)}
+.nav-i svg{width:18px;height:18px}
+.nav-i .t{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.nav-i .r{font-size:.78rem;color:var(--ink-3);opacity:0;transition:opacity .12s}
+.nav-i:hover .r{opacity:1}
+.side-h{font-size:.78rem;color:var(--ink-3);padding:20px 10px 6px;font-weight:500}
+.side-foot{padding:8px;border-top:1px solid var(--line)}
+.me{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;width:100%;text-align:left}
+.me:hover{background:var(--hover)}
+.av{width:30px;height:30px;border-radius:50%;background:var(--inv);color:var(--inv-ink);display:grid;place-items:center;font-size:.8rem;font-weight:600;flex:none}
+.me b{display:block;font-weight:500;font-size:.9rem;line-height:1.3}
+.me small{display:block;color:var(--ink-3);font-size:.75rem;line-height:1.3}
 
-main{padding-block:32px 64px;padding-inline:clamp(16px,4vw,48px);min-width:0}
-.page{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:24px;animation:rise .35s ease both}
-@keyframes rise{from{transform:translateY(6px);opacity:.4}to{transform:none;opacity:1}}
-.head{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px}
-.head p{color:var(--ink-2);margin-top:6px}
-.eyebrow{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--leaf);font-weight:700}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+.head{height:52px;flex:none;display:flex;align-items:center;gap:4px;padding:0 10px 0 10px}
+.head .when-collapsed{display:none}
+.app.collapsed .head .when-collapsed{display:grid}
+.title{display:flex;align-items:center;gap:8px;font-size:1rem;font-weight:500;min-width:0;padding:4px 8px}
+.title svg{width:18px;height:18px;color:var(--ink-2)}
+.title span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.title .badge{font-size:.72rem;color:var(--ink-2);background:var(--surface);padding:1px 8px;border-radius:999px;font-weight:500;flex:none}
+.head .sp{flex:1}
+.hbtn{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:999px;font-size:.88rem;color:var(--ink);transition:background .12s;white-space:nowrap}
+.hbtn:hover{background:var(--hover)}
+.hbtn svg{width:17px;height:17px}
+.hbtn.line{border:1px solid var(--line-2)}
+.view{flex:1;overflow-y:auto;min-height:0}
+.wrap{max-width:768px;margin:0 auto;padding:24px 24px 96px}
+.wrap.wide{max-width:960px}
 
-/* atoms */
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:22px;box-shadow:var(--shadow);min-width:0}
-.card.flat{box-shadow:none}
-.card h3{margin-bottom:12px}
-.grid{display:grid;gap:20px}
-.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
-.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
-.g-side{grid-template-columns:minmax(0,1fr) 340px}
-.g-side-l{grid-template-columns:360px minmax(0,1fr)}
-.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.between{justify-content:space-between}
-.stack{display:flex;flex-direction:column;gap:12px}
+/* ---------- buttons / atoms ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 16px;border-radius:999px;font-size:.9rem;font-weight:500;white-space:nowrap;transition:opacity .12s,background .12s}
+.btn svg{width:17px;height:17px}
+.btn.pri{background:var(--inv);color:var(--inv-ink)}
+.btn.pri:hover{opacity:.85}
+.btn.out{border:1px solid var(--line-2)}
+.btn.out:hover,.btn.ghost:hover{background:var(--hover)}
+.btn.sm{height:32px;padding:0 12px;font-size:.84rem}
+.pill{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border-radius:999px;font-size:.86rem;color:var(--ink);border:1px solid var(--line);transition:background .12s;white-space:nowrap;max-width:100%}
+.pill:hover{background:var(--hover)}
+.pill svg{width:15px;height:15px;color:var(--ink-2)}
+.pill .lbl{overflow:hidden;text-overflow:ellipsis}
 .muted{color:var(--ink-2)}
-.faint{color:var(--ink-3);font-size:.85rem}
+.faint{color:var(--ink-3);font-size:.84rem}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.bar{height:4px;border-radius:9px;background:var(--surface-2);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ink);border-radius:9px}
+.toast{position:fixed;top:16px;left:50%;transform:translate(-50%,-12px);background:var(--inv);color:var(--inv-ink);padding:8px 16px;border-radius:999px;font-size:.88rem;opacity:0;pointer-events:none;transition:.2s;z-index:99;box-shadow:var(--shadow);max-width:calc(100vw - 32px)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
 
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:10px;padding:11px 18px;font-weight:700;font-size:.92rem;text-decoration:none;transition:transform .12s,box-shadow .12s,background .15s;white-space:nowrap}
-.btn svg{width:18px;height:18px}
-.btn:active{transform:scale(.97)}
-.btn-pri{background:var(--leaf);color:var(--leaf-ink);box-shadow:0 4px 14px color-mix(in srgb,var(--leaf) 30%,transparent)}
-.btn-pri:hover{box-shadow:0 6px 20px color-mix(in srgb,var(--leaf) 40%,transparent)}
-.btn-sun{background:var(--sun);color:#2E1F04}
-.btn-ghost{background:var(--surface);color:var(--ink);border:1px solid var(--line)}
-.btn-ghost:hover{background:var(--surface-2)}
-.btn-soft{background:var(--leaf-soft);color:var(--leaf)}
-.btn-sm{padding:7px 14px;font-size:.85rem}
-.icon-btn{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:var(--surface);display:inline-grid;place-items:center;color:var(--ink-2)}
-.icon-btn:hover{background:var(--surface-2);color:var(--ink)}
-.icon-btn svg{width:16px;height:16px}
+/* ---------- composer ---------- */
+.composer{background:var(--surface);border-radius:28px;padding:12px 12px 10px 18px;box-shadow:0 0 0 1px var(--line);transition:box-shadow .15s}
+.composer:focus-within{box-shadow:0 0 0 1px var(--line-2)}
+.composer textarea{width:100%;border:0;background:transparent;outline:none;resize:none;min-height:28px;max-height:200px;line-height:1.6;font-size:1rem;padding:4px 0 8px;display:block}
+.composer textarea::placeholder{color:var(--ink-3)}
+.c-bar{display:flex;align-items:center;gap:4px;margin-left:-6px}
+.c-bar .sp{flex:1}
+.c-bar .pill{border-color:transparent}
+.c-bar .pill{min-width:0;flex-shrink:1}
+.send{width:36px;height:36px;border-radius:50%;background:var(--inv);color:var(--inv-ink);display:grid;place-items:center;transition:opacity .12s;flex:none}
+.send:hover{opacity:.85}
+.send:disabled{opacity:.25;cursor:default}
+.send svg{width:18px;height:18px}
 
-.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;font-size:.8rem;font-weight:500;background:var(--surface-2);color:var(--ink-2);border:1px solid transparent}
-.chip.leaf{background:var(--leaf-soft);color:var(--leaf)}
-.chip.sun{background:var(--sun-soft);color:var(--sun-ink)}
-.chip.peach{background:var(--peach-soft);color:var(--peach-ink)}
-.chip.sky{background:var(--sky-soft);color:var(--sky)}
-.chip.out{background:transparent;border-color:var(--line)}
-button.chip{cursor:pointer}
-button.chip.sel{background:var(--leaf);color:var(--leaf-ink)}
+/* ---------- new interview (setup) ---------- */
+.setup-wrap{max-width:680px;margin:0 auto;padding:7vh 24px 64px;display:flex;flex-direction:column;gap:22px}
+.hello{text-align:center;font-size:clamp(1.55rem,1.2rem + 1.2vw,2rem);font-weight:600;letter-spacing:-.01em}
+.hello+p{text-align:center;color:var(--ink-2);margin-top:-14px;font-size:.95rem}
+.setup{border:1px solid var(--line-2);border-radius:20px;overflow:hidden}
+.su-row{display:flex;align-items:center;gap:16px;padding:12px 18px;border-bottom:1px solid var(--line)}
+.su-row .k{width:52px;flex:none;color:var(--ink-2);font-size:.9rem}
+.su-row .v{flex:1;min-width:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.su-row .hint{font-size:.8rem;color:var(--ink-3)}
+.picker{display:flex;align-items:center;gap:8px;min-width:0;max-width:100%;padding:6px 10px;margin-left:-10px;border-radius:10px;text-align:left;transition:background .12s}
+.picker:hover{background:var(--hover)}
+.picker b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;max-width:65%}
+.picker span{color:var(--ink-3);font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.picker svg{width:15px;height:15px;color:var(--ink-3)}
+.seg{display:inline-flex;background:var(--surface);border-radius:999px;padding:3px}
+.seg button{padding:5px 14px;border-radius:999px;font-size:.86rem;color:var(--ink-2);white-space:nowrap;transition:background .12s,color .12s}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:var(--inv);color:var(--inv-ink)}
+.qprev{padding:14px 18px 16px;background:var(--code)}
+.qprev-h{display:flex;align-items:center;justify-content:space-between;font-size:.84rem;color:var(--ink-2);margin-bottom:8px}
+.qprev-h a{color:var(--ink-2);display:inline-flex;align-items:center;gap:2px}
+.qprev-h a:hover{color:var(--ink)}
+.qprev ol{margin:0;padding:0;list-style:none;display:flex;flex-direction:column}
+.qprev li{display:flex;gap:12px;padding:7px 0;font-size:.92rem;line-height:1.55}
+.qprev li .n{width:16px;flex:none;text-align:right;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.qprev li .c{margin-left:auto;padding-left:12px;color:var(--ink-3);font-size:.78rem;white-space:nowrap}
+.qprev li.auto{color:var(--ink-3)}
+.start{display:flex;flex-direction:column;align-items:center;gap:12px}
+.btn.xl{height:52px;padding:0 30px;font-size:1rem;gap:10px}
+.btn.xl svg{width:20px;height:20px}
+.start .faint{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}
+.linkb{color:var(--ink-2);display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:6px}
+.linkb:hover{color:var(--ink);background:var(--hover)}
+.linkb svg{width:14px;height:14px}
 
-.field{display:flex;flex-direction:column;gap:6px;min-width:0}
-.field label{font-size:.82rem;font-weight:700;color:var(--ink-2)}
-.input,select.input,textarea.input{width:100%;padding:10px 13px;border-radius:10px;border:1.5px solid var(--line);background:var(--surface);outline:none;transition:border .15s,box-shadow .15s}
-.input:focus{border-color:var(--leaf);box-shadow:0 0 0 4px var(--leaf-soft)}
-textarea.input{resize:vertical;min-height:96px;line-height:1.6}
+.banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px 12px 16px;border:1px solid var(--line-2);border-radius:16px;font-size:.92rem}
+.banner .t{flex:1;min-width:180px}
+.banner .t b{font-weight:500}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--rec);flex:none;animation:blink 1.4s infinite}
+.nav-live{display:flex;align-items:center;gap:10px;padding:9px 10px;margin-bottom:8px;border-radius:10px;border:1px solid var(--line-2);font-size:.88rem;width:100%}
+.nav-live:hover{background:var(--hover)}
+.nav-live .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btn:disabled{opacity:.3;cursor:default}
+.btn.danger{color:var(--rec)}
+.hrow .proc{font-size:.84rem;color:var(--ink-3);display:inline-flex;align-items:center;gap:6px}
+.empty-note{padding:28px 12px;text-align:center;color:var(--ink-2)}
+.empty-note .btn{margin-top:14px}
 
-.av{border-radius:50%;display:grid;place-items:center;font-family:var(--f-display);font-weight:700;color:#fff;background:linear-gradient(135deg,var(--peach),var(--sun));flex:none}
-.bar{height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden}
-.bar i{display:block;height:100%;border-radius:99px;background:var(--leaf)}
+/* ---------- chat (interview) ---------- */
+.chat{max-width:768px;margin:0 auto;padding:16px 24px 40px;display:flex;flex-direction:column;gap:28px}
+.sysm{align-self:center;font-size:.8rem;color:var(--ink-3);border:1px solid var(--line);border-radius:999px;padding:4px 14px;text-align:center}
+.m-ai{display:flex;flex-direction:column;gap:6px}
+.m-ai .lab{font-size:.78rem;color:var(--ink-3);font-weight:500}
+.m-ai .tx{font-size:1rem;line-height:1.75;white-space:pre-wrap}
+.m-ai .acts{display:flex;gap:2px;margin-left:-6px}
+.m-me{align-self:flex-end;max-width:78%;background:var(--surface);border-radius:20px;padding:10px 18px;line-height:1.7}
+.m-me.skip{color:var(--ink-3)}
+.cursor::after{content:"";display:inline-block;width:.6em;height:.6em;border-radius:50%;background:var(--ink);margin-left:4px;vertical-align:middle;animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.2}}
+.rcard{display:flex;align-items:center;gap:14px;border:1px solid var(--line-2);border-radius:16px;padding:14px 16px;max-width:460px;transition:background .12s}
+.rcard:hover{background:var(--hover)}
+.rcard .ic{width:44px;height:44px;border-radius:12px;background:var(--surface);display:grid;place-items:center;flex:none}
+.rcard .ic svg{width:22px;height:22px}
+.rcard b{display:block;font-weight:600}
+.dock{flex:none;padding:0 24px 14px}
+.dock-in{max-width:768px;margin:0 auto}
+.prog{display:flex;gap:4px;margin:0 8px 10px}
+.prog i{flex:1;height:3px;border-radius:3px;background:var(--surface-2)}
+.prog i.d{background:var(--ink)}
+.prog i.c{background:var(--ink-3)}
+.vbar{display:flex;align-items:center;gap:10px;background:var(--surface);border-radius:28px;padding:10px 10px 10px 18px;min-height:60px;box-shadow:0 0 0 1px var(--line)}
+.vbar .st{flex:1;min-width:0;display:flex;align-items:center;gap:12px;color:var(--ink-2);font-size:.95rem}
+.vbar .btn.ghost{margin-left:-8px}
+.dots{display:inline-flex;gap:4px}
+.dots i{width:6px;height:6px;border-radius:50%;background:var(--ink-2);animation:bounce 1.2s infinite}
+.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
+@keyframes bounce{0%,60%,100%{opacity:.25;transform:none}30%{opacity:1;transform:translateY(-3px)}}
+.recdot{width:9px;height:9px;border-radius:50%;background:var(--rec);animation:blink 1.2s infinite;flex:none}
+.wave{flex:1;display:flex;align-items:center;gap:3px;height:28px;min-width:40px;overflow:hidden}
+.wave i{width:3px;flex:none;border-radius:2px;background:var(--ink);height:6px;animation:wv 1s ease-in-out infinite}
+@keyframes wv{0%,100%{height:5px}50%{height:24px}}
+.micbtn{width:40px;height:40px;border-radius:50%;background:var(--inv);color:var(--inv-ink);display:grid;place-items:center;transition:opacity .12s;flex:none}
+.micbtn svg{width:19px;height:19px}
+.micbtn:disabled{opacity:.25;cursor:default}
+.micbtn:hover:not(:disabled){opacity:.85}
 
-/* mascot */
-.mascot{position:relative;flex:none}
-.mascot svg{width:100%;height:100%;overflow:visible}
-.mascot .eye{animation:blink 4.5s infinite;transform-origin:center;transform-box:fill-box}
-@keyframes blink{0%,94%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}
-.mascot .mouth-o{display:none}.mascot.talk .mouth-o{display:inline}.mascot.talk .smile{display:none}
-.mascot.talk .mouth-o{animation:talk .32s infinite alternate;transform-origin:center;transform-box:fill-box}
-@keyframes talk{from{transform:scaleY(.3)}to{transform:scaleY(1.1)}}
-.mascot .glint{animation:glint 6s ease-in-out infinite}
-@keyframes glint{0%,100%{opacity:.25}50%{opacity:.45}}
-.logo{width:36px;height:36px;flex:none}
+/* ---------- document pages ---------- */
+.doc h1{font-size:1.75rem;font-weight:600;letter-spacing:-.01em;line-height:1.3}
+.doc h2{font-size:1.25rem;font-weight:600;margin:36px 0 14px}
+.doc h3{font-size:1.05rem;font-weight:600}
+.doc p{line-height:1.75}
+.doc ul{margin:8px 0 0;padding-left:1.3em;display:flex;flex-direction:column;gap:6px;line-height:1.7}
+.eyebrow{font-size:.84rem;color:var(--ink-3);margin-bottom:8px}
+.big{display:flex;align-items:baseline;gap:10px;margin-top:20px;flex-wrap:wrap}
+.big b{font-size:3.4rem;font-weight:600;letter-spacing:-.03em;line-height:1}
+.big span{color:var(--ink-3)}
+.tbl-w{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:.92rem}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-weight:600;color:var(--ink-2);font-size:.84rem;background:var(--code)}
+tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;width:64px}
+td .bar{min-width:100px}
+blockquote{margin:12px 0;padding:2px 0 2px 16px;border-left:3px solid var(--line-2);color:var(--ink)}
+mark{background:var(--mark);color:inherit;padding:1px 3px;border-radius:4px;font-weight:500}
+.codebox{border-radius:12px;overflow:hidden;background:var(--code);border:1px solid var(--line);margin-top:14px}
+.codebox .cb-h{display:flex;align-items:center;gap:8px;padding:6px 6px 6px 14px;font-size:.8rem;color:var(--ink-2);border-bottom:1px solid var(--line)}
+.codebox .cb-h svg{width:15px;height:15px}
+.codebox .cb-h .sp{flex:1}
+.codebox .cb-b{padding:14px 16px;line-height:1.75;font-size:.95rem}
+.qsec{padding:26px 0;border-bottom:1px solid var(--line)}
+.qsec:last-of-type{border-bottom:0}
+.qsec .qh{display:flex;align-items:baseline;gap:12px}
+.qsec .qh h3{flex:1}
+.qsec .sc{font-size:1.1rem;font-weight:600}
+.sub-h{font-size:.84rem;font-weight:600;color:var(--ink-2);margin-top:18px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+details.acc{border-bottom:1px solid var(--line)}
+details.acc summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:14px 4px}
+details.acc summary::-webkit-details-marker{display:none}
+details.acc summary .t{flex:1;font-weight:500}
+details.acc summary svg{width:18px;height:18px;color:var(--ink-3);transition:transform .2s}
+details.acc[open] summary svg{transform:rotate(180deg)}
+details.acc .bd{padding:0 4px 18px}
+.tagx{font-size:.75rem;color:var(--ink-2);border:1px solid var(--line-2);padding:1px 8px;border-radius:999px;white-space:nowrap}
+.chk{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.chk:last-of-type{border-bottom:0}
+.chk input{width:17px;height:17px;margin-top:4px;accent-color:var(--ink);flex:none}
+.chk input:checked+span{color:var(--ink-3);text-decoration:line-through}
+ul.ticks{list-style:none;padding:0}
+ul.ticks li{display:flex;gap:10px}
+ul.ticks li::before{content:"✓";font-weight:600;width:1em;flex:none;text-align:center}
+ul.ticks.warn li::before{content:"!";font-weight:700}
 
-/* home */
-.hero{position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:center;background:radial-gradient(60% 120% at 100% 0%,color-mix(in srgb,var(--sun) 30%,transparent),transparent 60%),linear-gradient(120deg,var(--hero),var(--hero-2));color:var(--hero-ink);border-radius:20px;padding:30px 34px}
-.hero .eyebrow{color:var(--sun)}
-.hero .btn-ghost{background:rgba(255,255,255,.1);color:var(--hero-ink);border-color:rgba(255,255,255,.25)}
-.hero .btn-ghost:hover{background:rgba(255,255,255,.18)}
-.hero .btn-pri{background:var(--sun);color:#2E1F04;box-shadow:none}
-.hero .mascot{width:132px;height:132px}
-.hero p{color:var(--hero-ink-2);margin:8px 0 18px;max-width:52ch}
-.stat{display:flex;flex-direction:column;gap:2px}
-.stat .v{font-family:var(--f-num);font-weight:800;font-size:2rem;line-height:1.1}
-.stat .v small{font-size:.9rem;color:var(--ink-3);font-weight:600;margin-left:2px}
-.stat .k{color:var(--ink-2);font-size:.85rem}
-.streak{display:flex;gap:6px;margin-top:10px}
-.streak span{width:26px;height:26px;border-radius:8px;background:var(--surface-2);display:grid;place-items:center;font-size:.7rem;color:var(--ink-3)}
-.streak span.on{background:var(--leaf);color:var(--leaf-ink);font-weight:700}
-.list-item{display:flex;align-items:center;gap:14px;padding:12px;border-radius:14px;text-decoration:none;color:inherit;transition:background .15s}
-.list-item:hover{background:var(--surface-2)}
-.score-pill{font-family:var(--f-num);font-weight:800;min-width:48px;text-align:center;padding:4px 10px;border-radius:12px}
-.s-good{background:var(--leaf-soft);color:var(--good)}
-.s-mid{background:var(--sun-soft);color:var(--sun-ink)}
-.s-low{background:var(--peach-soft);color:var(--peach-ink)}
-.co-logo{width:42px;height:42px;border-radius:10px;display:grid;place-items:center;font-family:var(--f-display);font-weight:800;font-size:1.05rem;flex:none}
-.tip{display:flex;gap:14px;align-items:flex-start;background:var(--sky-soft);border-radius:var(--r-lg);padding:18px 20px}
-.tip svg{width:22px;height:22px;color:var(--sky);flex:none;margin-top:2px}
+/* report history list */
+.grp-h{font-size:.78rem;color:var(--ink-3);font-weight:500;padding:22px 12px 6px}
+.hrow{display:flex;align-items:center;gap:16px;padding:12px;border-radius:12px;transition:background .12s}
+.hrow:hover{background:var(--hover)}
+.hrow .bd{flex:1;min-width:0}
+.hrow .bd b{display:block;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hrow .bd .m{display:block;font-size:.8rem;color:var(--ink-3);margin-top:2px}
+.hrow .hs{display:flex;align-items:baseline;gap:6px;flex:none}
+.hrow .hs b{font-size:1.35rem;font-weight:600;letter-spacing:-.02em}
+.hrow .hs small{font-size:.76rem;color:var(--ink-3);min-width:26px}
+.hrow .ch{color:var(--ink-3)}
+.hrow .ch svg{width:16px;height:16px}
 
-/* interview */
-.iv{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px}
-.stage{position:relative;border-radius:20px;padding:28px;min-height:520px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:20px;background:radial-gradient(120% 80% at 50% 0%,var(--leaf-soft),var(--surface) 70%);border:1px solid var(--line);overflow:hidden}
-.stage-top{width:100%;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
-.rec{display:inline-flex;align-items:center;gap:8px;font-size:.85rem;font-weight:700;color:var(--bad);background:var(--surface);padding:6px 12px;border-radius:999px;border:1px solid var(--line)}
-.rec i{width:8px;height:8px;border-radius:50%;background:var(--bad);animation:pulse 1.4s infinite}
-@keyframes pulse{50%{opacity:.25}}
-.halo{position:relative;width:200px;height:200px;display:grid;place-items:center}
-.halo::before,.halo::after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--leaf);opacity:0}
-.halo.speaking::before{animation:ring 1.8s ease-out infinite}
-.halo.speaking::after{animation:ring 1.8s .6s ease-out infinite}
-@keyframes ring{from{transform:scale(.7);opacity:.22}to{transform:scale(1.35);opacity:0}}
-.halo .mascot{width:170px;height:170px;z-index:1}
-.q-bubble{max-width:560px;text-align:center}
-.q-bubble .who{font-size:.8rem;color:var(--leaf);font-weight:700;letter-spacing:.06em}
-.q-bubble p{font-family:var(--f-display);font-weight:600;font-size:1.25rem;line-height:1.55;margin-top:6px;min-height:2.6em}
-.controls{display:flex;align-items:center;gap:18px}
-.mic{width:76px;height:76px;border-radius:50%;border:0;display:grid;place-items:center;background:var(--leaf);color:var(--leaf-ink);box-shadow:0 8px 24px color-mix(in srgb,var(--leaf) 35%,transparent);transition:transform .15s,background .2s}
-.mic svg{width:30px;height:30px}
-.mic:hover{transform:scale(1.05)}
-.mic.live{background:var(--peach);box-shadow:0 0 0 10px var(--peach-soft),0 8px 24px color-mix(in srgb,var(--peach) 40%,transparent)}
-.mic:disabled{opacity:.5;cursor:not-allowed;transform:none}
-.wave{display:flex;align-items:center;gap:4px;height:36px}
-.wave i{width:4px;border-radius:4px;background:var(--ink-3);height:6px;transition:height .1s}
-.wave.live i{background:var(--peach);animation:wv .9s ease-in-out infinite}
-.wave.live i:nth-child(2n){animation-delay:.15s}.wave.live i:nth-child(3n){animation-delay:.3s}.wave.live i:nth-child(5n){animation-delay:.45s}
-@keyframes wv{0%,100%{height:6px}50%{height:32px}}
-.mic-hint{font-size:.85rem;color:var(--ink-2);text-align:center;min-height:1.4em}
-.tr{display:flex;flex-direction:column;height:100%;max-height:640px}
-.tr-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding-right:4px;min-height:260px}
-.msg{display:flex;gap:10px;align-items:flex-start}
-.msg .b{padding:10px 14px;border-radius:16px;font-size:.92rem;line-height:1.6;max-width:85%}
-.msg.ai .b{background:var(--surface-2);border-top-left-radius:4px}
-.msg.me{flex-direction:row-reverse}
-.msg.me .b{background:var(--leaf-soft);border-top-right-radius:4px}
-.msg .tag{font-size:.72rem;color:var(--ink-3);margin-bottom:2px}
-.msg .mini{width:30px;height:30px;flex:none}
-.typing::after{content:"▍";animation:pulse 1s infinite;color:var(--leaf)}
-.steps{display:flex;gap:6px}
-.steps i{flex:1;height:6px;border-radius:99px;background:var(--surface-2)}
-.steps i.done{background:var(--leaf)}
-.steps i.cur{background:var(--sun)}
-.setup-opt{display:flex;gap:12px;align-items:center;padding:14px;border:1.5px solid var(--line);border-radius:12px;background:var(--surface);cursor:pointer;text-align:left;width:100%}
-.setup-opt.sel{border-color:var(--leaf);background:var(--leaf-soft)}
-.setup-opt b{display:block}
-
-/* profile */
-.dropzone{border:2px dashed var(--line);border-radius:var(--r-lg);padding:28px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px;background:var(--surface-2);transition:border .15s,background .15s;cursor:pointer}
-.dropzone.over{border-color:var(--leaf);background:var(--leaf-soft)}
-.dropzone svg{width:40px;height:40px;color:var(--leaf)}
-.file-row{display:flex;align-items:center;gap:14px;padding:14px;border-radius:16px;border:1px solid var(--line);background:var(--surface)}
-.file-ico{width:44px;height:52px;border-radius:8px;background:var(--peach-soft);color:var(--peach-ink);display:grid;place-items:center;font-family:var(--f-num);font-weight:800;font-size:.72rem;flex:none}
-.timeline{display:flex;flex-direction:column;gap:0;position:relative}
-.tl{display:grid;grid-template-columns:18px minmax(0,1fr);gap:14px;padding-bottom:18px;position:relative}
-.tl::before{content:"";position:absolute;left:8px;top:18px;bottom:0;width:2px;background:var(--line)}
-.tl:last-child::before{display:none}
-.tl .dot{width:18px;height:18px;border-radius:50%;border:4px solid var(--leaf-soft);background:var(--leaf);margin-top:3px}
-.ring{position:relative;display:grid;place-items:center}
-.ring svg{transform:rotate(-90deg)}
-.ring .c{position:absolute;text-align:center;line-height:1.1}
-.ring .c b{font-family:var(--f-num);font-weight:800;display:block}
+/* question bank */
+.qrow{display:flex;align-items:flex-start;gap:14px;padding:14px 10px;border-radius:12px;transition:background .12s}
+.qrow:hover{background:var(--hover)}
+.qrow .no{width:22px;color:var(--ink-3);font-variant-numeric:tabular-nums;text-align:right;flex:none}
+.qrow .bd{flex:1;min-width:0}
+.qrow .qt{line-height:1.6}
+.qrow .meta{font-size:.8rem;color:var(--ink-3);margin-top:2px}
+.qrow .ops{display:flex;opacity:0;transition:opacity .12s}
+.qrow:hover .ops,.qrow:focus-within .ops{opacity:1}
+.qrow textarea{width:100%;border:1px solid var(--line-2);border-radius:12px;background:var(--bg);padding:10px 12px;outline:none;resize:vertical;line-height:1.6}
+.qrow textarea:focus{border-color:var(--ink-3)}
+.addrow{display:flex;align-items:center;gap:10px;padding:12px 10px;color:var(--ink-2);border-radius:12px;width:100%;text-align:left}
+.addrow:hover{background:var(--hover);color:var(--ink)}
+.addrow svg{width:18px;height:18px}
+.skel{height:52px;border-radius:12px;margin:6px 0;background:linear-gradient(90deg,var(--surface),var(--surface-2),var(--surface));background-size:200% 100%;animation:sk 1.1s linear infinite}
+@keyframes sk{to{background-position:-200% 0}}
 
 /* jobs */
-.search{display:flex;gap:10px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px;box-shadow:var(--shadow)}
-.search .input{border:0;box-shadow:none;flex:1 1 220px;min-width:0}
-.search .input:focus{box-shadow:none}
-.search select.input{flex:0 1 160px;background:var(--surface-2)}
-.job{display:flex;flex-direction:column;gap:12px;cursor:pointer;transition:border-color .15s,transform .15s;text-align:left;width:100%}
-.job:hover{transform:translateY(-2px)}
-.job.sel{border-color:var(--leaf);box-shadow:0 0 0 3px var(--leaf-soft)}
-.match{display:inline-flex;align-items:center;gap:6px;font-family:var(--f-num);font-weight:800;font-size:.85rem;padding:4px 10px;border-radius:999px;background:var(--leaf-soft);color:var(--good)}
-.match.mid{background:var(--sun-soft);color:var(--sun-ink)}
-.jd{position:sticky;top:24px}
-.jd ul{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:4px;color:var(--ink-2)}
+.jhead{text-align:center;padding:28px 0 8px}
+.jhead h1{font-size:2rem;font-weight:600}
+.jhead p{color:var(--ink-2);margin-top:6px}
+.search{display:flex;align-items:center;gap:10px;height:46px;padding:0 16px;border-radius:999px;background:var(--surface);box-shadow:0 0 0 1px var(--line);margin-top:24px}
+.search:focus-within{box-shadow:0 0 0 1px var(--line-2)}
+.search svg{width:18px;height:18px;color:var(--ink-3)}
+.search input{flex:1;min-width:0;border:0;background:transparent;outline:none}
+.tabs{display:flex;gap:4px;margin-top:18px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.tabs button{padding:10px 12px;font-size:.9rem;color:var(--ink-2);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tabs button:hover{color:var(--ink)}
+.tabs button.on{color:var(--ink);border-color:var(--ink);font-weight:500}
+.jgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin-top:14px}
+.job{display:flex;align-items:center;gap:14px;padding:14px;border-radius:14px;text-align:left;transition:background .12s;width:100%}
+.job:hover{background:var(--hover)}
+.lg{width:52px;height:52px;border-radius:14px;background:var(--surface);display:grid;place-items:center;font-size:1.3rem;font-weight:600;flex:none;box-shadow:inset 0 0 0 1px var(--line)}
+.job .bd{min-width:0;flex:1}
+.job b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.job .s{display:block;font-size:.84rem;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.job .m{display:block;font-size:.78rem;color:var(--ink-3);margin-top:2px}
 
-/* questions */
-.qcard{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px;align-items:flex-start;padding:16px;border-radius:14px;border:1px solid var(--line);background:var(--surface);transition:box-shadow .15s}
-.qcard:hover{box-shadow:var(--shadow)}
-.qno{width:32px;height:32px;border-radius:10px;background:var(--leaf-soft);color:var(--leaf);display:grid;place-items:center;font-family:var(--f-num);font-weight:800}
-.qtext{font-weight:500;line-height:1.6}
-.qacts{display:flex;gap:6px}
-.seg{display:inline-flex;background:var(--surface-2);border-radius:12px;padding:4px;gap:2px;flex-wrap:wrap}
-.seg button{border:0;background:transparent;padding:7px 14px;border-radius:9px;font-size:.88rem;color:var(--ink-2);font-weight:500}
-.seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
-.range-row{display:flex;align-items:center;gap:12px}
-.range-row input{flex:1;accent-color:var(--leaf)}
-.gen-shimmer{height:72px;border-radius:18px;background:linear-gradient(90deg,var(--surface-2) 25%,var(--surface) 50%,var(--surface-2) 75%);background-size:200% 100%;animation:shim 1.2s infinite}
-@keyframes shim{to{background-position:-200% 0}}
+/* ---------- popover / modal ---------- */
+.menu{position:fixed;z-index:80;background:var(--pop);border-radius:16px;box-shadow:var(--shadow);padding:6px;min-width:220px;max-width:min(340px,calc(100vw - 24px));max-height:60vh;overflow:auto;animation:pop .12s ease}
+@keyframes pop{from{opacity:0;transform:translateY(-4px)}}
+.menu .mh{font-size:.76rem;color:var(--ink-3);padding:8px 10px 4px}
+.menu button{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border-radius:10px;text-align:left;font-size:.9rem}
+.menu button:hover{background:var(--hover)}
+.menu button svg{width:17px;height:17px;color:var(--ink-2)}
+.menu button .mt{flex:1;min-width:0}
+.menu button .ms{display:block;font-size:.76rem;color:var(--ink-3)}
+.menu .ck{width:17px;height:17px;flex:none}
+.menu .ck svg{color:var(--ink)}
+.menu hr{border:0;height:1px;background:var(--line);margin:4px 6px}
+.scrim{position:fixed;inset:0;background:var(--scrim);z-index:70;display:grid;place-items:center;padding:16px;animation:fade .15s}
+@keyframes fade{from{opacity:0}}
+.modal{background:var(--bg);border-radius:20px;box-shadow:var(--shadow);width:min(680px,100%);max-height:calc(100dvh - 32px);display:flex;flex-direction:column;overflow:hidden;animation:pop .15s}
+.modal.sm{width:min(560px,100%)}
+.mhead{display:flex;align-items:center;gap:8px;padding:12px 12px 12px 22px;border-bottom:1px solid var(--line)}
+.mhead h2{flex:1;font-size:1.05rem;font-weight:600}
+.mbody{overflow-y:auto;padding:20px 22px 24px}
+.set{display:flex;min-height:440px;overflow:hidden}
+.set-tabs{width:180px;flex:none;padding:10px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
+.set-tabs button{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;font-size:.9rem;text-align:left}
+.set-tabs button svg{width:17px;height:17px}
+.set-tabs button:hover{background:var(--hover)}
+.set-tabs button.on{background:var(--active)}
+.set-body{flex:1;min-width:0;padding:6px 22px 22px;overflow-y:auto}
+.srow{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid var(--line);font-size:.92rem}
+.srow:last-child{border-bottom:0}
+.srow.col{flex-direction:column;align-items:stretch;gap:8px}
+.srow .sv{color:var(--ink-2)}
+.inp{width:100%;border:1px solid var(--line-2);background:transparent;border-radius:10px;padding:9px 12px;outline:none;line-height:1.5}
+.inp:focus{border-color:var(--ink-3)}
+textarea.inp{resize:vertical;min-height:80px}
+.selx{appearance:none;-webkit-appearance:none;border:1px solid var(--line-2);background:transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238f8f8f' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center/14px;border-radius:10px;padding:7px 32px 7px 12px;outline:none}
+.selx option{background:var(--pop);color:var(--ink)}
+.chipx{display:inline-flex;align-items:center;gap:4px;padding:4px 6px 4px 12px;border-radius:999px;background:var(--surface);font-size:.85rem}
+.chipx button{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;color:var(--ink-3)}
+.chipx button:hover{background:var(--hover);color:var(--ink)}
+.file{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px}
+.file .fi{width:38px;height:38px;border-radius:10px;background:var(--surface);display:grid;place-items:center;flex:none}
+.file .fi svg{width:19px;height:19px}
+.drop{display:flex;flex-direction:column;align-items:center;gap:4px;padding:22px;border:1px dashed var(--line-2);border-radius:12px;color:var(--ink-2);text-align:center;cursor:pointer;margin-top:10px;font-size:.9rem}
+.drop svg{width:24px;height:24px}
+.drop:hover,.drop.over{background:var(--hover);color:var(--ink)}
+.sres{display:flex;align-items:center;gap:12px;width:100%;padding:10px 12px;border-radius:10px;text-align:left}
+.sres:hover{background:var(--hover)}
+.sres svg{width:18px;height:18px;color:var(--ink-2)}
+.sres .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.backdrop{display:none}
 
-/* prep */
-.prob{display:grid;grid-template-columns:minmax(0,1fr) 56px;gap:6px 14px;align-items:center}
-.prob .bar{height:10px}
-.prob .p{font-family:var(--f-num);font-weight:800;text-align:right}
-.lq{border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:hidden}
-.lq summary{list-style:none;display:flex;gap:12px;align-items:flex-start;padding:16px 18px;cursor:pointer}
-.lq summary::-webkit-details-marker{display:none}
-.lq summary .chev{margin-left:auto;transition:transform .2s;color:var(--ink-3);flex:none}
-.lq[open] summary .chev{transform:rotate(180deg)}
-.lq .in{padding:0 18px 18px 62px;display:flex;flex-direction:column;gap:10px}
-.lq .in h4{font-family:var(--f-body);font-weight:700;font-size:.82rem;color:var(--ink-2)}
-.check{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed var(--line);cursor:pointer}
-.check:last-child{border-bottom:0}
-.check input{width:20px;height:20px;accent-color:var(--leaf);margin-top:2px;flex:none}
-.check input:checked+span{text-decoration:line-through;color:var(--ink-3)}
-.sw{display:flex;gap:10px;align-items:flex-start}
-.sw svg{width:18px;height:18px;flex:none;margin-top:3px}
-
-/* report */
-.rep-hero{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:28px;align-items:center}
-.dims{display:flex;flex-direction:column;gap:14px}
-.dim{display:grid;grid-template-columns:88px minmax(0,1fr) 40px;gap:12px;align-items:center;font-size:.9rem}
-.dim .bar{height:10px}
-.dim b{font-family:var(--f-num);text-align:right}
-.qa{border:1px solid var(--line);border-radius:16px;background:var(--surface);overflow:hidden}
-.qa>summary{list-style:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:14px;align-items:center;padding:18px 20px;cursor:pointer}
-.qa>summary::-webkit-details-marker{display:none}
-.qa .chev{transition:transform .2s;color:var(--ink-3)}
-.qa[open] .chev{transform:rotate(180deg)}
-.qa-body{padding:0 20px 22px;display:grid;gap:14px}
-.blk{border-radius:16px;padding:14px 16px}
-.blk h4{font-family:var(--f-body);font-size:.8rem;font-weight:700;letter-spacing:.06em;margin-bottom:6px;display:flex;align-items:center;gap:6px}
-.blk h4 svg{width:15px;height:15px}
-.blk.q{background:var(--surface-2)}
-.blk.a{background:var(--surface);border:1px solid var(--line)}
-.blk.a p{color:var(--ink-2)}
-.blk.good{background:var(--leaf-soft)} .blk.good h4{color:var(--good)}
-.blk.fix{background:var(--sun-soft)} .blk.fix h4{color:var(--sun-ink)}
-.blk.better{background:var(--sky-soft)} .blk.better h4{color:var(--sky)}
-.blk ul{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:4px}
-.hl{background:color-mix(in srgb,var(--sun) 35%,transparent);border-radius:4px;padding:0 2px}
-
-.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);padding:12px 20px;border-radius:999px;font-weight:500;opacity:0;pointer-events:none;transition:all .25s;z-index:50;max-width:calc(100% - 32px)}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-
-/* topbar for phones */
-.topbar{display:none}
-@media (max-width:1080px){
-  .g-side,.iv,.g-side-l{grid-template-columns:minmax(0,1fr)}
-  .jd{position:static}
-}
-@media (max-width:860px){
-  .app{grid-template-columns:minmax(0,1fr)}
-  .rail{display:none}
-  .topbar{display:flex;flex-direction:column;gap:10px;position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line);padding:12px 16px 10px}
-  .topbar .row{flex-wrap:nowrap}
-  .topnav{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px}
-  .topnav::-webkit-scrollbar{display:none}
-  .topnav a{flex:none;padding:7px 14px;border-radius:999px;background:var(--surface-2);color:var(--ink-2);text-decoration:none;font-size:.88rem;font-weight:500}
-  .topnav a.on{background:var(--leaf);color:var(--leaf-ink)}
-  main{padding-block:20px 48px}
-  .g2,.g3{grid-template-columns:minmax(0,1fr)}
-  .hero{grid-template-columns:minmax(0,1fr);padding:24px 20px}
-  .hero .mascot{display:none}
-  .rep-hero{grid-template-columns:minmax(0,1fr);justify-items:start}
-  .stage{min-height:460px;padding:20px}
-  .lq .in{padding-left:18px}
-  .qa>summary{grid-template-columns:auto minmax(0,1fr) auto}
-  .qa>summary .score-pill{grid-column:3}
-  .qa>summary .chev{display:none}
+/* ---------- responsive ---------- */
+@media (max-width:768px){
+  .side{position:fixed;inset:0 auto 0 0;z-index:60;margin-left:-280px;width:280px;transition:margin-left .22s}
+  .app.collapsed .side{margin-left:-280px}
+  .app.open .side{margin-left:0}
+  .app.open .backdrop{display:block;position:fixed;inset:0;background:var(--scrim);z-index:55}
+  .head .when-collapsed,.app.collapsed .head .when-collapsed{display:grid}
+  .hide-m{display:none!important}
+  .wrap,.chat{padding-left:16px;padding-right:16px}
+  .dock{padding:0 12px 12px}
+  .grid2,.jgrid{grid-template-columns:minmax(0,1fr)}
+  .m-me{max-width:88%}
+  .set{flex-direction:column;min-height:0}
+  .set-tabs{width:auto;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line)}
+  .set-tabs button{white-space:nowrap}
+  .set-body{padding:6px 16px 18px}
+  .qrow .ops{opacity:1}
+  .c-bar{flex-wrap:wrap}
+  .qrow{flex-wrap:wrap}
+  .qrow .ops{width:100%;justify-content:flex-end;margin-top:-6px}
+  .setup-wrap{padding:28px 16px 48px}
+  .su-row{flex-direction:column;align-items:flex-start;gap:6px;padding:12px 16px}
+  .su-row .k{width:auto;font-size:.8rem}
+  .qprev li .c{display:none}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
-
-<div class="app">
-  <aside class="rail" aria-label="主選單">
-    <div class="brand">
-      <svg class="logo" viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1E4D8C"/><stop offset="1" stop-color="#2F86C9"/></linearGradient></defs><rect width="40" height="40" rx="10" fill="url(#lg)"/><path d="M11 13.5a3.5 3.5 0 0 1 3.5-3.5h11a3.5 3.5 0 0 1 3.5 3.5v8a3.5 3.5 0 0 1-3.5 3.5H19l-5 4v-4h0a3 3 0 0 1-3-3Z" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><path d="M16 16v3M19 14.5v6M22 15.5v4M25 17v1" stroke="#fff" stroke-width="2" stroke-linecap="round"/><circle cx="31" cy="9" r="3" fill="#E8A33A"/></svg>
-      <div><b>AI Interview</b><small>Career Coach</small></div>
+</head><body>
+<div class="app" id="app">
+  <aside class="side" id="side" aria-label="側邊欄">
+    <div class="side-top">
+      <a class="brand" href="#new"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 10v4M8 6v12M12 9v6M16 4v16M20 10v4"/></svg>AI Interview</a>
+      <button class="ib" id="sSearch" type="button" aria-label="搜尋（⌘K）"></button>
+      <button class="ib" id="sClose" type="button" aria-label="關閉側邊欄"></button>
     </div>
-    <nav class="nav" id="nav"></nav>
-    <div class="rail-foot">
-      <a class="mini-me" href="#profile" style="text-decoration:none;color:inherit">
-        <div class="av">妤</div>
-        <div><b>陳品妤</b><br><small>Open to work</small></div>
-      </a>
-      <button class="theme-btn" id="themeBtn" type="button"></button>
+    <div class="side-scroll" id="sideList"></div>
+    <div class="side-foot">
+      <button class="me" id="meBtn" type="button"><span class="av">妤</span><span><b>陳品妤</b><small>Plus</small></span></button>
     </div>
   </aside>
-  <div style="min-width:0">
-    <header class="topbar">
-      <div class="row between">
-        <div class="row" style="gap:8px"><svg class="logo" style="width:30px;height:30px" viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="lg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1E4D8C"/><stop offset="1" stop-color="#2F86C9"/></linearGradient></defs><rect width="40" height="40" rx="10" fill="url(#lg2)"/><path d="M11 13.5a3.5 3.5 0 0 1 3.5-3.5h11a3.5 3.5 0 0 1 3.5 3.5v8a3.5 3.5 0 0 1-3.5 3.5H19l-5 4v-4h0a3 3 0 0 1-3-3Z" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/><path d="M16 16v3M19 14.5v6M22 15.5v4M25 17v1" stroke="#fff" stroke-width="2" stroke-linecap="round"/><circle cx="31" cy="9" r="3" fill="#E8A33A"/></svg><b style="font-family:var(--f-display);font-weight:800;font-size:1.05rem">AI Interview</b></div>
-        <div class="row" style="gap:8px"><button class="icon-btn" id="themeBtn2" type="button" aria-label="切換深淺色"></button><a href="#profile" class="av" style="width:32px;height:32px;font-size:.85rem;text-decoration:none">妤</a></div>
-      </div>
-      <nav class="topnav" id="topnav"></nav>
+  <div class="backdrop" id="backdrop"></div>
+  <div class="main">
+    <header class="head">
+      <button class="ib when-collapsed" id="hOpen" type="button" aria-label="開啟側邊欄"></button>
+      <a class="ib when-collapsed hide-m" id="hNew" href="#new" aria-label="新面試"></a>
+      <div class="title" id="hTitle"></div>
+      <span class="sp"></span>
+      <div class="row" id="hRight" style="gap:4px;flex-wrap:nowrap"></div>
+      <button class="ib" id="themeBtn" type="button" aria-label="切換深色/淺色"></button>
     </header>
-    <main id="main"></main>
+    <div class="view" id="view"></div>
+    <div class="dock" id="dock" hidden></div>
   </div>
 </div>
 <div class="toast" id="toast" role="status"></div>
 
 <script>
-/* ---------- icons ---------- */
-const I = {
-  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>',
-  mic:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
-  stop:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2.5"/></svg>',
-  user:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
-  search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
-  list:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2" fill="currentColor"/><circle cx="4.5" cy="12" r="1.2" fill="currentColor"/><circle cx="4.5" cy="18" r="1.2" fill="currentColor"/></svg>',
-  bulb:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3Z"/></svg>',
-  star:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"/></svg>',
-  sun:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
-  moon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>',
-  upload:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a5 5 0 0 1-.6-9.96A6 6 0 0 1 18 8a4.5 4.5 0 0 1 0 9"/><path d="M12 12v9M8.5 15.5 12 12l3.5 3.5"/></svg>',
-  edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/></svg>',
-  trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
-  up:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg>',
-  down:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
-  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
-  spark:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3c.5 4.5 2.5 6.5 7 7-4.5.5-6.5 2.5-7 7-.5-4.5-2.5-6.5-7-7 4.5-.5 6.5-2.5 7-7Z"/><path d="M19 15c.2 1.6.9 2.3 2.5 2.5-1.6.2-2.3.9-2.5 2.5-.2-1.6-.9-2.3-2.5-2.5 1.6-.2 2.3-.9 2.5-2.5Z"/></svg>',
-  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4.5 4.5L19 7"/></svg>',
-  alert:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>',
-  quote:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 7H6a2 2 0 0 0-2 2v4h4v4H6v1h2a2 2 0 0 0 2-2Zm10 0h-4a2 2 0 0 0-2 2v4h4v4h-2v1h2a2 2 0 0 0 2-2Z"/></svg>',
-  pin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12Z"/><circle cx="12" cy="9" r="2.5"/></svg>',
-  arrow:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
-  clock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-  bookmark:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4Z"/></svg>',
-  report:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
-  refresh:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.6-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5L20 16M20 20v-4h-4"/></svg>',
-  chev:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>'
+/* ---------- icons (thin line, monochrome) ---------- */
+const sv=(d,w=1.75)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const I={
+  edit:sv('<path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M18.4 2.6a2 2 0 0 1 2.9 2.9L12 14.8l-4 1 1-4Z"/>'),
+  search:sv('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
+  side:sv('<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>'),
+  report:sv('<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>'),
+  book:sv('<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5Z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/>'),
+  brief:sv('<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/>'),
+  bulb:sv('<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3Z"/>'),
+  chat:sv('<path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12Z"/>'),
+  sun:sv('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
+  moon:sv('<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/>'),
+  share:sv('<path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>'),
+  plus:sv('<path d="M12 5v14M5 12h14"/>',2),
+  more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>',
+  mic:sv('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',2),
+  stop:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
+  up:sv('<path d="M12 19V5M6 11l6-6 6 6"/>',2.2),
+  chev:sv('<path d="m6 9 6 6 6-6"/>',2),
+  right:sv('<path d="m9 6 6 6-6 6"/>',2),
+  left:sv('<path d="m15 6-6 6 6 6"/>',2),
+  x:sv('<path d="M6 6l12 12M18 6 6 18"/>',2),
+  check:sv('<path d="m5 12 4.5 4.5L19 7"/>',2.2),
+  copy:sv('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>'),
+  speak:sv('<path d="M11 5 6 9H3v6h3l5 4Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>'),
+  redo:sv('<path d="M20 11a8 8 0 0 0-14.6-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5L20 16M20 20v-4h-4"/>'),
+  trash:sv('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'),
+  arrUp:sv('<path d="m6 15 6-6 6 6"/>',2),
+  arrDn:sv('<path d="m6 9 6 6 6-6"/>',2),
+  pencil:sv('<path d="M4 20h4L19 9l-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/>'),
+  heart:sv('<path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20Z"/>'),
+  heartF:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20Z"/></svg>',
+  upload:sv('<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>'),
+  file:sv('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>'),
+  gear:sv('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>'),
+  user:sv('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'),
+  target:sv('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>'),
+  sliders:sv('<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>'),
+  next:sv('<path d="m5 5 9 7-9 7Z"/><path d="M19 5v14"/>'),
+  clock:sv('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+  folder:sv('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>'),
 };
 
-/* AI interviewer "Ava": a calm gradient orb with a soft face */
-let _mid=0;
-function mascot(){const id='av'+(++_mid);return `<svg viewBox="0 0 100 100" aria-hidden="true">
-  <defs><radialGradient id="${id}" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#5FA8E6"/><stop offset=".6" stop-color="#2560A8"/><stop offset="1" stop-color="#16325E"/></radialGradient></defs>
-  <circle cx="50" cy="50" r="44" fill="url(#${id})"/>
-  <circle cx="50" cy="50" r="44" fill="none" stroke="#E8A33A" stroke-width="2.5" stroke-dasharray="6 10" opacity=".55"/>
-  <ellipse class="glint" cx="36" cy="30" rx="12" ry="6" fill="#fff" transform="rotate(-25 36 30)"/>
-  <rect class="eye" x="35" y="42" width="7" height="12" rx="3.5" fill="#fff"/>
-  <rect class="eye" x="58" y="42" width="7" height="12" rx="3.5" fill="#fff"/>
-  <path class="smile" d="M41 63q9 7 18 0" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/>
-  <ellipse class="mouth-o" cx="50" cy="65" rx="6" ry="4" fill="#fff"/>
-</svg>`}
-
-/* ---------- mock data ---------- */
-const ME = {name:'陳品妤', short:'品妤', role:'前端工程師', years:3};
-const JOBS = [
-  {id:'j1', co:'Northwind Labs', logo:'N', tone:'leaf', title:'Senior Frontend Engineer', loc:'台北市信義區', type:'全職・混合辦公', pay:'月薪 75,000 – 95,000', match:92, tags:['React','TypeScript','設計系統'], posted:'2 天前',
-   about:'Northwind 是總部在新加坡的餐飲 SaaS 公司，服務亞太 3,200 家店家，台北是亞太研發中心。你會負責 POS 後台與店家 App 的前端架構。',
-   duties:['主導後台前端架構與效能優化','與設計師共建元件庫','帶領 2 位初階工程師做 Code Review'],
-   req:['3 年以上 React 經驗','熟悉 TypeScript 與狀態管理','有設計系統經驗佳']},
-  {id:'j2', co:'Bluepeak Pay', logo:'B', tone:'sky', title:'Frontend Engineer, Payments', loc:'台北市中山區', type:'全職・每週 2 天遠端', pay:'年薪 120 – 150 萬', match:84, tags:['Vue','Web 安全','測試'], posted:'今天',
+/* ---------- data ---------- */
+const ME={name:'陳品妤',short:'品妤'};
+const JOBS=[
+  {id:'j1',co:'Northwind Labs',logo:'N',title:'Senior Frontend Engineer',loc:'台北市信義區',type:'全職・混合辦公',pay:'月薪 75,000 – 95,000',match:92,tags:['React','TypeScript','設計系統'],f:['hybrid'],
+   about:'總部在新加坡的餐飲 SaaS 公司，服務亞太 3,200 家店家，台北是亞太研發中心。你會負責 POS 後台與店家 App 的前端架構。',
+   duties:['主導後台前端架構與效能優化','與設計師共建元件庫','帶領 2 位初階工程師做 Code Review'],req:['3 年以上 React 經驗','熟悉 TypeScript 與狀態管理','有設計系統經驗佳']},
+  {id:'j2',co:'Bluepeak Pay',logo:'B',title:'Frontend Engineer, Payments',loc:'台北市中山區',type:'全職・每週 2 天遠端',pay:'年薪 120 – 150 萬',match:84,tags:['Vue','Web 安全','測試'],f:['foreign','remote'],
    about:'美系支付公司，台灣團隊負責亞洲市場的商家產品，工作語言為英文。你會參與商家收款頁與對帳儀表板開發。',
-   duties:['開發收款與對帳介面','撰寫單元與 E2E 測試','和後端一起定義 API 規格'],
-   req:['2 年以上前端經驗','了解 XSS、CSRF 等前端資安','英文口說流利，能參與跨國會議']},
-  {id:'j3', co:'Lumen Travel', logo:'L', tone:'sun', title:'Frontend Engineer', loc:'台中市西屯區', type:'全職・進辦公室', pay:'月薪 58,000 – 72,000', match:76, tags:['Next.js','SEO','i18n'], posted:'5 天前',
+   duties:['開發收款與對帳介面','撰寫單元與 E2E 測試','和後端一起定義 API 規格'],req:['2 年以上前端經驗','了解 XSS、CSRF 等前端資安','英文口說流利']},
+  {id:'j3',co:'Lumen Travel',logo:'L',title:'Frontend Engineer',loc:'台中市西屯區',type:'全職・進辦公室',pay:'月薪 58,000 – 72,000',match:76,tags:['Next.js','SEO','i18n'],f:['foreign'],
    about:'日系線上旅遊平台的台灣分公司，每月 80 萬造訪人次，正在改版行程預訂流程。',
-   duties:['維護 Next.js 官網與預訂流程','改善 Core Web Vitals','多語系內容管理'],
-   req:['熟悉 SSR / SSG','有 SEO 優化經驗','英文可作為工作語言']},
-  {id:'j4', co:'Cloudnine Health', logo:'C', tone:'peach', title:'Product Frontend Engineer', loc:'新竹市東區', type:'全職・完全遠端', pay:'月薪 70,000 – 88,000', match:81, tags:['React Native','資料視覺化','A/B 測試'], posted:'1 週前',
+   duties:['維護 Next.js 官網與預訂流程','改善 Core Web Vitals','多語系內容管理'],req:['熟悉 SSR / SSG','有 SEO 優化經驗','英文可作為工作語言']},
+  {id:'j4',co:'Cloudnine Health',logo:'C',title:'Product Frontend Engineer',loc:'新竹市東區',type:'全職・完全遠端',pay:'月薪 70,000 – 88,000',match:81,tags:['React Native','資料視覺化','A/B 測試'],f:['remote'],
    about:'做慢性病照護 App，和醫院合作，重視無障礙與長輩友善設計。',
-   duties:['開發病患端 App 與照護儀表板','與 PM 一起設計實驗','推動無障礙標準'],
-   req:['React 或 React Native 經驗','對產品數據有興趣','重視使用者體驗']},
-  {id:'j5', co:'Atelier Nine', logo:'A', tone:'leaf', title:'UI Engineer', loc:'台北市大安區', type:'全職・混合辦公', pay:'月薪 60,000 – 75,000', match:73, tags:['CSS','動態效果','Figma'], posted:'3 天前',
+   duties:['開發病患端 App 與照護儀表板','與 PM 一起設計實驗','推動無障礙標準'],req:['React 或 React Native 經驗','對產品數據有興趣','重視使用者體驗']},
+  {id:'j5',co:'Atelier Nine',logo:'A',title:'UI Engineer',loc:'台北市大安區',type:'全職・混合辦公',pay:'月薪 60,000 – 75,000',match:73,tags:['CSS','動態效果','Figma'],f:['hybrid'],
    about:'品牌設計工作室，替客戶打造形象網站與互動體驗。',
-   duties:['把設計稿轉成精緻的互動網頁','製作微互動與動畫','維護內部樣式指南'],
-   req:['CSS 功力扎實','熟悉 GSAP 或 Framer Motion','有作品集']},
-  {id:'j6', co:'Harbor Logistics', logo:'H', tone:'sky', title:'Frontend Engineering Manager', loc:'桃園市龜山區', type:'全職・進辦公室', pay:'年薪 160 – 200 萬', match:64, tags:['團隊管理','微前端','React'], posted:'今天',
+   duties:['把設計稿轉成精緻的互動網頁','製作微互動與動畫','維護內部樣式指南'],req:['CSS 功力扎實','熟悉 GSAP 或 Framer Motion','有作品集']},
+  {id:'j6',co:'Harbor Logistics',logo:'H',title:'Frontend Engineering Manager',loc:'桃園市龜山區',type:'全職・進辦公室',pay:'年薪 160 – 200 萬',match:64,tags:['團隊管理','微前端','React'],f:[],
    about:'跨境物流平台，前端團隊 8 人，正在拆分單體前端。',
-   duties:['帶領前端團隊與招募','規劃微前端遷移','訂定工程規範'],
-   req:['5 年以上前端經驗','2 年以上帶人經驗','大型專案架構經驗']}
+   duties:['帶領前端團隊與招募','規劃微前端遷移','訂定工程規範'],req:['5 年以上前端經驗','2 年以上帶人經驗','大型專案架構經驗']}
 ];
-let QUESTIONS = [
-  {cat:'自我介紹', lv:'基礎', t:'請用兩分鐘介紹你自己，以及為什麼想加入 Northwind Labs？'},
-  {cat:'技術深度', lv:'進階', t:'你在過去專案中如何處理 React 應用的效能問題？請舉一個實際例子。'},
-  {cat:'團隊合作', lv:'中等', t:'分享一次你和設計師意見不同的經驗，最後怎麼取得共識？'},
-  {cat:'系統設計', lv:'進階', t:'如果要從零建立一套給 5 個產品線共用的元件庫，你會怎麼規劃？'},
-  {cat:'動機與規劃', lv:'基礎', t:'未來三年，你希望自己在技術或職涯上有什麼樣的成長？'}
-];
-const BASEQ = QUESTIONS.map(q=>({...q}));
-const ANSWERS = [
+const SETS={
+ j1:[
+  {cat:'自我介紹',lv:'基礎',t:'請用兩分鐘介紹你自己，以及為什麼想加入 Northwind Labs？'},
+  {cat:'技術深度',lv:'進階',t:'你在過去專案中如何處理 React 應用的效能問題？請舉一個實際例子。'},
+  {cat:'團隊合作',lv:'中等',t:'分享一次你和設計師意見不同的經驗，最後怎麼取得共識？'},
+  {cat:'系統設計',lv:'進階',t:'如果要從零建立一套給 5 個產品線共用的元件庫，你會怎麼規劃？'},
+  {cat:'動機與規劃',lv:'基礎',t:'未來三年，你希望自己在技術或職涯上有什麼樣的成長？'}
+],
+ j2:[
+  {cat:'自我介紹',lv:'基礎',t:'請用英文簡短介紹你自己，以及為什麼對支付產業有興趣？'},
+  {cat:'技術深度',lv:'進階',t:'你會怎麼防範收款頁面的 XSS 和 CSRF 攻擊？請說明具體做法。'},
+  {cat:'團隊合作',lv:'中等',t:'分享一次你和後端一起定義 API 規格的經驗，遇到什麼分歧、怎麼解決？'}
+ ]
+};
+const qs=(id=S.job)=>SETS[id]||(SETS[id]=[]);
+const BASEQ=SETS.j1.map(q=>({...q}));
+const ANSWERS=[
   '我是品妤，目前在一間電商公司當前端工程師快三年了，主要負責會員中心和結帳流程。我很喜歡把複雜的流程做得簡單好用，像是去年把結帳步驟從五步縮成三步，轉換率提升了 12%。會想加入 Northwind，是因為我自己很常用你們的點餐系統，覺得店家端還有很多可以讓操作更順的地方。',
   '之前我們的商品列表頁在資料量大時會很卡，我先用 React Profiler 找出問題，發現是每次篩選都重新渲染整個列表。我把列表改成虛擬捲動，再把篩選邏輯用 useMemo 包起來，首次渲染時間從 2.8 秒降到 0.9 秒左右。',
   '有一次設計師想在結帳頁加很多動畫，我擔心會影響低階手機的效能。我做了一個簡單的原型，在實際的舊手機上錄影給她看，然後我們一起挑出最重要的兩個動畫保留，其他改成靜態。',
   '嗯⋯我會先盤點各產品線現有的元件，找出重複最多的，像按鈕、表單這些。然後跟設計師一起定 design token，再用 Storybook 做文件。版本管理的話應該會用 monorepo 吧。',
   '我希望三年內可以成為能帶領小團隊的資深工程師，也想多累積前端架構和效能優化的經驗，可能也會想多了解一些產品思維。'
 ];
-const REPORT = [
-  {score:86, good:['開場就說出具體成果「轉換率提升 12%」，很有說服力','把個人經驗連結到公司產品，動機很真誠'], fix:['「快三年了」可以直接說「2 年 10 個月」，更精準','兩分鐘的回答略短，可以補一句你的工作風格或價值觀'], better:'我是陳品妤，有將近三年的前端經驗，專注在電商的會員與結帳體驗。去年我主導結帳流程改版，把五個步驟縮成三步，轉換率提升了 12%。我做事習慣先看數據、再動手改。我自己就是 Northwind 點餐系統的使用者，也觀察到店家端還有不少能優化的地方，這是我很想加入的原因。', hl:'轉換率提升了 12%'},
-  {score:91, good:['用「發現問題 → 工具定位 → 解法 → 量化結果」的順序，結構很清楚','提到 Profiler、虛擬捲動、useMemo，技術用詞精準'], fix:['可以補充「為什麼選虛擬捲動而不是分頁」，展現取捨思考','最後加一句這次經驗讓你之後怎麼預防，會更完整'], better:'可在結尾加上：「這次之後，我在團隊導入了效能預算，PR 若讓列表渲染超過 1 秒就會在 CI 提醒，之後半年沒有再出現類似問題。」', hl:'從 2.8 秒降到 0.9 秒'},
-  {score:84, good:['用原型和實機錄影溝通，展現「用證據說服」的能力','結果是雙方共同挑選，不是單方面妥協'], fix:['沒有說出最終結果對使用者或數據的影響','可以提到你怎麼照顧設計師的感受，展現同理心'], better:'補充結果：「上線後低階機的結帳頁載入時間維持在 1.5 秒內，設計師也把這套『實機驗證』流程帶進後續專案。」', hl:'在實際的舊手機上錄影'},
-  {score:68, good:['有提到 design token 與 Storybook，方向正確','知道要先盤點現況，不是直接開做'], fix:['開頭的「嗯⋯」和「應該會用吧」讓回答聽起來不確定','缺少版本策略、貢獻流程、採用率追蹤等主管會關心的面向','建議用「目標 → 架構 → 流程 → 衡量」四段來回答系統設計題'], better:'我會分四步：第一，訪談 5 個產品線、盤點元件，找出共用度最高的 20 個；第二，和設計師訂出 design token，用 monorepo 管理，元件獨立版本、遵守語意化版本號；第三，建立貢獻流程與 Storybook 文件，讓各產品線能提需求；最後追蹤採用率與 UI 不一致回報數，每季檢討。', hl:'嗯⋯我會先盤點'},
-  {score:79, good:['目標清楚，有提到「帶領小團隊」','和職缺的資深定位相符'], fix:['可以說出具體的里程碑，例如第一年想完成什麼','把「產品思維」連結到 Northwind 的業務，例如了解店家營運'], better:'第一年我想先把後台效能和元件庫做到穩定，成為團隊裡架構問題的第一窗口；第二、三年希望能帶 2 到 3 位工程師，也多跟 PM 和店家訪談，讓技術決策更貼近餐飲現場的需求。', hl:'帶領小團隊'}
+const REPORT=[
+  {score:86,good:['開場就說出具體成果「轉換率提升 12%」，很有說服力','把個人經驗連結到公司產品，動機很真誠'],fix:['「快三年了」可以直接說「2 年 10 個月」，更精準','兩分鐘的回答略短，可以補一句你的工作風格或價值觀'],better:'我是陳品妤，有將近三年的前端經驗，專注在電商的會員與結帳體驗。去年我主導結帳流程改版，把五個步驟縮成三步，轉換率提升了 12%。我做事習慣先看數據、再動手改。我自己就是 Northwind 點餐系統的使用者，也觀察到店家端還有不少能優化的地方，這是我很想加入的原因。',hl:'轉換率提升了 12%'},
+  {score:91,good:['用「發現問題 → 工具定位 → 解法 → 量化結果」的順序，結構很清楚','提到 Profiler、虛擬捲動、useMemo，技術用詞精準'],fix:['可以補充「為什麼選虛擬捲動而不是分頁」，展現取捨思考','最後加一句這次經驗讓你之後怎麼預防，會更完整'],better:'可在結尾加上：「這次之後，我在團隊導入了效能預算，PR 若讓列表渲染超過 1 秒就會在 CI 提醒，之後半年沒有再出現類似問題。」',hl:'從 2.8 秒降到 0.9 秒'},
+  {score:84,good:['用原型和實機錄影溝通，展現「用證據說服」的能力','結果是雙方共同挑選，不是單方面妥協'],fix:['沒有說出最終結果對使用者或數據的影響','可以提到你怎麼照顧設計師的感受，展現同理心'],better:'補充結果：「上線後低階機的結帳頁載入時間維持在 1.5 秒內，設計師也把這套『實機驗證』流程帶進後續專案。」',hl:'在實際的舊手機上錄影'},
+  {score:68,good:['有提到 design token 與 Storybook，方向正確','知道要先盤點現況，不是直接開做'],fix:['開頭的「嗯⋯」和「應該會用吧」讓回答聽起來不確定','缺少版本策略、貢獻流程、採用率追蹤等主管會關心的面向','建議用「目標 → 架構 → 流程 → 衡量」四段來回答系統設計題'],better:'我會分四步：第一，訪談 5 個產品線、盤點元件，找出共用度最高的 20 個；第二，和設計師訂出 design token，用 monorepo 管理，元件獨立版本、遵守語意化版本號；第三，建立貢獻流程與 Storybook 文件，讓各產品線能提需求；最後追蹤採用率與 UI 不一致回報數，每季檢討。',hl:'嗯⋯我會先盤點'},
+  {score:79,good:['目標清楚，有提到「帶領小團隊」','和職缺的資深定位相符'],fix:['可以說出具體的里程碑，例如第一年想完成什麼','把「產品思維」連結到 Northwind 的業務，例如了解店家營運'],better:'第一年我想先把後台效能和元件庫做到穩定，成為團隊裡架構問題的第一窗口；第二、三年希望能帶 2 到 3 位工程師，也多跟 PM 和店家訪談，讓技術決策更貼近餐飲現場的需求。',hl:'帶領小團隊'}
 ];
-const HISTORY = [
-  {d:'10/06', job:'Northwind Labs・Senior Frontend Engineer', s:82},
-  {d:'10/04', job:'Bluepeak Pay・Frontend Engineer', s:77},
-  {d:'10/02', job:'Behavioral・行為面試練習', s:74},
-  {d:'09/29', job:'Cloudnine Health・Product Frontend', s:71},
+const HISTORY=[
+  {id:'r6',job:'j1',t:'Northwind Labs・Senior Frontend Engineer',s:82,delta:5,when:'10/06 14:32',grp:'最近 7 天',n:5,per:'溫和引導',dur:'14 分鐘'},
+  {id:'r5',job:'j2',t:'Bluepeak Pay・Frontend Engineer, Payments',s:77,delta:3,when:'10/04 20:10',grp:'最近 7 天',n:3,per:'真實模擬',dur:'9 分鐘'},
+  {id:'r4',job:'j1',t:'行為面試練習',s:74,delta:3,when:'10/02 21:05',grp:'最近 7 天',n:5,per:'溫和引導',dur:'15 分鐘'},
+  {id:'r3',job:'j4',t:'Cloudnine Health・Product Frontend Engineer',s:71,delta:1,when:'09/29 19:40',grp:'更早',n:5,per:'真實模擬',dur:'16 分鐘'},
+  {id:'r2',job:'j1',t:'Northwind Labs・Senior Frontend Engineer',s:70,delta:5,when:'09/25 22:15',grp:'更早',n:3,per:'溫和引導',dur:'8 分鐘'},
+  {id:'r1',job:'j3',t:'Lumen Travel・Frontend Engineer',s:65,delta:null,when:'09/20 20:30',grp:'更早',n:3,per:'溫和引導',dur:'9 分鐘'},
 ];
-const TREND = [62,65,64,70,71,74,77,82];
+HISTORY.forEach(h=>h.ready=true);
+/* 面試結束後報告不會立刻好：先顯示「評分中」，完成後通知 */
+function addHistory(iv){
+  const j=job(iv.job), id='r'+Date.now(), prev=HISTORY.find(h=>h.job===iv.job&&h.ready);
+  HISTORY.unshift({id,job:iv.job,t:`${j.co}・${j.title}`,s:82,delta:prev?82-prev.s:null,when:'剛剛',grp:'最近 7 天',n:iv.answered,per:PERSONAS[iv.persona].name,dur:Math.max(1,Math.round(iv.t/60))+' 分鐘',ready:false});
+  setTimeout(()=>{ const h=HISTORY.find(x=>x.id===id); if(!h) return; h.ready=true; toast('報告完成了');
+    if(S.route==='report') render(); if(S.route==='chat') renderDock();
+    const c=$('#rc-'+id); if(c){const t=document.createElement('div');t.innerHTML=cardHTML(id);c.replaceWith(t.firstElementChild);} },3500);
+  return id;
+}
+const MODES={quick:{n:3,name:'快速',sub:'3 題・約 8 分鐘'},standard:{n:5,name:'標準',sub:'5 題・約 15 分鐘'},deep:{n:8,name:'深入',sub:'8 題・約 25 分鐘'}};
+const PERSONAS={warm:{name:'溫和引導',sub:'適合第一次練習'},real:{name:'真實模擬',sub:'像正式面試一樣'},tough:{name:'壓力面試',sub:'會追問細節'}};
+const LANGS={zh:'中文',en:'English',mixed:'中英混合'};
+const CATS=['自我介紹','技術深度','系統設計','團隊合作','情境題','動機與規劃'];
 
 /* ---------- state ---------- */
-const S = {job:'j1', theme:null, iv:{phase:'setup', q:0, log:[], live:false, mode:'standard', persona:'warm', timer:0}, genLoading:false};
-try{ S.theme = localStorage.getItem('hm-theme'); }catch(e){}
+const S={route:'new',job:'j1',mode:'standard',persona:'warm',lang:'zh',saved:new Set(['j1','j2']),theme:null,iv:null,hasCv:true,preparing:new Set(),
+  gen:{cats:new Set(['技術深度','系統設計','團隊合作']),lv:'中等',n:5,loading:false},jobTab:'all',jobQ:'',
+  skills:['React','TypeScript','Next.js','CSS / Tailwind','Jest','Figma','Git'],cv:{name:'陳品妤_履歷_2026.pdf',size:'412 KB',date:'2026/09/28'}};
+try{S.theme=localStorage.getItem('ai-theme')}catch(e){}
+/* 網址加上 ?fresh 可以看新使用者第一次進來的畫面 */
+if(/fresh/.test(location.search)){ S.saved.clear(); S.hasCv=false; HISTORY.length=0; }
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const job=id=>JOBS.find(j=>j.id===id)||JOBS[0];
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2000)}
+
+/* ---------- theme ---------- */
+const isDark=()=>S.theme?S.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
 function applyTheme(){
   if(S.theme) document.documentElement.setAttribute('data-theme',S.theme); else document.documentElement.removeAttribute('data-theme');
-  const dark = S.theme ? S.theme==='dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-  document.getElementById('themeBtn').innerHTML = (dark?I.sun:I.moon).replace('<svg','<svg width="16" height="16"') + (dark?'淺色模式':'深色模式');
-  document.getElementById('themeBtn2').innerHTML = dark?I.sun:I.moon;
+  $('#themeBtn').innerHTML=isDark()?I.sun:I.moon;
 }
-function toggleTheme(){
-  const dark = S.theme ? S.theme==='dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-  S.theme = dark?'light':'dark'; try{localStorage.setItem('hm-theme',S.theme)}catch(e){} applyTheme();
-}
-document.getElementById('themeBtn').onclick=toggleTheme;
-document.getElementById('themeBtn2').onclick=toggleTheme;
+function setTheme(t){S.theme=t; try{t?localStorage.setItem('ai-theme',t):localStorage.removeItem('ai-theme')}catch(e){} applyTheme();}
+$('#themeBtn').onclick=()=>setTheme(isDark()?'light':'dark');
 
-function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2200)}
-const job = id => JOBS.find(j=>j.id===id)||JOBS[0];
-const scoreCls = s => s>=80?'s-good':s>=70?'s-mid':'s-low';
-function ring(v,size=120,stroke=12,color='var(--leaf)',label=''){
-  const r=(size-stroke)/2, c=2*Math.PI*r;
-  return `<div class="ring" style="width:${size}px;height:${size}px"><svg width="${size}" height="${size}"><circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--surface-2)" stroke-width="${stroke}"/><circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c*(1-v/100)}"/></svg><div class="c"><b style="font-size:${size/3.4}px">${v}</b><span class="faint">${label}</span></div></div>`;
+/* ---------- sidebar ---------- */
+const NAV=[['new','新面試','edit'],['report','面試報告','report'],['questions','題庫生成','book'],['jobs','職缺','brief'],['prep','面試建議','bulb']];
+const targets=()=>JOBS.filter(j=>S.saved.has(j.id));
+const unfinished=()=>!!(S.iv&&S.iv.phase!=='done');
+function renderSide(){
+  const r=S.route, iv=S.iv, tg=targets();
+  $('#sideList').innerHTML=
+    (unfinished()&&r!=='chat'?`<a class="nav-live" href="#chat"><span class="live-dot"></span><span class="t">面試暫停中・第 ${Math.min(iv.q+1,iv.list.length)}/${iv.list.length} 題</span><span class="faint">繼續</span></a>`:'')+
+    NAV.map(([id,n,ic])=>`<a class="nav-i ${r===id||(r==='chat'&&id==='new')?'on':''}" href="#${id}">${I[ic]}<span class="t">${n}</span></a>`).join('')+
+    `<div class="side-h">目標職缺</div>`+
+    tg.map(j=>`<button class="nav-i" type="button" data-sjob="${j.id}">${I.folder}<span class="t">${esc(j.co)}</span><span class="r num">${S.preparing.has(j.id)?'出題中':qs(j.id).length+' 題'}</span></button>`).join('')+
+    `<button class="nav-i" type="button" id="sideAdd" style="color:var(--ink-2)">${I.plus}<span class="t">新增目標職缺</span></button>`;
+  $$('[data-sjob]').forEach(b=>b.onclick=()=>{closeDrawer();openJob(b.dataset.sjob)});
+  $('#sideAdd').onclick=()=>{closeDrawer();openJd()};
+  $$('#sideList a').forEach(a=>a.addEventListener('click',closeDrawer));
+}
+const mobile=()=>matchMedia('(max-width:768px)').matches;
+function closeDrawer(){$('#app').classList.remove('open')}
+$('#sSearch').innerHTML=I.search; $('#sClose').innerHTML=I.side; $('#hOpen').innerHTML=I.side; $('#hNew').innerHTML=I.edit;
+$('#sClose').onclick=()=>{ if(mobile()) closeDrawer(); else $('#app').classList.add('collapsed'); };
+$('#hOpen').onclick=()=>{ if(mobile()) $('#app').classList.add('open'); else $('#app').classList.remove('collapsed'); };
+$('#backdrop').onclick=closeDrawer;
+$('#sSearch').onclick=openSearch;
+$('#meBtn').onclick=e=>openMenu(e.currentTarget,[
+  {header:true,label:ME.name,sub:'pinyu.chen@example.com'},
+  {icon:'file',label:'履歷',v:'resume'},
+  {icon:'gear',label:'設定',v:'general'},
+  {sep:true},
+  {icon:isDark()?'sun':'moon',label:isDark()?'切換為淺色':'切換為深色',v:'theme'},
+  {icon:'user',label:'登出',v:'logout'},
+],v=>{ closeDrawer(); if(v==='theme') setTheme(isDark()?'light':'dark'); else if(v==='logout') toast('原型中不會真的登出'); else openSettings(v); },'up');
+
+/* ---------- popover menu ---------- */
+let menuEl=null;
+function closeMenu(){ if(menuEl){menuEl.remove();menuEl=null;document.removeEventListener('mousedown',outside,true);} }
+function outside(e){ if(menuEl&&!menuEl.contains(e.target)) closeMenu(); }
+function openMenu(anchor,items,onPick,dir='down'){
+  closeMenu();
+  const m=document.createElement('div'); m.className='menu'; m.setAttribute('role','menu');
+  m.innerHTML=items.map((it,i)=>it.sep?'<hr>':it.title?`<div class="mh">${it.title}</div>`:it.header?`<div style="padding:8px 10px 6px"><div style="font-weight:500">${it.label}</div><div class="faint">${it.sub}</div></div>`:
+    `<button type="button" role="menuitem" data-i="${i}">${it.icon?I[it.icon]:''}<span class="mt">${it.label}${it.sub?`<span class="ms">${it.sub}</span>`:''}</span>${it.checked!==undefined?`<span class="ck">${it.checked?I.check:''}</span>`:''}</button>`).join('');
+  document.body.appendChild(m); menuEl=m;
+  const r=anchor.getBoundingClientRect(), mw=m.offsetWidth, mh=m.offsetHeight;
+  const left=Math.min(Math.max(8,r.left),innerWidth-mw-8);
+  const top=(dir==='up'||r.bottom+mh+8>innerHeight)?r.top-mh-6:r.bottom+6;
+  m.style.left=left+'px'; m.style.top=Math.max(8,top)+'px';
+  m.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{const it=items[+b.dataset.i]; closeMenu(); onPick(it.v,it);});
+  setTimeout(()=>document.addEventListener('mousedown',outside,true));
+}
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){closeMenu();closeModal();} if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openSearch();} });
+
+/* ---------- modal ---------- */
+function openModal(html,cls=''){
+  closeModal();
+  const s=document.createElement('div'); s.className='scrim'; s.id='scrim';
+  s.innerHTML=`<div class="modal ${cls}" role="dialog" aria-modal="true">${html}</div>`;
+  s.addEventListener('mousedown',e=>{ if(e.target===s) closeModal(); });
+  document.body.appendChild(s);
+  s.querySelectorAll('[data-close]').forEach(b=>b.onclick=closeModal);
+  return s;
+}
+function closeModal(){ const s=$('#scrim'); if(s) s.remove(); }
+
+/* ---------- header ---------- */
+function setHead(icon,title,badge,right=''){
+  $('#hTitle').innerHTML=(icon?I[icon]:'')+`<span>${title}</span>`+(badge?`<span class="badge">${badge}</span>`:'');
+  $('#hRight').innerHTML=right;
 }
 
-/* ---------- nav ---------- */
-const ROUTES = [
-  {id:'home', name:'首頁', ic:'home'},
-  {id:'interview', name:'AI 語音面試', ic:'mic'},
-  {id:'report', name:'面試評分', ic:'report'},
-  {sep:'準備'},
-  {id:'prep', name:'面試建議', ic:'bulb'},
-  {id:'questions', name:'題目生成與編輯', ic:'list'},
-  {id:'jobs', name:'職缺找尋', ic:'search'},
-  {sep:'我的'},
-  {id:'profile', name:'個人檔案與履歷', ic:'user'},
-];
-function renderNav(cur){
-  document.getElementById('nav').innerHTML = ROUTES.map(r=>r.sep?`<div class="sep">${r.sep}</div>`:`<a href="#${r.id}" class="${r.id===cur?'on':''}">${I[r.ic]}${r.name}</a>`).join('');
-  document.getElementById('topnav').innerHTML = ROUTES.filter(r=>!r.sep).map(r=>`<a href="#${r.id}" class="${r.id===cur?'on':''}">${r.name}</a>`).join('');
-  const on=document.querySelector('#topnav a.on'); if(on) on.scrollIntoView({inline:'center',block:'nearest'});
+/* ---------- page: new interview (setup) ---------- */
+const RESUMES=['陳品妤_履歷_2026.pdf','陳品妤_英文履歷.pdf'];
+const EST={'基礎':2,'中等':3,'進階':4};
+function seg(id,opts,cur){return `<div class="seg" role="group" id="${id}">${opts.map(([k,n])=>`<button type="button" data-v="${k}" class="${cur===k?'on':''}" aria-pressed="${cur===k}">${n}</button>`).join('')}</div>`}
+function genericSet(j){return [
+  {cat:'自我介紹',lv:'基礎',t:`請用兩分鐘介紹你自己，以及為什麼想加入 ${j.co}？`},
+  {cat:'技術深度',lv:'中等',t:`請分享一個和「${j.tags[0]||j.title}」相關、你最有成就感的專案。`},
+  {cat:'團隊合作',lv:'中等',t:'分享一次你和同事意見不同的經驗，最後怎麼取得共識？'},
+  {cat:'情境題',lv:'進階',t:`如果你加入 ${j.co} 的第一個月就遇到線上重大問題，你會怎麼處理？`},
+  {cat:'動機與規劃',lv:'基礎',t:'未來三年，你希望自己在這個職位上有什麼樣的成長？'},
+  {cat:'情境題',lv:'中等',t:'如果主管給你一個時程很趕的需求，你會怎麼和他溝通範圍與優先順序？'},
+  {cat:'技術深度',lv:'進階',t:'請說明一次你做技術取捨的經驗：有哪些選項、你怎麼決定、結果如何？'},
+  {cat:'團隊合作',lv:'基礎',t:'你怎麼讓不熟悉技術的同事理解你的工作內容？'}]}
+/* 加入目標職缺：系統自動出第一組題目並產生面試建議，使用者不用先去題庫生成 */
+function addTarget(id){
+  if(S.saved.has(id)) return;
+  S.saved.add(id);
+  if(!qs(id).length){
+    S.preparing.add(id);
+    setTimeout(()=>{ S.preparing.delete(id); SETS[id]=genericSet(job(id)).slice(0,5); toast(`Ava 已依職缺幫你準備 ${SETS[id].length} 題`);
+      if(['new','questions','prep'].includes(S.route)) render(); else renderSide(); },1500);
+  }
 }
-
-/* ---------- pages ---------- */
-function pageHome(){
-  const h=new Date().getHours(); const hi=h<11?'早安':h<14?'午安':h<18?'午後好':'晚安';
-  const W=280,H=80,pad=6, mn=55,mx=90;
-  const pts=TREND.map((v,i)=>[pad+i*(W-2*pad)/(TREND.length-1), H-pad-(v-mn)/(mx-mn)*(H-2*pad)]);
-  const line=pts.map(p=>p.join(',')).join(' ');
-  const area=`M${pts[0][0]},${H} L`+pts.map(p=>p.join(',')).join(' L')+` L${pts[pts.length-1][0]},${H} Z`;
-  const last=pts[pts.length-1];
-  return `<div class="page">
-  <section class="hero">
-    <div>
-      <div class="eyebrow">${hi}，${ME.short}</div>
-      <h1 style="margin-top:6px">今天想練哪一場？Ava 已經準備好陪你練習了</h1>
-      <p>你上次在 Northwind Labs 的模擬面試拿到 82 分，系統設計題還有進步空間。今天花 15 分鐘再練一次吧。</p>
-      <div class="row"><a class="btn btn-pri" href="#interview">${I.mic}開始語音面試</a><a class="btn btn-ghost" href="#prep">${I.bulb}先看面試建議</a></div>
+function pageNew(){
+  const tg=targets(), has=tg.length>0;
+  if(has&&!S.saved.has(S.job)) S.job=tg[0].id;
+  const j=job(S.job), n=MODES[S.mode].n, prep=has&&S.preparing.has(S.job);
+  const list=has?qs().slice(0,n):[], short=n-list.length;
+  const mins=list.reduce((a,q)=>a+(EST[q.lv]||3),0)+short*3;
+  const iv=S.iv;
+  setHead('','新面試');
+  return `<div class="setup-wrap">
+    ${unfinished()?`<div class="banner"><span class="live-dot"></span><span class="t"><b>你有一場暫停中的面試</b><span class="faint" style="display:block">${esc(job(iv.job).co)}・已回答 ${iv.answered} 題，停在第 ${Math.min(iv.q+1,iv.list.length)} 題</span></span><button class="btn out sm" type="button" id="ivDrop">結束並產生報告</button><a class="btn pri sm" href="#chat">繼續面試</a></div>`:''}
+    <h1 class="hello">${has?'準備好就開始':'先告訴 Ava 你想應徵哪個職缺'}</h1>
+    <p>${has?'Ava 會依你的履歷和職缺，一題一題用語音問你。':'貼上職缺內容，Ava 會依職缺和你的履歷出題，一分鐘內就能開始練習。'}</p>
+    <div class="setup">
+      <div class="su-row"><span class="k">職缺</span><div class="v">${has?`<button class="picker" type="button" id="cJob"><b>${esc(j.co)}</b><span>${esc(j.title)}</span>${I.chev}</button>`:`<button class="btn pri sm" type="button" id="cJd">${I.plus}貼上職缺內容</button><a class="linkb" href="#jobs">或從職缺庫挑選</a>`}</div></div>
+      <div class="su-row"><span class="k">履歷</span><div class="v">${S.hasCv?`<button class="picker" type="button" id="cCv">${I.file}<b>${esc(S.cvSel||RESUMES[0])}</b>${I.chev}</button>`:`<button class="btn out sm" type="button" id="cUp">${I.upload}上傳履歷</button><span class="hint">選填。沒有履歷也能練，題目會只依職缺出</span>`}</div></div>
+      ${has?`
+      <div class="su-row"><span class="k">長度</span><div class="v">${seg('sMode',Object.entries(MODES).map(([k,m])=>[k,`${m.name} ${m.n}`]),S.mode)}<span class="hint">約 ${mins} 分鐘</span></div></div>
+      <div class="su-row"><span class="k">風格</span><div class="v">${seg('sPer',Object.entries(PERSONAS).map(([k,p])=>[k,p.name.slice(0,2)]),S.persona)}<span class="hint">${PERSONAS[S.persona].sub}</span></div></div>
+      <div class="su-row"><span class="k">語言</span><div class="v">${seg('sLang',Object.entries(LANGS).map(([k,v])=>[k,v==='English'?'英文':v]),S.lang)}</div></div>
+      <div class="qprev">
+        <div class="qprev-h"><span>本次題目（${n} 題）</span><a href="#questions/${S.job}">編輯題組${I.right.replace('<svg','<svg width="14" height="14"')}</a></div>
+        ${prep?`<div class="skel" style="height:20px;margin:10px 0"></div><div class="skel" style="height:20px;margin:10px 0"></div><div class="faint">Ava 正在依職缺和履歷出題⋯</div>`:
+        `<ol>${list.map((q,i)=>`<li><span class="n">${i+1}</span><span>${esc(q.t)}</span><span class="c">${q.cat}</span></li>`).join('')}
+        ${short>0?`<li class="auto"><span class="n">${list.length+1}</span><span>還差 ${short} 題，開始時 Ava 會自動補上</span></li>`:''}</ol>`}
+      </div>`:''}
     </div>
-    <div class="mascot" data-mascot></div>
-  </section>
-
-  <div class="grid g3">
-    <div class="card"><div class="stat"><span class="k">累積練習</span><span class="v num">12<small>場</small></span><span class="faint">本週 3 場</span></div></div>
-    <div class="card"><div class="row between" style="align-items:flex-start"><div class="stat"><span class="k">最近平均分</span><span class="v num">82<small>/ 100</small></span><span class="faint" style="color:var(--good)">比一個月前 +20 分</span></div>
-      <svg viewBox="0 0 ${W} ${H}" width="140" height="44" aria-label="近 8 場分數趨勢，從 62 到 82">
-        <path d="${area}" fill="var(--leaf)" opacity=".12"/><polyline points="${line}" fill="none" stroke="var(--leaf)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${last[0]}" cy="${last[1]}" r="5" fill="var(--leaf)" stroke="var(--surface)" stroke-width="2"/></svg></div></div>
-    <div class="card"><div class="stat"><span class="k">連續練習</span><span class="v num">5<small>天</small></span></div>
-      <div class="streak">${['一','二','三','四','五','六','日'].map((d,i)=>`<span class="${i<5?'on':''}">${d}</span>`).join('')}</div></div>
-  </div>
-
-  <div class="grid g-side">
-    <div class="card">
-      <div class="row between" style="margin-bottom:8px"><h3 style="margin:0">最近的面試</h3><a href="#report" class="faint" style="color:var(--leaf);text-decoration:none">看完整報告</a></div>
-      ${HISTORY.map(x=>`<a class="list-item" href="#report"><span class="faint num" style="width:44px">${x.d}</span><span style="flex:1;min-width:0">${x.job}</span><span class="score-pill ${scoreCls(x.s)}">${x.s}</span></a>`).join('')}
+    <div class="start">
+      <button class="btn pri xl" type="button" id="cGo" ${has&&!prep?'':'disabled'}>${I.mic}開始面試</button>
+      <div class="faint">${has?`<button class="linkb" type="button" id="addJd">${I.plus}貼上新職缺</button><span>・</span>`:''}<span>開始前會請你允許使用麥克風，每題回答都會錄音存檔</span></div>
     </div>
-    <div class="stack">
-      <div class="tip">${I.bulb}<div><b>今日小提醒</b><p class="muted" style="margin-top:4px">回答系統設計題時，先講「目標」再講「做法」，面試官更容易跟上你的思路。</p></div></div>
-      <div class="card">
-        <h3>為你推薦的職缺</h3>
-        ${JOBS.slice(0,3).map(j=>`<a class="list-item" href="#jobs" data-job="${j.id}"><div class="co-logo chip ${j.tone}" style="padding:0">${j.logo}</div><div style="flex:1;min-width:0;line-height:1.4"><b>${j.title}</b><div class="faint">${j.co}</div></div><span class="match ${j.match<80?'mid':''}">${j.match}%</span></a>`).join('')}
-      </div>
-    </div>
-  </div>
   </div>`;
 }
-
-function pageInterview(){
-  const iv=S.iv, j=job(S.job);
-  if(iv.phase==='setup') return `<div class="page">
-    <div class="head"><div><div class="eyebrow">Mock Interview・AI 語音面試</div><h1>準備好了就開始，別緊張</h1><p>Ava 會用語音問你問題，你直接開口回答就好，結束後會拿到逐題評分。</p></div></div>
-    <div class="grid g-side">
-      <div class="card stack" style="gap:20px">
-        <div class="field"><label for="ivJob">面試職缺</label><select class="input" id="ivJob">${JOBS.map(x=>`<option value="${x.id}" ${x.id===S.job?'selected':''}>${x.co}・${x.title}</option>`).join('')}</select></div>
-        <div class="field"><label>面試長度</label>
-          <div class="grid g3" style="gap:10px">
-            ${[['quick','快速','3 題・約 8 分鐘'],['standard','標準','5 題・約 15 分鐘'],['deep','深入','8 題・約 25 分鐘']].map(o=>`<button type="button" class="setup-opt ${iv.mode===o[0]?'sel':''}" data-mode="${o[0]}"><span><b>${o[1]}</b><span class="faint">${o[2]}</span></span></button>`).join('')}
-          </div></div>
-        <div class="field"><label>面試官風格</label>
-          <div class="grid g3" style="gap:10px">
-            ${[['warm','溫和引導','適合第一次練習'],['real','真實模擬','像正式面試一樣'],['tough','壓力面試','會追問細節']].map(o=>`<button type="button" class="setup-opt ${iv.persona===o[0]?'sel':''}" data-persona="${o[0]}"><span><b>${o[1]}</b><span class="faint">${o[2]}</span></span></button>`).join('')}
-          </div></div>
-        <div class="field"><label>面試語言</label><div class="seg" id="langSeg"><button type="button" class="on">中文</button><button type="button">English</button><button type="button">中英混合</button></div></div>
-        <div class="field"><label>題目來源</label><div class="row"><span class="chip leaf">${I.check.replace('<svg','<svg width="14" height="14"')}使用「題目生成」中的 ${QUESTIONS.length} 題</span><a href="#questions" class="faint" style="color:var(--leaf)">去編輯題目</a></div></div>
-        <div class="row" style="margin-top:4px"><button class="btn btn-pri" id="ivStart" type="button">${I.mic}開始面試</button><span class="faint">開始前會請你允許使用麥克風</span></div>
-      </div>
-      <div class="stack">
-        <div class="card" style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px">
-          <div class="mascot" style="width:110px;height:110px" data-mascot></div>
-          <h3 style="margin:0">嗨，我是 Ava</h3>
-          <p class="muted">今天由我擔任 ${j.co} 的面試官。答不出來也沒關係，可以說「我想一下」，我會等你。</p>
-        </div>
-        <div class="card flat"><h3>開始前檢查</h3>
-          <div class="stack" style="gap:8px">${['找一個安靜的地方','戴上耳機效果更好','準備好你的履歷重點'].map(t=>`<div class="sw" style="color:var(--ink-2)"><span style="color:var(--good)">${I.check}</span>${t}</div>`).join('')}</div></div>
-      </div>
-    </div></div>`;
-
-  const total=QUESTIONS.length;
-  return `<div class="page">
-    <div class="head"><div><div class="eyebrow">${j.co}・${j.title}</div><h1>語音面試進行中</h1></div>
-      <button class="btn btn-ghost" id="ivEnd" type="button">${I.stop}結束並看評分</button></div>
-    <div class="iv">
-      <section class="stage" aria-live="polite">
-        <div class="stage-top">
-          <span class="rec"><i></i>錄音中 <span class="num" id="ivTime">00:00</span></span>
-          <div style="flex:1;max-width:260px"><div class="row between faint" style="margin-bottom:4px"><span>進度</span><span class="num">第 ${Math.min(iv.q+1,total)} / ${total} 題</span></div>
-          <div class="steps">${QUESTIONS.map((_,i)=>`<i class="${i<iv.q?'done':i===iv.q?'cur':''}"></i>`).join('')}</div></div>
-        </div>
-        <div class="halo" id="halo"><div class="mascot" id="bigMascot" data-mascot></div></div>
-        <div class="q-bubble"><div class="who">Ava・${QUESTIONS[iv.q]?QUESTIONS[iv.q].cat:'結束'}</div><p id="qText"></p></div>
-        <div class="stack" style="align-items:center;gap:10px">
-          <div class="controls">
-            <div class="wave" id="waveL">${'<i></i>'.repeat(9)}</div>
-            <button class="mic" id="mic" type="button" aria-label="開始回答">${I.mic}</button>
-            <div class="wave" id="waveR">${'<i></i>'.repeat(9)}</div>
-          </div>
-          <div class="mic-hint" id="micHint">Ava 正在說話⋯</div>
-          <button class="btn btn-sm btn-ghost" id="skip" type="button">跳過這題</button>
-        </div>
-      </section>
-      <aside class="card tr">
-        <div class="row between" style="margin-bottom:12px"><h3 style="margin:0">即時逐字稿</h3><span class="chip leaf">自動辨識中</span></div>
-        <div class="tr-body" id="trBody"></div>
-      </aside>
-    </div></div>`;
+function bindNew(){
+  const on=(sel,f)=>{const el=$(sel); if(el) el.onclick=f;};
+  on('#cGo',startInterview); on('#cJd',openJd); on('#addJd',openJd);
+  on('#cUp',()=>openSettings('resume')); on('#ivDrop',confirmEnd);
+  on('#cJob',e=>openMenu(e.currentTarget,[{title:'目標職缺'},...targets().map(j=>({label:j.co,sub:`${j.title}・${S.preparing.has(j.id)?'出題中':qs(j.id).length+' 題'}`,v:j.id,checked:S.job===j.id})),{sep:true},{icon:'brief',label:'從職缺庫挑選',v:'_lib'},{icon:'plus',label:'貼上新職缺',v:'_new'}],v=>{ if(v==='_new') openJd(); else if(v==='_lib') location.hash='#jobs'; else {S.job=v;render()} }));
+  on('#cCv',e=>openMenu(e.currentTarget,[{title:'使用的履歷'},...RESUMES.map(r=>({label:r,v:r,checked:(S.cvSel||RESUMES[0])===r})),{sep:true},{icon:'upload',label:'上傳新履歷',v:'_up'}],v=>{ if(v==='_up') openSettings('resume'); else {S.cvSel=v;render()} }));
+  $$('#sMode button').forEach(b=>b.onclick=()=>{S.mode=b.dataset.v;render()});
+  $$('#sPer button').forEach(b=>b.onclick=()=>{S.persona=b.dataset.v;render()});
+  $$('#sLang button').forEach(b=>b.onclick=()=>{S.lang=b.dataset.v;render()});
+}
+function openJd(){
+  const s=openModal(`<div class="mhead"><h2>貼上新職缺</h2><button class="ib" type="button" data-close aria-label="關閉">${I.x}</button></div>
+    <div class="mbody">
+      <p class="muted" style="margin-bottom:12px">把職缺內容整段貼上就好。Ava 會整理出公司、職稱、工作內容與條件，加入你的目標職缺，並自動出第一組題目。</p>
+      <textarea class="inp" id="jdText" rows="9" style="min-height:200px" placeholder="例如：&#10;Senior Frontend Engineer｜Acme Inc.&#10;工作內容：…&#10;條件要求：…" aria-label="職缺內容"></textarea>
+      <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn ghost" type="button" data-close>取消</button><button class="btn pri" type="button" id="jdGo">加入目標職缺</button></div>
+    </div>`,'sm');
+  const ta=s.querySelector('#jdText'); ta.focus();
+  s.querySelector('#jdGo').onclick=()=>{
+    const t=ta.value.trim(); if(t.length<10){toast('內容太短，至少要有職稱和工作內容');return}
+    const btn=s.querySelector('#jdGo'); btn.disabled=true; btn.textContent='解析中⋯';
+    setTimeout(()=>{
+      const first=t.split('\n')[0].replace(/[｜|].*$/,'').trim().slice(0,40)||'自訂職缺';
+      const co=(t.split('\n')[0].split(/[｜|]/)[1]||'自訂職缺').trim().slice(0,30);
+      const id='u'+Date.now();
+      JOBS.unshift({id,co,logo:co[0].toUpperCase(),title:first,loc:'未填寫',type:'自訂職缺',pay:'未填寫',match:80,tags:[],f:[],about:t.slice(0,160),duties:['依你貼上的內容整理'],req:['依你貼上的內容整理']});
+      S.job=id; addTarget(id); closeModal(); if(S.route!=='new') location.hash='#new'; else render(); toast('已加入目標職缺，Ava 正在出題');
+    },1000);
+  };
 }
 
+/* ---------- page: interview (chat + voice bar) ---------- */
+let timers=[], clock=null, ans=null;
+const later=(f,ms)=>timers.push(setTimeout(f,ms));
+function stopTimers(){timers.forEach(clearTimeout);timers=[];clearInterval(clock);clock=null;ans=null;}
+const fmt=s=>String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+function startClock(){ clearInterval(clock); clock=setInterval(()=>{ const iv=S.iv; if(!iv||iv.phase==='done'||iv.paused) return; iv.t++; const el=$('#ivT'); if(el) el.textContent=fmt(iv.t); },1000); }
+function startInterview(){
+  if(unfinished()) return askReplace();
+  const j=job(S.job), n=MODES[S.mode].n;
+  /* 題組不夠就自動補題，並寫回題組（不讓使用者卡在「題數不足」） */
+  const base=qs().slice(0,n), fill=genericSet(j).filter(g=>!qs().some(q=>q.t===g.t)).slice(0,n-base.length);
+  if(fill.length) qs().push(...fill);
+  const list=[...base,...fill];
+  S.iv={job:S.job,persona:S.persona,q:0,list,phase:'wait',t:0,answered:0,asked:-1,paused:false,
+    msgs:[{r:'sys',text:`${j.co}・${j.title}・${MODES[S.mode].name} ${list.length} 題・${PERSONAS[S.persona].name}・${LANGS[S.lang]}`}]};
+  if(location.hash==='#chat') render(); else location.hash='#chat';
+  startClock(); later(()=>askQ(true),500);
+}
+function askReplace(){
+  const iv=S.iv;
+  const s=openModal(`<div class="mhead"><h2>你有一場暫停中的面試</h2><button class="ib" type="button" data-close aria-label="關閉">${I.x}</button></div>
+    <div class="mbody"><p class="muted">${esc(job(iv.job).co)} 停在第 ${Math.min(iv.q+1,iv.list.length)} 題。一次只能進行一場面試，要先把它結束嗎？${iv.answered?`已回答的 ${iv.answered} 題會產生報告。`:''}</p>
+    <div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn out" type="button" id="mBack">回到那場面試</button><button class="btn pri" type="button" id="mNew">結束它，開始新的</button></div></div>`,'sm');
+  s.querySelector('#mBack').onclick=()=>{closeModal();location.hash='#chat'};
+  s.querySelector('#mNew').onclick=()=>{closeModal();endInterview(false);startInterview()};
+}
+function endInterview(go=true){
+  const iv=S.iv; if(!iv) return null;
+  discardLive(); stopTimers();
+  const id=iv.answered>0?addHistory(iv):null;
+  S.iv=null;
+  if(go){ if(id){ location.hash='#report/'+id; toast('面試已結束，Ava 正在評分'); } else { if(S.route==='new') render(); else location.hash='#new'; toast('面試已結束，沒有回答的題目不會產生報告'); } }
+  else renderSide();
+  return id;
+}
+function confirmEnd(){
+  const iv=S.iv; if(!iv) return;
+  const s=openModal(`<div class="mhead"><h2>結束這場面試？</h2><button class="ib" type="button" data-close aria-label="關閉">${I.x}</button></div>
+    <div class="mbody"><p class="muted">${iv.answered?`已回答的 ${iv.answered} 題會產生報告，還沒回答的 ${iv.list.length-iv.answered} 題不會評分。`:'你還沒有回答任何題目，結束後不會產生報告。'}</p>
+    <div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn out" type="button" data-close>繼續面試</button><button class="btn pri" type="button" id="mEnd">${iv.answered?'結束並產生報告':'結束面試'}</button></div></div>`,'sm');
+  s.querySelector('[data-close].btn').onclick=closeModal;
+  s.querySelector('#mEnd').onclick=()=>{closeModal();endInterview(true)};
+}
+/* 錄音中暫停、重錄或離開：丟掉這次還沒送出的回答 */
+function discardLive(){
+  const iv=S.iv; if(!iv||iv.phase!=='live') return;
+  timers.forEach(clearTimeout); timers=[];
+  if(ans){ ans.el.remove(); iv.msgs.pop(); ans=null; }
+  iv.phase='ready';
+}
+function pauseIv(){
+  const iv=S.iv; if(!iv||iv.phase==='done') return;
+  discardLive(); timers.forEach(clearTimeout); timers=[];
+  iv.paused=true; iv.phase=iv.asked===iv.q?'ready':'wait';
+  render();
+  const s=openModal(`<div class="mbody" style="text-align:center;padding:32px 24px 26px"><h2 style="font-size:1.2rem;font-weight:600">已暫停</h2>
+    <p class="muted" style="margin-top:8px">計時已停止。可以先離開，24 小時內都能從「新面試」回來接著練。</p>
+    <div class="row" style="justify-content:center;margin-top:20px"><button class="btn out" type="button" id="pLeave">先離開</button><button class="btn pri" type="button" id="pGo">繼續面試</button></div></div>`,'sm');
+  s.querySelector('#pGo').onclick=()=>{closeModal();resumeIv()};
+  s.querySelector('#pLeave').onclick=()=>{closeModal();location.hash='#new'};
+}
+function resumeIv(){
+  const iv=S.iv; if(!iv) return;
+  iv.paused=false; startClock();
+  if(iv.asked!==iv.q) askQ(false); else setPhase('ready');
+}
+function leaveChat(){
+  const iv=S.iv; if(!iv) return;
+  if(iv.phase==='done'){ stopTimers(); S.iv=null; return; }
+  const was=iv.paused;
+  discardLive(); stopTimers();
+  iv.paused=true; iv.phase=iv.asked===iv.q?'ready':'wait';
+  if(!was) toast('面試已暫停，24 小時內都能回來繼續');
+}
+function pageChat(){
+  const iv=S.iv, j=job(iv.job);
+  setHead('chat',`${esc(j.co)} 模擬面試`,`${Math.min(iv.q+1,iv.list.length)} / ${iv.list.length}`,
+    `<span class="faint num hide-m" style="display:inline-flex;align-items:center;gap:5px;margin-right:4px">${I.clock.replace('<svg','<svg width="14" height="14"')}<span id="ivT">${fmt(iv.t)}</span></span>
+     ${iv.phase!=='done'?`<button class="hbtn" type="button" id="ivPause">${I.stop.replace('<rect x="7" y="7" width="10" height="10" rx="2"/>','<rect x="7" y="6" width="3.5" height="12" rx="1"/><rect x="13.5" y="6" width="3.5" height="12" rx="1"/>')}<span class="hide-m">暫停</span></button><button class="hbtn line" type="button" id="ivEnd">結束面試</button>`:''}`);
+  return `<div class="chat" id="chat">${iv.msgs.map(msgHTML).join('')}</div>`;
+}
+function bindChat(){
+  const e=$('#ivEnd'); if(e) e.onclick=confirmEnd;
+  const p=$('#ivPause'); if(p) p.onclick=pauseIv;
+  scrollEnd();
+}
+function cardHTML(id){
+  const h=HISTORY.find(x=>x.id===id); if(!h) return '';
+  return `<a class="rcard" id="rc-${id}" href="#report/${id}"><span class="ic">${I.report}</span><span style="flex:1;min-width:0"><b>面試報告・${esc(job(h.job).co)}</b><span class="faint">${h.ready?`總分 ${h.s}・${h.n} 題逐題評分與改善建議`:'Ava 正在逐題評分，完成後會通知你'}</span></span>${h.ready?`<span style="color:var(--ink-3)">${I.right.replace('<svg','<svg width="18" height="18"')}</span>`:'<span class="dots"><i></i><i></i><i></i></span>'}</a>`;
+}
+function msgHTML(m){
+  if(m.r==='sys') return `<div class="sysm">${esc(m.text)}</div>`;
+  if(m.r==='me') return `<div class="m-me ${m.skip?'skip':''}">${esc(m.text)}</div>`;
+  if(m.r==='card') return cardHTML(m.id);
+  return `<div class="m-ai">${m.lab?`<div class="lab">${esc(m.lab)}</div>`:''}<div class="tx">${esc(m.text)}</div>${m.acts?`<div class="acts"><button class="ib sm" type="button" aria-label="重播這題" onclick="toast('重播 Ava 的語音')">${I.speak}</button><button class="ib sm" type="button" aria-label="複製題目" onclick="toast('已複製題目')">${I.copy}</button></div>`:''}</div>`;
+}
+function scrollEnd(){const v=$('#view'); v.scrollTop=v.scrollHeight;}
+function pushMsg(m,speed,done){
+  const iv=S.iv; iv.msgs.push(m);
+  const box=$('#chat');
+  if(!box){ done&&done(); return; }
+  const tmp=document.createElement('div'); tmp.innerHTML=msgHTML(speed?{...m,text:'',acts:false}:m);
+  const el=tmp.firstElementChild; box.appendChild(el); scrollEnd();
+  if(!speed){ done&&done(); return; }
+  const tx=el.querySelector('.tx'); const full=m.text; let i=0; tx.classList.add('cursor');
+  (function step(){ if(!tx.isConnected||S.iv!==iv||iv.paused) return; i=Math.min(full.length,i+speed); tx.textContent=full.slice(0,i); scrollEnd();
+    if(i<full.length) later(step,40);
+    else { tx.classList.remove('cursor'); if(m.acts){const t2=document.createElement('div');t2.innerHTML=msgHTML(m);el.replaceWith(t2.firstElementChild);} done&&done(); } })();
+}
+function askQ(first){
+  const iv=S.iv; if(!iv) return; const q=iv.list[iv.q]; iv.asked=iv.q; setPhase('wait'); updateProgress();
+  const pre=first?`你好，${ME.short}！我是今天的面試官 Ava。我們開始吧。\n\n`:'';
+  pushMsg({r:'ai',lab:`第 ${iv.q+1} 題・${q.cat}`,text:pre+q.t,acts:true},2,()=>setPhase('ready'));
+}
+function updateProgress(){const b=$('#hTitle .badge'); if(b&&S.iv) b.textContent=`${Math.min(S.iv.q+1,S.iv.list.length)} / ${S.iv.list.length}`; drawProg();}
+function setPhase(p){ if(!S.iv) return; S.iv.phase=p; renderDock(); }
+function drawProg(){const p=$('#prog'); if(p&&S.iv) p.innerHTML=S.iv.list.map((_,i)=>`<i class="${i<S.iv.q?'d':i===S.iv.q?'c':''}"></i>`).join('');}
+function renderDock(){
+  const d=$('#dock'), iv=S.iv;
+  if(S.route!=='chat'||!iv){ d.hidden=true; d.innerHTML=''; return; }
+  d.hidden=false;
+  const p=iv.phase; let st='', btn='', left='';
+  if(iv.paused&&p!=='done'){ st='已暫停・計時停止'; btn=`<button class="btn pri sm" type="button" id="vResume">繼續</button>`; }
+  else if(p==='wait'){ st=`<span class="dots"><i></i><i></i><i></i></span>Ava 正在說話⋯`; btn=`<button class="micbtn" type="button" disabled aria-label="開始回答">${I.mic}</button>`; }
+  else if(p==='ready'){ left=`<button class="btn ghost sm" type="button" id="vSkip">${I.next}跳過</button>`; st=`輪到你了，點麥克風開始回答`; btn=`<button class="micbtn" type="button" id="vMic" aria-label="開始回答">${I.mic}</button>`; }
+  else if(p==='live'){ left=`<button class="btn ghost sm" type="button" id="vRedo">${I.redo}重錄</button>`; st=`<span class="recdot"></span><span class="num" id="aT">00:00</span><span class="wave" aria-hidden="true">${Array.from({length:48},(_,i)=>`<i style="animation-delay:${(i*137%1000)/1000}s"></i>`).join('')}</span>`; btn=`<button class="micbtn" type="button" id="vStop" aria-label="完成回答">${I.stop}</button>`; }
+  else if(p==='done'){ const rh=iv.reportId&&HISTORY.find(x=>x.id===iv.reportId); st=rh?(rh.ready?'面試結束，報告完成了':'面試結束，Ava 正在評分'):'面試結束'; btn=iv.reportId?`<a class="btn pri sm" href="#report/${iv.reportId}">查看報告</a>`:`<a class="btn pri sm" href="#new">回到新面試</a>`; }
+  const tip=iv.paused?'暫停期間不計時；24 小時內都能回來繼續。':p==='live'?'正在錄音，說完按 ■ 送出；想重講就按「重錄」。':'題目會依題組順序提問，每題回答都會錄音存檔。';
+  d.innerHTML=`<div class="dock-in"><div class="prog" id="prog"></div><div class="vbar">${left}<div class="st">${st}</div>${btn}</div>
+    <div class="faint" style="text-align:center;margin-top:8px;font-size:.75rem">${tip}</div></div>`;
+  drawProg();
+  const on=(sel,f)=>{const el=$(sel); if(el) el.onclick=f;};
+  on('#vMic',startAnswer); on('#vStop',finishAnswer); on('#vSkip',skipQ); on('#vResume',()=>{resumeIv();render();});
+  on('#vRedo',()=>{discardLive();setPhase('ready');toast('已清除這次錄音，重新回答吧')});
+}
+function startAnswer(){
+  const iv=S.iv; setPhase('live');
+  const full=ANSWERS[iv.q]||'這題我想一下⋯我會先釐清需求，再提出幾個可行方案和取捨。';
+  const m={r:'me',text:full}; iv.msgs.push(m);
+  const el=document.createElement('div'); el.className='m-me cursor'; $('#chat').appendChild(el); scrollEnd();
+  let i=0, sec=0; ans={el,m,full};
+  const tick=setInterval(()=>{ if(S.iv!==iv||iv.phase!=='live'||ans===null||ans.el!==el){clearInterval(tick);return} sec++; const a=$('#aT'); if(a) a.textContent=fmt(sec); },1000);
+  (function step(){ if(!el.isConnected||iv.phase!=='live') return; i=Math.min(full.length,i+2+Math.floor(Math.random()*3)); el.textContent=full.slice(0,i); scrollEnd(); if(i<full.length) later(step,70); else el.classList.remove('cursor'); })();
+}
+const REACT=['謝謝你的分享，開場就有具體成果，很好。','了解，這個例子很具體。','嗯，你處理得很細心。','好的，我們來聊最後一題。'];
+function finishAnswer(){
+  const iv=S.iv; timers.forEach(clearTimeout); timers=[];
+  if(ans){ans.el.textContent=ans.full;ans.el.classList.remove('cursor');ans=null}
+  iv.answered++;
+  next(REACT[iv.q]);
+}
+function skipQ(){
+  const iv=S.iv; timers.forEach(clearTimeout); timers=[];
+  pushMsg({r:'me',text:'（跳過這題）',skip:true});
+  next('沒關係，我們換下一題。');
+}
+function next(reaction){
+  const iv=S.iv; iv.q++; setPhase('wait');
+  if(iv.q>=iv.list.length){
+    updateProgress();
+    const bye=iv.answered?'今天的面試到這裡結束，你表現得很棒！我會依你每一題的回答，整理評分和改善建議。':'今天的面試到這裡結束。這次沒有回答的題目，所以不會產生報告。';
+    pushMsg({r:'ai',text:bye},2,()=>{ if(iv.answered){ iv.reportId=addHistory(iv); pushMsg({r:'card',id:iv.reportId}); } setPhase('done'); const h=$('#hRight'); if(h) render(); });
+    return;
+  }
+  if(reaction) pushMsg({r:'ai',text:reaction},2,()=>later(()=>askQ(false),300));
+  else askQ(false);
+}
+
+/* ---------- page: report ---------- */
 function pageReport(){
-  const avg=Math.round(REPORT.reduce((a,b)=>a+b.score,0)/REPORT.length);
-  const dims=[['內容結構',84],['專業深度',80],['表達流暢',76],['職缺契合',88],['自信程度',72]];
-  return `<div class="page">
-    <div class="head"><div><div class="eyebrow">Interview Report・Oct 6, 2026・14:32</div><h1>做得很好，品妤！這次比上次進步了 5 分</h1></div>
-      <div class="row"><a class="btn btn-ghost" href="#questions">${I.list}加入題庫複習</a><a class="btn btn-pri" href="#interview">${I.refresh}再練一次</a></div></div>
-    <div class="card rep-hero">
-      ${ring(avg,150,14,'var(--leaf)','總分')}
-      <div class="stack" style="gap:10px;min-width:0">
-        <div class="row"><span class="chip leaf">Northwind Labs・Senior Frontend Engineer</span><span class="chip">5 題</span><span class="chip sun">溫和引導</span></div>
-        <p style="font-size:1.05rem;max-width:56ch">你的回答很有<b>具體數據</b>，這是最大的優勢。下次可以加強<b>系統設計題的結構</b>，並少用「嗯」「應該吧」這類讓人覺得不確定的詞。</p>
-        <div class="row faint"><span>贅詞 <b class="num">7</b> 次</span><span>・</span><span>平均每題 <b class="num">2:48</b></span><span>・</span><span>語速 <b class="num">198</b> 字/分</span></div>
+  if(S.reportId) return pageReportDetail();
+  setHead('report','面試報告');
+  if(!HISTORY.length) return `<div class="wrap doc"><h1>面試報告</h1><div class="empty-note"><p>還沒有面試紀錄。完成第一場面試後，逐題評分和改善建議會出現在這裡。</p><a class="btn pri" href="#new">${I.mic}開始第一場面試</a></div></div>`;
+  const q=(S.histQ||'').toLowerCase();
+  const list=HISTORY.filter(h=>!q||h.t.toLowerCase().includes(q));
+  const done=HISTORY.filter(h=>h.ready);
+  const avg=done.length?Math.round(done.reduce((a,h)=>a+h.s,0)/done.length):0;
+  const best=done.reduce((m,h)=>Math.max(m,h.s),0);
+  const groups=[...new Set(list.map(h=>h.grp))];
+  return `<div class="wrap doc">
+    <h1>面試報告</h1>
+    <p class="muted" style="margin-top:6px">共 ${HISTORY.length} 場・平均 ${avg} 分・最高 ${best} 分。點一場面試，看逐題評分與改善建議。</p>
+    <label class="search" style="margin-top:20px">${I.search}<input id="hq" placeholder="搜尋職缺或公司" value="${esc(S.histQ||'')}" aria-label="搜尋面試報告"></label>
+    <div id="hlist" style="margin-top:8px">${histList(list,groups)}</div>
+  </div>`;
+}
+function histList(list,groups){
+  if(!list.length) return `<p class="muted" style="padding:20px 12px">找不到符合的面試報告。</p>`;
+  return groups.map(g=>`<div class="grp-h">${g}</div>`+list.filter(h=>h.grp===g).map(h=>`<a class="hrow" href="#report/${h.id}">
+      <span class="bd"><b>${esc(h.t)}</b><span class="m">${h.when}・${h.n} 題・${h.per}・${h.dur}</span></span>
+      <span class="hs">${h.ready?`<b class="num">${h.s}</b><small>${h.delta!=null?`${h.delta>=0?'+':''}${h.delta}`:'首次'}</small>`:`<span class="proc"><span class="dots"><i></i><i></i><i></i></span>評分中</span>`}</span>
+      <span class="ch">${I.right}</span></a>`).join('')).join('');
+}
+function pageReportDetail(){
+  const h=HISTORY.find(x=>x.id===S.reportId);
+  if(!h){ return `<div class="wrap doc"><h1>找不到這份報告</h1><p class="muted" style="margin-top:8px"><a href="#report" style="text-decoration:underline">回到所有面試報告</a></p></div>`; }
+  const off=h.s-82, sc=v=>Math.max(30,Math.min(100,v+off));
+  const dims=[['內容結構',84,'開頭、經過、結果是否清楚'],['專業深度',80,'技術細節與取捨'],['表達流暢',76,'贅詞、停頓與語速'],['職缺契合',88,'回答與職缺需求的關聯'],['自信程度',72,'用詞是否肯定']].map(d=>[d[0],sc(d[1]),d[2]]);
+  setHead('report','面試報告','',`<button class="ib" type="button" id="rMore" aria-label="更多">${I.more}</button>`);
+  const back=`<a class="linkb" href="#report" style="margin:0 0 18px -6px">${I.left.replace('<svg','<svg width="14" height="14"')}所有面試報告</a>`;
+  if(!h.ready) return `<div class="wrap doc">${back}
+    <div class="eyebrow">${h.when}・${h.n} 題・${h.per}・${h.dur}</div>
+    <h1>${esc(h.t)}</h1>
+    <p class="muted" style="margin-top:14px;display:flex;align-items:center;gap:10px"><span class="dots"><i></i><i></i><i></i></span>Ava 正在逐題轉錄和評分，通常不到一分鐘。完成後會通知你，可以先去做別的事。</p>
+    <div style="margin-top:24px">${'<div class="skel"></div>'.repeat(Math.min(5,h.n+2))}</div></div>`;
+  return `<div class="wrap doc">
+    ${back}
+    <div class="eyebrow">${h.when}・${h.n} 題・${h.per}・${h.dur}</div>
+    <h1>${esc(h.t)}</h1>
+    <div class="big"><b class="num">${h.s}</b><span>/ 100${h.delta!=null?`・比上次 ${h.delta>=0?'+':''}${h.delta} 分`:'・第一次練習'}</span></div>
+    <p class="muted" style="margin-top:16px">你的回答很有<b style="color:var(--ink)">具體數據</b>，這是最大的優勢。下次可以加強<b style="color:var(--ink)">系統設計題的結構</b>，並少用「嗯」「應該吧」這類讓人覺得不確定的詞。</p>
+    <div class="row" style="margin-top:18px"><span class="pill">贅詞 7 次</span><span class="pill">平均每題 2:48</span><span class="pill">語速 198 字/分</span></div>
+
+    <h2>五個面向</h2>
+    <div class="tbl-w"><table><thead><tr><th>面向</th><th class="hide-m">看什麼</th><th style="width:36%">分數</th><th class="n">分</th></tr></thead><tbody>
+      ${dims.map(d=>`<tr><td>${d[0]}</td><td class="muted hide-m">${d[2]}</td><td><div class="bar"><i style="width:${d[1]}%"></i></div></td><td class="n num">${d[1]}</td></tr>`).join('')}
+    </tbody></table></div>
+
+    <h2>逐題回顧</h2>
+    ${REPORT.slice(0,h.n).map((r,i)=>`<section class="qsec">
+      <div class="qh"><h3>${i+1}. ${BASEQ[i].cat}</h3><span class="sc num">${sc(r.score)}</span></div>
+      <blockquote>${BASEQ[i].t}</blockquote>
+      <div class="sub-h" style="display:flex;align-items:center;gap:8px">你的回答<button class="linkb" type="button" data-play style="font-weight:400">${I.speak.replace('<svg','<svg width="14" height="14"')}聽我的錄音</button></div>
+      <p class="muted" style="margin-top:6px">${ANSWERS[i].replace(r.hl,`<mark>${r.hl}</mark>`)}</p>
+      <div class="grid2">
+        <div><div class="sub-h">做得好的地方</div><ul class="ticks">${r.good.map(x=>`<li>${x}</li>`).join('')}</ul></div>
+        <div><div class="sub-h">改善建議</div><ul class="ticks warn">${r.fix.map(x=>`<li>${x}</li>`).join('')}</ul></div>
       </div>
-      <div class="dims" style="min-width:240px">${dims.map(d=>`<div class="dim"><span class="muted">${d[0]}</span><div class="bar"><i style="width:${d[1]}%;background:${d[1]>=80?'var(--leaf)':'var(--sun)'}"></i></div><b>${d[1]}</b></div>`).join('')}</div>
-    </div>
-    <div class="row between"><h2>逐題回顧</h2><span class="faint">點開每一題看原始回答與建議</span></div>
-    <div class="stack" style="gap:14px">
-      ${REPORT.map((r,i)=>`<details class="qa" ${i===3?'open':''}>
-        <summary><span class="qno">${i+1}</span><span style="min-width:0"><span class="chip out" style="margin-bottom:4px">${BASEQ[i].cat}</span><div class="qtext">${BASEQ[i].t}</div></span><span class="score-pill ${scoreCls(r.score)}">${r.score}</span><span class="chev">${I.chev}</span></summary>
-        <div class="qa-body">
-          <div class="blk q"><h4>${I.quote}面試題目</h4><p>${BASEQ[i].t}</p></div>
-          <div class="blk a"><h4>${I.mic}你的回答（逐字稿）</h4><p>${ANSWERS[i].replace(r.hl,`<span class="hl">${r.hl}</span>`)}</p></div>
-          <div class="grid g2" style="gap:14px">
-            <div class="blk good"><h4>${I.star}做得好的地方</h4><ul>${r.good.map(x=>`<li>${x}</li>`).join('')}</ul></div>
-            <div class="blk fix"><h4>${I.bulb}改善建議</h4><ul>${r.fix.map(x=>`<li>${x}</li>`).join('')}</ul></div>
-          </div>
-          <div class="blk better"><h4>${I.spark}可以這樣說</h4><p>${r.better}</p></div>
-        </div></details>`).join('')}
-    </div></div>`;
+      <div class="codebox"><div class="cb-h">${I.speak}可以這樣說<span class="sp"></span><button class="ib sm" type="button" aria-label="複製建議說法" data-copy="${i}">${I.copy}</button></div><div class="cb-b">${r.better}</div></div>
+    </section>`).join('')}
+    <div class="row" style="margin-top:28px"><button class="btn pri" type="button" id="again">${I.redo}再練一次</button><button class="btn out" type="button" onclick="toast('分數低於 80 的題目已加入 ${esc(job(h.job).co)} 題組，下次面試會優先練')">${I.plus}弱項加入題組</button></div>
+  </div>`;
+}
+function bindReport(){
+  const hq=$('#hq');
+  if(hq){ hq.oninput=()=>{ S.histQ=hq.value; const q=hq.value.toLowerCase(); const list=HISTORY.filter(h=>h.t.toLowerCase().includes(q)); $('#hlist').innerHTML=histList(list,[...new Set(list.map(h=>h.grp))]); }; return; }
+  const h=HISTORY.find(x=>x.id===S.reportId);
+  const more=$('#rMore'); if(more&&h) more.onclick=e=>openMenu(e.currentTarget,[{icon:'trash',label:'刪除這份報告',sub:'連同錄音一起刪除',v:'del'}],()=>{
+    const s=openModal(`<div class="mhead"><h2>刪除這份報告？</h2><button class="ib" type="button" data-close aria-label="關閉">${I.x}</button></div><div class="mbody"><p class="muted">報告、逐字稿和錄音都會刪除，無法復原。</p><div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn out" type="button" data-close>取消</button><button class="btn pri" type="button" id="mDel">刪除</button></div></div>`,'sm');
+    s.querySelector('[data-close].btn').onclick=closeModal;
+    s.querySelector('#mDel').onclick=()=>{ HISTORY.splice(HISTORY.indexOf(h),1); closeModal(); location.hash='#report'; toast('已刪除'); };
+  });
+  $$('[data-play]').forEach(b=>b.onclick=()=>toast('播放你這題的錄音'));
+  const ag=$('#again'); if(!ag) return;
+  ag.onclick=()=>{ S.job=h.job; location.hash='#new'; };
+  $$('[data-copy]').forEach(b=>b.onclick=()=>{try{navigator.clipboard.writeText(REPORT[+b.dataset.copy].better)}catch(e){} toast('已複製')});
 }
 
+/* ---------- page: prep ---------- */
 function pagePrep(){
+  const tg=targets();
+  if(!tg.length){ setHead('bulb','面試建議'); return `<div class="wrap doc"><h1>面試建議</h1><div class="empty-note"><p>加入目標職缺後，Ava 會比對你的履歷，整理優勢、需要補強的地方和可能被問的題目。</p><button class="btn pri" type="button" onclick="openJd()">${I.plus}貼上職缺內容</button></div></div>`; }
+  if(!S.saved.has(S.job)) S.job=tg[0].id;
   const j=job(S.job);
   const dirs=[['React 效能優化與實務經驗',92],['元件庫與設計系統規劃',85],['帶人與 Code Review 經驗',74],['餐飲業務理解與產品思維',61],['TypeScript 型別設計',55]];
   const likely=[
@@ -645,359 +970,249 @@ function pagePrep(){
     {q:'你怎麼做 Code Review？遇過最難處理的 review 是什麼？',why:'這個職位需要帶 2 位初階工程師。',tip:'分享你的 review 清單，並舉一次用提問代替指正的例子。',p:'中'},
     {q:'你覺得我們店家後台最需要改善的地方是什麼？',why:'新創很重視候選人是否了解產品。',tip:'面試前實際操作一次 demo，準備 1 個具體觀察 + 1 個改善想法。',p:'中'}
   ];
-  return `<div class="page">
-    <div class="head"><div><div class="eyebrow">Interview Prep・面試建議</div><h1>給 ${j.co} 的面試準備</h1><p>根據你的履歷和這份職缺內容，Ava  整理出最可能被問的方向。</p></div></div>
-    <div class="card flat" style="padding:16px">
-      <div class="row" style="gap:14px">
-        <div class="field" style="flex:1 1 240px"><label for="prepJob">職缺</label><select class="input" id="prepJob">${JOBS.map(x=>`<option value="${x.id}" ${x.id===S.job?'selected':''}>${x.co}・${x.title}</option>`).join('')}</select></div>
-        <div class="field" style="flex:1 1 240px"><label for="prepCv">履歷</label><select class="input" id="prepCv"><option>陳品妤_履歷_2026.pdf（主要）</option><option>陳品妤_英文履歷.pdf</option></select></div>
-        <button class="btn btn-soft" style="align-self:flex-end" id="regen" type="button">${I.refresh}重新生成</button>
-      </div>
+  setHead('bulb','面試建議','',`<button class="hbtn" type="button" id="regen">${I.redo}<span class="hide-m">重新生成</span></button>`);
+  return `<div class="wrap doc">
+    <div class="row" style="margin-bottom:22px"><button class="pill" type="button" id="pJob">${I.brief}<span class="lbl">${j.co}・${j.title}</span>${I.chev}</button><button class="pill" type="button" id="pCv">${I.file}<span class="lbl">陳品妤_履歷_2026.pdf</span>${I.chev}</button></div>
+    <div class="eyebrow">依你的履歷與職缺分析</div>
+    <h1>給 ${j.co} 的面試準備</h1>
+    <div class="big"><b class="num">${j.match}%</b><span>契合度・整體很適合你</span></div>
+    <p class="muted" style="margin-top:14px">技術條件幾乎都符合，要多準備「帶人」和「產品理解」的故事。</p>
+    <div class="grid2">
+      <div><h2>你的優勢</h2><ul class="ticks">${['3 年 React 經驗，符合年資要求','有可量化的效能優化成果','電商結帳流程經驗，和 POS 金流相近'].map(t=>`<li>${t}</li>`).join('')}</ul></div>
+      <div><h2>需要補強</h2><ul class="ticks warn">${['履歷沒有寫到帶人或 mentor 經驗','設計系統只有使用經驗，沒有建置經驗','對餐飲產業的了解較少'].map(t=>`<li>${t}</li>`).join('')}</ul></div>
     </div>
-
-    <div class="grid g-side-l">
-      <div class="stack" style="gap:20px">
-        <div class="card" style="display:flex;gap:18px;align-items:center">
-          ${ring(j.match,104,11,'var(--leaf)','契合度')}
-          <div class="stack" style="gap:6px"><b>整體很適合你</b><p class="muted" style="font-size:.9rem">技術條件幾乎都符合，要多準備「帶人」和「產品理解」的故事。</p></div>
-        </div>
-        <div class="card"><h3>你的優勢</h3><div class="stack" style="gap:10px">
-          ${['3 年 React 經驗，符合年資要求','有可量化的效能優化成果','電商結帳流程經驗，和 POS 金流相近'].map(t=>`<div class="sw"><span style="color:var(--good)">${I.check}</span><span>${t}</span></div>`).join('')}</div></div>
-        <div class="card"><h3>需要補強</h3><div class="stack" style="gap:10px">
-          ${['履歷沒有寫到帶人或 mentor 經驗','設計系統只有使用經驗，沒有建置經驗','對餐飲產業的了解較少'].map(t=>`<div class="sw"><span style="color:var(--warn)">${I.alert}</span><span>${t}</span></div>`).join('')}</div></div>
-        <div class="card"><h3>面試前準備清單</h3>
-          ${['實際操作 Northwind 的店家後台 demo','準備 1 個帶新人或 review 的故事','複習 React 18 並行渲染與 Suspense','想好 2 個要反問面試官的問題','確認期望薪資：月薪 85,000 左右'].map((t,i)=>`<label class="check"><input type="checkbox" id="ck${i}" ${i<2?'checked':''}><span>${t}</span></label>`).join('')}
-        </div>
-      </div>
-      <div class="stack" style="gap:20px">
-        <div class="card"><h3>高機率會問的方向</h3>
-          <div class="prob">${dirs.map(d=>`<div><div style="font-size:.92rem;margin-bottom:4px">${d[0]}</div><div class="bar"><i style="width:${d[1]}%;background:${d[1]>=80?'var(--leaf)':d[1]>=65?'var(--sun)':'var(--ink-3)'}"></i></div></div><span class="p">${d[1]}%</span>`).join('')}</div>
-          <p class="faint" style="margin-top:12px">機率依職缺描述關鍵字、履歷落差與同類職缺常見題目估算。</p>
-        </div>
-        <div class="row between"><h2>可能被問的題目</h2><a class="btn btn-sm btn-ghost" href="#questions">${I.plus}全部加入題庫</a></div>
-        <div class="stack" style="gap:12px">
-          ${likely.map((l,i)=>`<details class="lq" ${i===0?'open':''}><summary><span class="qno">${i+1}</span><span style="flex:1;min-width:0"><span class="chip ${l.p==='高'?'peach':'sun'}" style="margin-bottom:4px">${l.p}機率</span><div class="qtext">${l.q}</div></span><span class="chev">${I.chev}</span></summary>
-            <div class="in"><div><h4>為什麼會問</h4><p class="muted">${l.why}</p></div><div><h4>回答建議</h4><p>${l.tip}</p></div></div></details>`).join('')}
-        </div>
-        <div class="row"><a class="btn btn-pri" href="#interview">${I.mic}用這些題目模擬面試</a></div>
-      </div>
-    </div></div>`;
+    <h2>高機率會問的方向</h2>
+    <div class="tbl-w"><table><tbody>${dirs.map(d=>`<tr><td>${d[0]}</td><td style="width:36%"><div class="bar"><i style="width:${d[1]}%"></i></div></td><td class="n num">${d[1]}%</td></tr>`).join('')}</tbody></table></div>
+    <p class="faint" style="margin-top:8px">依職缺關鍵字、履歷落差與同類職缺常見題目估算。</p>
+    <h2>可能被問的題目</h2>
+    ${likely.map((l,i)=>`<details class="acc" ${i===0?'open':''}><summary><span class="faint num">${i+1}</span><span class="t">${l.q}</span><span class="tagx">${l.p}機率</span>${I.chev}</summary>
+      <div class="bd"><div class="sub-h" style="margin-top:0">為什麼會問</div><p class="muted">${l.why}</p><div class="codebox"><div class="cb-h">${I.bulb}回答建議</div><div class="cb-b">${l.tip}</div></div></div></details>`).join('')}
+    <h2>面試前準備清單</h2>
+    ${['實際操作 Northwind 的店家後台 demo','準備 1 個帶新人或 review 的故事','複習 React 18 並行渲染與 Suspense','想好 2 個要反問面試官的問題','確認期望薪資：月薪 85,000 左右'].map((t,i)=>`<label class="chk"><input type="checkbox" ${i<2?'checked':''}><span>${t}</span></label>`).join('')}
+    <div class="row" style="margin-top:28px"><button class="btn pri" type="button" id="pGo">${I.mic}開始模擬面試</button><button class="btn out" type="button" onclick="toast('4 題已加入 ${esc(j.co)} 題組')">${I.plus}可能題目加入題組</button></div>
+  </div>`;
+}
+function bindPrep(){
+  $('#regen').onclick=()=>{toast('Ava 重新分析完成了');render()};
+  $('#pJob').onclick=e=>openMenu(e.currentTarget,[{title:'目標職缺'},...targets().map(j=>({label:j.co,sub:j.title,v:j.id,checked:S.job===j.id}))],v=>{S.job=v;render()});
+  $('#pCv').onclick=e=>openMenu(e.currentTarget,[{title:'履歷'},{label:'陳品妤_履歷_2026.pdf',sub:'主要履歷',v:1,checked:true},{label:'陳品妤_英文履歷.pdf',v:2,checked:false}],()=>toast('已切換履歷'));
+  $('#pGo').onclick=()=>{location.hash='#new'};
 }
 
+/* ---------- page: question bank ---------- */
 function pageQuestions(){
-  return `<div class="page">
-    <div class="head"><div><div class="eyebrow">Question Bank・題目生成與編輯</div><h1>打造你的專屬題庫</h1><p>讓 AI 依職缺生成題目，再依你的需要修改、排序或新增。</p></div>
-      <a class="btn btn-pri" href="#interview">${I.mic}用這組題目面試</a></div>
-    <div class="grid g-side-l">
-      <div class="card stack" style="gap:18px;align-self:start">
-        <h3 style="margin:0">${I.spark.replace('<svg','<svg width="18" height="18" style="vertical-align:-3px;color:var(--sun)"')} 生成新題目</h3>
-        <div class="field"><label for="qJob">目標職缺</label><select class="input" id="qJob">${JOBS.map(x=>`<option value="${x.id}" ${x.id===S.job?'selected':''}>${x.co}・${x.title}</option>`).join('')}</select></div>
-        <div class="field"><label>題目類型（可複選）</label><div class="row" style="gap:8px">${['自我介紹','技術深度','系統設計','團隊合作','情境題','動機與規劃'].map((c,i)=>`<button type="button" class="chip out ${i!==4?'sel':''}" data-cat>${c}</button>`).join('')}</div></div>
-        <div class="field"><label>難度</label><div class="seg" id="lvSeg"><button type="button">基礎</button><button type="button" class="on">中等</button><button type="button">進階</button></div></div>
-        <div class="field"><label for="qCount">題數</label><div class="range-row"><input type="range" id="qCount" min="3" max="10" value="5"><b class="num" id="qCountV" style="width:24px">5</b></div></div>
-        <div class="field"><label for="qNote">補充想加強的地方（選填）</label><textarea class="input" id="qNote" placeholder="例如：多問一些關於帶人和 Code Review 的問題">多問一些系統設計和帶人經驗</textarea></div>
-        <button class="btn btn-sun" id="genBtn" type="button">${I.spark}生成題目</button>
+  if(!S.qJob) return pageSetList();
+  const j=job(S.job), g=S.gen, list=qs();
+  setHead('book','題庫生成','',`<button class="hbtn" type="button" id="qStart">${I.mic}<span class="hide-m">用這組題目面試</span></button>`);
+  const catLbl=g.cats.size?[...g.cats].slice(0,2).join('、')+(g.cats.size>2?` +${g.cats.size-2}`:''):'題目類型';
+  return `<div class="wrap doc">
+    <a class="linkb" href="#questions" style="margin:0 0 18px -6px">${I.left.replace('<svg','<svg width="14" height="14"')}所有目標職缺</a>
+    <div class="eyebrow">${esc(j.title)}</div>
+    <h1>${j.co} 題組</h1>
+    <p class="muted" style="margin-top:6px">告訴 Ava 你想加強什麼，她會依你的履歷和這個職缺出題。題目存在這個職缺的題組，「新面試」選這個職缺時會照順序提問。</p>
+    <div class="composer" style="margin-top:22px">
+      <textarea id="gNote" rows="1" placeholder="想加強什麼？例如：多問一些帶人和 Code Review 的問題" aria-label="生成需求"></textarea>
+      <div class="c-bar">
+        <button class="pill" type="button" id="gCat">${I.sliders}<span class="lbl">${catLbl}</span>${I.chev}</button>
+        <button class="pill" type="button" id="gLv"><span class="lbl">${g.lv}</span>${I.chev}</button>
+        <button class="pill" type="button" id="gN"><span class="lbl">${g.n} 題</span>${I.chev}</button>
+        <span class="sp"></span>
+        <button class="send" type="button" id="gGo" aria-label="生成題目" ${g.loading?'disabled':''}>${I.up}</button>
       </div>
-      <div class="stack" style="gap:12px">
-        <div class="row between"><div class="row"><h2>目前題組</h2><span class="chip leaf num">${QUESTIONS.length} 題</span></div><button class="btn btn-sm btn-ghost" id="addQ" type="button">${I.plus}新增題目</button></div>
-        <div class="stack" id="qList" style="gap:12px">${S.genLoading?'<div class="gen-shimmer"></div>'.repeat(4):QUESTIONS.map((q,i)=>qCard(q,i)).join('')}</div>
-      </div>
-    </div></div>`;
-}
-function qCard(q,i){
-  const lvc={'基礎':'leaf','中等':'sun','進階':'peach'}[q.lv]||'';
-  return `<div class="qcard" data-i="${i}">
-    <span class="qno">${i+1}</span>
-    <div class="stack" style="gap:8px;min-width:0">
-      <div class="row" style="gap:6px"><span class="chip out">${q.cat}</span><span class="chip ${lvc}">${q.lv}</span></div>
-      ${q.editing?`<textarea class="input" id="qe${i}" rows="3">${q.t}</textarea><div class="row"><button class="btn btn-sm btn-pri" data-act="save" type="button">儲存</button><button class="btn btn-sm btn-ghost" data-act="cancel" type="button">取消</button></div>`:`<div class="qtext">${q.t}</div>`}
     </div>
-    <div class="qacts">
-      <button class="icon-btn" data-act="up" type="button" aria-label="上移" ${i===0?'disabled':''}>${I.up}</button>
-      <button class="icon-btn" data-act="down" type="button" aria-label="下移" ${i===QUESTIONS.length-1?'disabled':''}>${I.down}</button>
-      <button class="icon-btn" data-act="edit" type="button" aria-label="編輯">${I.edit}</button>
-      <button class="icon-btn" data-act="del" type="button" aria-label="刪除">${I.trash}</button>
-    </div></div>`;
-}
-
-let JOBQ='', JOBLOC='all';
-function pageJobs(){
-  const list=JOBS.filter(j=>(!JOBQ||(j.title+j.co+j.tags.join('')).toLowerCase().includes(JOBQ.toLowerCase()))&&(JOBLOC==='all'||j.loc.startsWith(JOBLOC)));
-  const j=job(S.job);
-  return `<div class="page">
-    <div class="head"><div><div class="eyebrow">Jobs・職缺找尋</div><h1>找到適合你的下一份工作</h1><p>依你的履歷計算契合度，看到喜歡的職缺，就可以直接準備面試。</p></div></div>
-    <div class="search">
-      <input class="input" id="jq" placeholder="搜尋職稱、公司或技能，例如 React、Remote" value="${JOBQ}">
-      <select class="input" id="jloc"><option value="all">所有地區</option>${['台北市','新竹市','台中市','桃園市'].map(l=>`<option ${JOBLOC===l?'selected':''}>${l}</option>`).join('')}</select>
-      <button class="btn btn-pri" id="jgo" type="button">${I.search}搜尋</button>
+    <div style="margin-top:22px">
+      ${S.preparing.has(S.job)?'<div class="skel"></div><div class="skel"></div><p class="faint" style="padding:6px 10px">Ava 正在依職缺出第一組題目⋯</p>':''}
+      ${!list.length&&!g.loading&&!S.preparing.has(S.job)?`<p class="muted" style="padding:14px 10px">這個職缺還沒有題目。在上面輸入你想加強的方向，按 ↑ 讓 Ava 生成。</p>`:''}
+      ${list.map(qRow).join('')}
+      ${g.loading?'<div class="skel"></div><div class="skel"></div>':''}
+      <button class="addrow" type="button" id="qAdd">${I.plus}新增題目</button>
     </div>
-    <div class="row" style="gap:8px"><span class="faint">快速篩選</span>${['外商','英文工作環境','遠端','混合辦公','契合度 80% 以上'].map((t,i)=>`<button type="button" class="chip out ${i===1?'sel':''}" data-cat>${t}</button>`).join('')}</div>
-    <div class="grid g-side">
-      <div class="stack" style="gap:14px">
-        <div class="faint">共 <b class="num">${list.length}</b> 個職缺，依契合度排序</div>
-        ${list.length?list.sort((a,b)=>b.match-a.match).map(x=>`<button type="button" class="card job ${x.id===S.job?'sel':''}" data-pick="${x.id}">
-          <div class="row between" style="align-items:flex-start;flex-wrap:nowrap"><div class="row" style="flex-wrap:nowrap;min-width:0"><div class="co-logo chip ${x.tone}" style="padding:0">${x.logo}</div><div style="min-width:0;line-height:1.4"><b style="font-size:1.05rem">${x.title}</b><div class="faint">${x.co}・${x.posted}</div></div></div><span class="match ${x.match<80?'mid':''}">${x.match}% 契合</span></div>
-          <div class="row faint" style="gap:14px"><span class="row" style="gap:4px">${I.pin.replace('<svg','<svg width="14" height="14"')}${x.loc}</span><span>${x.type}</span><span style="color:var(--ink);font-weight:500">${x.pay}</span></div>
-          <div class="row" style="gap:6px">${x.tags.map(t=>`<span class="chip">${t}</span>`).join('')}</div>
-        </button>`).join(''):`<div class="card" style="text-align:center"><p class="muted">找不到符合的職缺，換個關鍵字試試看吧。</p></div>`}
-      </div>
-      <aside class="card jd stack" style="gap:16px">
-        <div class="row" style="flex-wrap:nowrap"><div class="co-logo chip ${j.tone}" style="padding:0;width:52px;height:52px">${j.logo}</div><div style="line-height:1.4;min-width:0"><h3 style="margin:0">${j.title}</h3><div class="faint">${j.co}・${j.loc}</div></div></div>
-        <div class="row"><span class="match ${j.match<80?'mid':''}">${j.match}% 契合</span><span class="chip">${j.type}</span></div>
-        <div style="font-weight:700">${j.pay}</div>
-        <p class="muted">${j.about}</p>
-        <div><b>工作內容</b><ul style="margin-top:6px">${j.duties.map(d=>`<li>${d}</li>`).join('')}</ul></div>
-        <div><b>條件要求</b><ul style="margin-top:6px">${j.req.map(d=>`<li>${d}</li>`).join('')}</ul></div>
-        <div class="stack" style="gap:8px">
-          <a class="btn btn-pri" href="#prep">${I.bulb}生成面試建議</a>
-          <div class="row" style="flex-wrap:nowrap"><a class="btn btn-ghost" style="flex:1" href="#interview">${I.mic}模擬面試</a><button class="btn btn-ghost" style="flex:1" type="button" id="saveJob">${I.bookmark}收藏</button></div>
-        </div>
-      </aside>
-    </div></div>`;
+  </div>`;
 }
-
-let CV={name:'陳品妤_履歷_2026.pdf', size:'412 KB', date:'2026/09/28'};
-let SKILLS=['React','TypeScript','Next.js','CSS / Tailwind','Jest','Figma','Git'];
-function pageProfile(){
-  return `<div class="page">
-    <div class="head"><div><div class="eyebrow">Profile・個人檔案</div><h1>讓 Ava 更認識你</h1><p>資料越完整，面試題目和建議就越貼近你。</p></div>
-      <button class="btn btn-pri" id="saveProfile" type="button">${I.check}儲存變更</button></div>
-    <div class="grid g-side">
-      <div class="stack" style="gap:20px">
-        <div class="card">
-          <div class="row" style="gap:18px;margin-bottom:20px">
-            <div class="av" style="width:76px;height:76px;font-size:1.8rem">妤</div>
-            <div class="stack" style="gap:4px"><h2>陳品妤</h2><span class="muted">前端工程師・3 年經驗</span><button class="btn btn-sm btn-ghost" type="button" style="align-self:flex-start">更換大頭貼</button></div>
-          </div>
-          <div class="grid g2" style="gap:16px">
-            <div class="field"><label for="pName">姓名</label><input class="input" id="pName" value="陳品妤"></div>
-            <div class="field"><label for="pTitle">目前職稱</label><input class="input" id="pTitle" value="前端工程師"></div>
-            <div class="field"><label for="pMail">Email</label><input class="input" id="pMail" value="pinyu.chen@example.com"></div>
-            <div class="field"><label for="pPhone">手機</label><input class="input" id="pPhone" value="0912-345-678"></div>
-            <div class="field" style="grid-column:1/-1"><label for="pBio">自我介紹</label><textarea class="input" id="pBio">喜歡把複雜流程變簡單的前端工程師，在電商領域負責會員中心與結帳體驗，重視效能與無障礙。</textarea></div>
-          </div>
-        </div>
-
-        <div class="card" id="cvCard">
-          <div class="row between" style="margin-bottom:14px"><h3 style="margin:0">履歷</h3><span class="chip leaf">AI 已解析</span></div>
-          <div class="file-row" id="fileRow">
-            <div class="file-ico">PDF</div>
-            <div style="flex:1;min-width:0;line-height:1.45"><b id="cvName" style="word-break:break-all">${CV.name}</b><div class="faint">${CV.size}・上傳於 ${CV.date}・設為主要履歷</div></div>
-            <button class="icon-btn" type="button" aria-label="刪除履歷" id="cvDel">${I.trash}</button>
-          </div>
-          <label class="dropzone" id="drop" for="cvFile" style="margin-top:14px">
-            ${I.upload}
-            <b>拖曳檔案到這裡，或點擊上傳新履歷</b>
-            <span class="faint">支援 PDF、Word，檔案大小 10 MB 以內</span>
-            <input type="file" id="cvFile" accept=".pdf,.doc,.docx" hidden>
-          </label>
-          <div class="grid g2" style="gap:14px;margin-top:16px">
-            <div class="blk good"><h4>${I.star}履歷亮點</h4><ul><li>成果有量化數字</li><li>技能和職缺需求相符</li></ul></div>
-            <div class="blk fix"><h4>${I.bulb}可以更好</h4><ul><li>補上帶人或 mentor 經驗</li><li>專案描述可以加上你的角色</li></ul></div>
-          </div>
-        </div>
-
-        <div class="card"><h3>工作經歷</h3>
-          <div class="timeline">
-            ${[['Shoply Taiwan','前端工程師','2023/12 – 現在','負責會員中心與結帳流程，結帳轉換率提升 12%，首頁 LCP 從 3.4 秒降到 1.8 秒。'],['Cubic Interactive','前端實習生','2023/02 – 2023/08','參與品牌活動網站開發，撰寫 15 個以上可重用元件。'],['國立政治大學','資訊管理學系 學士','2019 – 2023','畢業專題：校園二手書交易平台（React + Firebase）。']].map(e=>`<div class="tl"><span class="dot"></span><div><div class="row between"><b>${e[1]}・${e[0]}</b><span class="faint num">${e[2]}</span></div><p class="muted" style="margin-top:4px;font-size:.92rem">${e[3]}</p></div></div>`).join('')}
-          </div>
-          <button class="btn btn-sm btn-ghost" type="button">${I.plus}新增經歷</button>
-        </div>
-      </div>
-
-      <div class="stack" style="gap:20px">
-        <div class="card" style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px">
-          ${ring(85,120,12,'var(--sun)','完整度')}
-          <b>再填 2 項就完成了</b>
-          <p class="faint">加上作品集連結和期望薪資，推薦會更準確。</p>
-        </div>
-        <div class="card"><h3>技能</h3>
-          <div class="row" style="gap:8px" id="skills">${SKILLS.map((s,i)=>`<span class="chip leaf">${s}<button type="button" data-rm="${i}" aria-label="移除 ${s}" style="border:0;background:none;padding:0;color:inherit;line-height:1">×</button></span>`).join('')}</div>
-          <div class="row" style="margin-top:12px;flex-wrap:nowrap"><input class="input" id="skillIn" placeholder="新增技能，按 Enter"><button class="icon-btn" id="skillAdd" type="button" aria-label="新增技能">${I.plus}</button></div>
-        </div>
-        <div class="card"><h3>求職意向</h3>
-          <div class="stack" style="gap:14px">
-            <div class="field"><label>想找的職位</label><div class="row" style="gap:8px"><span class="chip sun">資深前端工程師</span><span class="chip sun">UI 工程師</span><button type="button" class="chip out">${I.plus.replace('<svg','<svg width="12" height="12"')}新增</button></div></div>
-            <div class="field"><label for="pLoc">希望地點</label><input class="input" id="pLoc" value="台北市、新北市、可遠端"></div>
-            <div class="field"><label for="pPay">期望月薪</label><input class="input" id="pPay" placeholder="例如 80,000 – 90,000"></div>
-            <div class="field"><label for="pLink">作品集連結</label><input class="input" id="pLink" placeholder="https://"></div>
-          </div>
-        </div>
-      </div>
-    </div></div>`;
+function pageSetList(){
+  setHead('book','題庫生成');
+  const targets=JOBS.filter(j=>S.saved.has(j.id));
+  return `<div class="wrap doc">
+    <h1>題庫生成</h1>
+    <p class="muted" style="margin-top:6px">選一個目標職缺，Ava 會依你的履歷和這個職缺幫你出題。每個目標職缺有自己的題組。</p>
+    <div style="margin-top:20px">
+      ${targets.map(j=>{const n=qs(j.id).length;return `<a class="hrow" href="#questions/${j.id}"><span class="lg" style="width:44px;height:44px;font-size:1.05rem;border-radius:12px">${j.logo}</span>
+        <span class="bd"><b>${esc(j.co)}・${esc(j.title)}</b><span class="m">${S.preparing.has(j.id)?'Ava 出題中⋯':n?`${n} 題`:'還沒有題目'}・契合度 ${j.match}%</span></span><span class="ch">${I.right}</span></a>`}).join('')}
+      ${targets.length?'':`<p class="muted" style="padding:14px 12px">還沒有目標職缺。先從職缺庫加入，或貼上你想應徵的職缺。</p>`}
+      <button class="addrow" type="button" id="addTarget">${I.plus}新增目標職缺</button>
+    </div>
+  </div>`;
 }
-
-/* ---------- router ---------- */
-const PAGES={home:pageHome, interview:pageInterview, report:pageReport, prep:pagePrep, questions:pageQuestions, jobs:pageJobs, profile:pageProfile};
-let cur='home';
-function render(){
-  const main=document.getElementById('main');
-  main.innerHTML=PAGES[cur]();
-  document.querySelectorAll('[data-mascot]').forEach(m=>{m.classList.add('mascot');if(!m.innerHTML)m.innerHTML=mascot()});
-  bind();
+function qRow(q,i){
+  return `<div class="qrow" data-i="${i}"><span class="no">${i+1}</span><div class="bd">${q.editing?
+    `<textarea id="qe${i}" rows="3" aria-label="題目內容">${esc(q.t)}</textarea><div class="row" style="margin-top:8px"><button class="btn pri sm" type="button" data-a="save">儲存</button><button class="btn ghost sm" type="button" data-a="cancel">取消</button></div>`:
+    `<div class="qt">${esc(q.t)}</div><div class="meta">${q.cat}・${q.lv}</div>`}</div>
+    ${q.editing?'':`<div class="ops"><button class="ib sm" type="button" data-a="up" aria-label="上移" ${i===0?'disabled':''}>${I.arrUp}</button><button class="ib sm" type="button" data-a="down" aria-label="下移" ${i===qs().length-1?'disabled':''}>${I.arrDn}</button><button class="ib sm" type="button" data-a="edit" aria-label="編輯">${I.pencil}</button><button class="ib sm" type="button" data-a="del" aria-label="刪除">${I.trash}</button></div>`}</div>`;
 }
-function route(){
-  const h=(location.hash||'#home').slice(1);
-  const next=PAGES[h]?h:'home';
-  if(cur==='interview'&&next!=='interview') stopIv();
-  cur=next; renderNav(cur); render(); window.scrollTo(0,0);
-}
-window.addEventListener('hashchange',route);
-
-/* ---------- interview simulation ---------- */
-let ivTimers=[];
-function clearIv(){ivTimers.forEach(clearTimeout);ivTimers=[];clearInterval(S.iv._clock)}
-function stopIv(){clearIv(); if(S.iv.phase==='live'){S.iv.phase='setup';S.iv.q=0;S.iv.log=[];S.iv.live=false;}}
-function later(fn,ms){ivTimers.push(setTimeout(fn,ms))}
-function typeInto(el,text,speed,done){
-  let i=0; el.classList.add('typing');
-  (function step(){ if(!el.isConnected) return; el.textContent=text.slice(0,++i); if(i<text.length) later(step,speed); else {el.classList.remove('typing'); done&&done();} })();
-}
-function addMsg(who,text,anim,done){
-  const tb=document.getElementById('trBody'); if(!tb) return;
-  const d=document.createElement('div'); d.className='msg '+who;
-  d.innerHTML = who==='ai' ? `<div class="mascot mini">${mascot()}</div><div><div class="tag">Ava</div><div class="b"></div></div>` : `<div class="av mini" style="font-size:.8rem">妤</div><div style="display:flex;flex-direction:column;align-items:flex-end"><div class="tag">你</div><div class="b"></div></div>`;
-  tb.appendChild(d); const b=d.querySelector('.b');
-  if(anim) typeInto(b,text,anim,done); else {b.textContent=text; done&&done();}
-  tb.scrollTop=tb.scrollHeight;
-  const obs=setInterval(()=>{if(!b.isConnected)return clearInterval(obs);tb.scrollTop=tb.scrollHeight;if(!b.classList.contains('typing'))clearInterval(obs)},120);
-  return b;
-}
-function setSpeaking(on){
-  const h=document.getElementById('halo'), m=document.getElementById('bigMascot');
-  if(h) h.classList.toggle('speaking',on); if(m) m.classList.toggle('talk',on);
-}
-function setMic(state){ // 'wait' | 'ready' | 'live'
-  const mic=document.getElementById('mic'), hint=document.getElementById('micHint'); if(!mic) return;
-  S.iv.live = state==='live';
-  mic.disabled = state==='wait';
-  mic.classList.toggle('live',state==='live');
-  mic.innerHTML = state==='live'?I.stop:I.mic;
-  mic.setAttribute('aria-label',state==='live'?'結束回答':'開始回答');
-  ['waveL','waveR'].forEach(id=>document.getElementById(id).classList.toggle('live',state==='live'));
-  hint.textContent = state==='wait'?'Ava 正在說話⋯':state==='ready'?'輪到你了，點麥克風開始回答':'正在聆聽⋯說完後再點一次';
-}
-const REACT=['謝謝你的分享，聽起來很有收穫。','很好，這個例子很具體！','了解，你處理得很細心。','好的，我們最後再聊一題。',''];
-function askQuestion(){
-  const iv=S.iv, q=QUESTIONS[iv.q], el=document.getElementById('qText'); if(!el) return;
-  setMic('wait'); setSpeaking(true);
-  const pre = iv.q===0?'你好，品妤！歡迎來到今天的面試。我們先從第一題開始：':'';
-  typeInto(el,q.t,45,()=>{setSpeaking(false);setMic('ready')});
-  addMsg('ai',pre+q.t,0);
-}
-function startAnswer(){
-  const iv=S.iv; setMic('live');
-  const ans=ANSWERS[iv.q]||'這題我想一下⋯我會先釐清需求，再提出幾個可行方案和取捨。';
-  iv._ansEl=addMsg('me','',0); iv._ansEl.classList.add('typing');
-  let i=0; const ansEl=iv._ansEl;
-  (function step(){ if(!ansEl.isConnected||!S.iv.live) return; i=Math.min(ans.length,i+2+Math.floor(Math.random()*3)); ansEl.textContent=ans.slice(0,i); const tb=document.getElementById('trBody'); if(tb) tb.scrollTop=tb.scrollHeight; if(i<ans.length) later(step,70); else {ansEl.classList.remove('typing'); document.getElementById('micHint').textContent='說完了嗎？點麥克風送出回答';} })();
-}
-function finishAnswer(){
-  const iv=S.iv; clearTimeoutsKeepClock();
-  if(iv._ansEl){iv._ansEl.textContent=ANSWERS[iv.q]||iv._ansEl.textContent;iv._ansEl.classList.remove('typing')}
-  nextQ(REACT[iv.q]||'');
-}
-function clearTimeoutsKeepClock(){ivTimers.forEach(clearTimeout);ivTimers=[]}
-function nextQ(reaction){
-  const iv=S.iv; setMic('wait');
-  iv.q++;
-  if(iv.q>=QUESTIONS.length){
-    setSpeaking(true);
-    const el=document.getElementById('qText');
-    const bye='今天的面試到這裡結束，你表現得很棒！我正在幫你整理評分報告⋯';
-    addMsg('ai',bye,0); typeInto(el,bye,40,()=>{setSpeaking(false); later(()=>{S.iv.phase='setup';S.iv.q=0;clearInterval(S.iv._clock);location.hash='#report';toast('評分報告完成了！')},900)});
+function bindQuestions(){
+  if(!S.qJob){
+    $('#addTarget').onclick=e=>openMenu(e.currentTarget,[{icon:'plus',label:'貼上職缺內容',v:'jd'},{icon:'brief',label:'從職缺庫挑選',v:'jobs'}],v=>{ if(v==='jobs') location.hash='#jobs'; else openJd(); });
     return;
   }
-  if(reaction){addMsg('ai',reaction,0)}
-  const keepClock=S.iv.timer; render(); S.iv.timer=keepClock; askQuestion();
+  const g=S.gen, j=job(S.job);
+  $('#qStart').onclick=()=>{location.hash='#new'};
+  const catMenu=()=>openMenu($('#gCat'),[{title:'題目類型（可複選）'},...CATS.map(c=>({label:c,v:c,checked:g.cats.has(c)}))],v=>{g.cats.has(v)?g.cats.delete(v):g.cats.add(v);render();catMenu();});
+  $('#gCat').onclick=catMenu;
+  $('#gLv').onclick=e=>openMenu(e.currentTarget,[{title:'難度'},...['基礎','中等','進階'].map(l=>({label:l,v:l,checked:g.lv===l}))],v=>{g.lv=v;render()});
+  $('#gN').onclick=e=>openMenu(e.currentTarget,[{title:'題數'},...[3,5,8,10].map(n=>({label:n+' 題',v:n,checked:g.n===n}))],v=>{g.n=v;render()});
+  const gen=()=>{ if(g.loading) return; g.loading=true; render(); setTimeout(()=>{ g.loading=false;
+    const extra=S.job==='j1'?[{cat:'團隊合作',lv:'中等',t:'你會怎麼幫助一位剛加入的初階工程師快速上手？'},{cat:'系統設計',lv:'進階',t:'店家後台要支援 3,000 家店同時更新菜單，前端狀態要怎麼設計？'}]
+      :[{cat:'動機與規劃',lv:'基礎',t:`你為什麼想加入 ${j.co}？你對我們的產品有什麼觀察？`},{cat:'技術深度',lv:'中等',t:`請分享一個和「${j.tags[0]||j.title}」相關、你最有成就感的專案。`}];
+    let n=0; extra.forEach(x=>{ if(!qs().some(q=>q.t===x.t)){qs().push(x);n++} });
+    if(S.route==='questions') render(); toast(n?`新增了 ${n} 題到 ${j.co} 題組`:'題組裡已經有這些題目了'); },1400); };
+  $('#gGo').onclick=gen;
+  $('#gNote').onkeydown=e=>{ if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();gen();} };
+  $('#qAdd').onclick=()=>{qs().push({cat:'自訂',lv:'中等',t:'',editing:true});render();const t=$('#qe'+(qs().length-1));if(t){t.focus();t.scrollIntoView({block:'center'})}};
+  $$('.qrow [data-a]').forEach(b=>b.onclick=()=>{
+    const i=+b.closest('.qrow').dataset.i,a=b.dataset.a,q=qs()[i];
+    if(a==='up'&&i>0)[qs()[i-1],qs()[i]]=[qs()[i],qs()[i-1]];
+    if(a==='down'&&i<qs().length-1)[qs()[i+1],qs()[i]]=[qs()[i],qs()[i+1]];
+    if(a==='edit')q.editing=true;
+    if(a==='cancel'){q.editing=false;if(!q.t)qs().splice(i,1)}
+    if(a==='save'){const v=$('#qe'+i).value.trim();if(!v){toast('題目內容不能是空的');return}q.t=v;q.editing=false;toast('已儲存')}
+    if(a==='del'){qs().splice(i,1);toast('已刪除')}
+    render();
+  });
 }
-function tickClock(){
-  clearInterval(S.iv._clock);
-  S.iv._clock=setInterval(()=>{S.iv.timer++;const t=document.getElementById('ivTime');if(t){const m=Math.floor(S.iv.timer/60),s=S.iv.timer%60;t.textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')}},1000);
+
+/* ---------- page: jobs ---------- */
+function jobsGrid(){
+  const q=S.jobQ.toLowerCase();
+  const list=JOBS.filter(j=>(!q||(j.title+j.co+j.tags.join('')).toLowerCase().includes(q))&&
+    (S.jobTab==='all'||(S.jobTab==='saved'&&S.saved.has(j.id))||(S.jobTab==='m80'&&j.match>=80)||j.f.includes(S.jobTab))).sort((a,b)=>b.match-a.match);
+  return list.length?list.map(j=>`<button class="job" type="button" data-job="${j.id}"><span class="lg">${j.logo}</span><span class="bd"><b>${j.title}</b><span class="s">${j.co}・${j.loc.slice(0,3)}・${j.type.split('・')[1]||j.type}</span><span class="m">${j.match}% 契合${S.saved.has(j.id)?'・目標職缺':''}</span></span></button>`).join(''):`<p class="muted" style="padding:20px 14px">找不到符合的職缺，換個關鍵字試試看。</p>`;
+}
+function pageJobs(){
+  setHead('brief','職缺','',`<button class="hbtn" type="button" onclick="openJd()">${I.plus}<span class="hide-m">貼上職缺</span></button>`);
+  const tabs=[['all','全部'],['saved','目標職缺'],['foreign','外商'],['remote','遠端'],['hybrid','混合辦公'],['m80','契合度 80%+']];
+  return `<div class="wrap wide">
+    <div class="jhead"><h1>職缺</h1><p>依你的履歷計算契合度。想應徵的職缺不在這裡？直接<button class="linkb" type="button" onclick="openJd()" style="display:inline-flex;text-decoration:underline">貼上職缺內容</button>。</p></div>
+    <label class="search">${I.search}<input id="jq" placeholder="搜尋職稱、公司或技能" value="${esc(S.jobQ)}" aria-label="搜尋職缺"></label>
+    <div class="tabs">${tabs.map(([k,n])=>`<button type="button" class="${S.jobTab===k?'on':''}" data-tab="${k}">${n}</button>`).join('')}</div>
+    <div class="jgrid" id="jgrid">${jobsGrid()}</div>
+  </div>`;
+}
+function bindJobGrid(){ $$('[data-job]').forEach(b=>b.onclick=()=>openJob(b.dataset.job)); }
+function bindJobs(){
+  const jq=$('#jq');
+  jq.oninput=()=>{ S.jobQ=jq.value; $('#jgrid').innerHTML=jobsGrid(); bindJobGrid(); };
+  $$('[data-tab]').forEach(b=>b.onclick=()=>{S.jobTab=b.dataset.tab;render()});
+  bindJobGrid();
+}
+function openJob(id){
+  const j=job(id); const saved=S.saved.has(id);
+  const s=openModal(`<div class="mhead"><h2>職缺詳情</h2><button class="ib" type="button" data-close aria-label="關閉">${I.x}</button></div>
+    <div class="mbody">
+      <div style="text-align:center"><span class="lg" style="width:72px;height:72px;font-size:1.8rem;margin:0 auto;border-radius:20px">${j.logo}</span>
+        <h2 style="font-size:1.4rem;font-weight:600;margin-top:14px">${esc(j.title)}</h2>
+        <div class="muted" style="margin-top:2px">${esc(j.co)}・${j.loc}</div>
+        <div class="row" style="justify-content:center;margin-top:12px"><span class="tagx">${j.match}% 契合</span><span class="tagx">${j.type}</span><span class="tagx">${j.pay}</span>${saved?'<span class="tagx">目標職缺</span>':''}</div>
+      </div>
+      <div class="doc" style="margin-top:22px">
+        <p class="muted">${esc(j.about)}</p>
+        <div class="sub-h">工作內容</div><ul>${j.duties.map(d=>`<li>${d}</li>`).join('')}</ul>
+        <div class="sub-h">條件要求</div><ul>${j.req.map(d=>`<li>${d}</li>`).join('')}</ul>
+        <div class="row" style="margin-top:14px">${j.tags.map(t=>`<span class="tagx">${t}</span>`).join('')}</div>
+      </div>
+      <div class="row" style="margin-top:24px;justify-content:center">
+        <button class="btn pri" type="button" id="mGo">${I.mic}練習這個職缺</button>
+        <button class="btn out" type="button" id="mSet">${I.book}題組</button>
+        <button class="btn out" type="button" id="mPrep">${I.bulb}面試建議</button>
+      </div>
+      ${saved?`<div style="text-align:center;margin-top:14px"><button class="linkb" type="button" id="mRm">移出目標職缺</button></div>`:`<p class="faint" style="text-align:center;margin-top:14px">練習後會自動加入目標職缺，Ava 會先幫你出好題目。</p>`}
+    </div>`,'sm');
+  const go=hash=>{ S.job=id; addTarget(id); closeModal(); if(location.hash===hash) render(); else location.hash=hash; };
+  s.querySelector('#mGo').onclick=()=>go('#new');
+  s.querySelector('#mSet').onclick=()=>go('#questions/'+id);
+  s.querySelector('#mPrep').onclick=()=>go('#prep');
+  const rm=s.querySelector('#mRm'); if(rm) rm.onclick=()=>{ S.saved.delete(id); toast('已移出目標職缺，題組會保留，重新加入就能找回'); closeModal(); render(); };
 }
 
-/* re-render keeps transcript: store messages */
-const _render=render;
-render=function(){
-  const tb=document.getElementById('trBody'); const saved=tb?tb.innerHTML:null;
-  _render();
-  if(cur==='interview'&&S.iv.phase==='live'&&saved!==null){const nb=document.getElementById('trBody');if(nb){nb.innerHTML=saved;nb.scrollTop=nb.scrollHeight}}
-};
-
-/* ---------- bindings ---------- */
-function bind(){
-  document.querySelectorAll('[data-job]').forEach(a=>a.addEventListener('click',()=>{S.job=a.dataset.job}));
-  document.querySelectorAll('button.chip[data-cat]').forEach(b=>b.onclick=()=>b.classList.toggle('sel'));
-
-  if(cur==='interview'){
-    const iv=S.iv;
-    if(iv.phase==='setup'){
-      document.getElementById('ivJob').onchange=e=>{S.job=e.target.value;render()};
-      document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{iv.mode=b.dataset.mode;render()});
-      document.querySelectorAll('#langSeg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#langSeg button').forEach(x=>x.classList.remove('on'));b.classList.add('on')});
-      document.querySelectorAll('[data-persona]').forEach(b=>b.onclick=()=>{iv.persona=b.dataset.persona;render()});
-      document.getElementById('ivStart').onclick=()=>{iv.phase='live';iv.q=0;iv.timer=0;_render();tickClock();later(askQuestion,500)};
-    } else {
-      document.getElementById('mic').onclick=()=>{ if(iv.live) finishAnswer(); else startAnswer(); };
-      document.getElementById('skip').onclick=()=>{clearTimeoutsKeepClock(); if(iv._ansEl) iv._ansEl.classList.remove('typing'); addMsg('me','（跳過這題）',0); nextQ('沒關係，我們換下一題。')};
-      document.getElementById('ivEnd').onclick=()=>{stopIv();location.hash='#report';toast('已結束面試，評分報告完成了！')};
-    }
-  }
-  if(cur==='prep'){
-    document.getElementById('prepJob').onchange=e=>{S.job=e.target.value;render()};
-    document.getElementById('regen').onclick=()=>{toast('Ava 重新分析完成了');render()};
-  }
-  if(cur==='questions'){
-    const qc=document.getElementById('qCount'); qc.oninput=()=>document.getElementById('qCountV').textContent=qc.value;
-    document.querySelectorAll('#lvSeg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#lvSeg button').forEach(x=>x.classList.remove('on'));b.classList.add('on')});
-    document.getElementById('qJob').onchange=e=>{S.job=e.target.value};
-    document.getElementById('genBtn').onclick=()=>{
-      S.genLoading=true; render();
-      setTimeout(()=>{S.genLoading=false;
-        const extra=[{cat:'團隊合作',lv:'中等',t:'你會怎麼幫助一位剛加入的初階工程師快速上手？'},{cat:'系統設計',lv:'進階',t:'店家後台要支援 3,000 家店同時更新菜單，前端狀態要怎麼設計？'}];
-        extra.forEach(x=>{if(!QUESTIONS.some(q=>q.t===x.t))QUESTIONS.push(x)});
-        if(cur==='questions') render(); toast('新增了 2 題，已加到題組最後');},1400);
-    };
-    document.getElementById('addQ').onclick=()=>{QUESTIONS.push({cat:'自訂',lv:'中等',t:'',editing:true});render();const t=document.getElementById('qe'+(QUESTIONS.length-1));t&&t.focus()};
-    document.querySelectorAll('.qcard [data-act]').forEach(b=>b.onclick=()=>{
-      const i=+b.closest('.qcard').dataset.i, a=b.dataset.act, q=QUESTIONS[i];
-      if(a==='up'&&i>0)[QUESTIONS[i-1],QUESTIONS[i]]=[QUESTIONS[i],QUESTIONS[i-1]];
-      if(a==='down'&&i<QUESTIONS.length-1)[QUESTIONS[i+1],QUESTIONS[i]]=[QUESTIONS[i],QUESTIONS[i+1]];
-      if(a==='edit')q.editing=true;
-      if(a==='cancel'){q.editing=false;if(!q.t)QUESTIONS.splice(i,1)}
-      if(a==='save'){const v=document.getElementById('qe'+i).value.trim();if(!v){toast('題目內容不能是空的');return}q.t=v;q.editing=false;toast('題目已儲存')}
-      if(a==='del'){QUESTIONS.splice(i,1);toast('已刪除這一題')}
-      render();
-    });
-  }
-  if(cur==='jobs'){
-    const go=()=>{JOBQ=document.getElementById('jq').value.trim();JOBLOC=document.getElementById('jloc').value;render()};
-    document.getElementById('jgo').onclick=go;
-    document.getElementById('jq').onkeydown=e=>{if(e.key==='Enter')go()};
-    document.getElementById('jloc').onchange=go;
-    document.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{S.job=b.dataset.pick;render();if(innerWidth<1080)document.querySelector('.jd').scrollIntoView({behavior:'smooth'})});
-    document.getElementById('saveJob').onclick=()=>toast('已收藏這個職缺');
-  }
-  if(cur==='profile'){
-    const drop=document.getElementById('drop'), f=document.getElementById('cvFile');
-    const take=file=>{if(!file)return;const kb=file.size/1024;CV={name:file.name,size:kb>1024?(kb/1024).toFixed(1)+' MB':Math.round(kb)+' KB',date:new Date().toLocaleDateString('zh-TW')};render();toast('履歷已上傳，Ava  正在解析內容')};
+/* ---------- settings modal (general / resume / goals / account) ---------- */
+function openSettings(tab='general'){
+  if(tab==='profile') tab='account';
+  const tabs=[['general','一般','gear'],['resume','履歷','file'],['goal','求職意向','target'],['account','帳號','user']];
+  const body={
+    general:`<div class="srow"><span>主題</span><select class="selx" id="stTheme"><option value="">跟隨系統</option><option value="dark" ${S.theme==='dark'?'selected':''}>深色</option><option value="light" ${S.theme==='light'?'selected':''}>淺色</option></select></div>
+      <div class="srow"><span>預設面試長度</span><select class="selx" id="stMode">${Object.entries(MODES).map(([k,m])=>`<option value="${k}" ${S.mode===k?'selected':''}>${m.name} ${m.n} 題</option>`).join('')}</select></div>
+      <div class="srow"><span>預設面試語言</span><select class="selx" id="stLang">${Object.entries(LANGS).map(([k,n])=>`<option value="${k}" ${S.lang===k?'selected':''}>${n}</option>`).join('')}</select></div>
+      <div class="srow"><span>預設面試官風格</span><select class="selx" id="stPer">${Object.entries(PERSONAS).map(([k,p])=>`<option value="${k}" ${S.persona===k?'selected':''}>${p.name}</option>`).join('')}</select></div>
+      <div class="srow"><span>回答錄音保留</span><span class="sv">180 天（逐字稿與評分會保留）</span></div>`,
+    resume:`<p class="faint" style="padding-top:12px">Ava 依履歷內容出題和評分，不需要另外填寫經歷或技能。</p>
+      <div class="srow col" style="border:0">
+        ${S.hasCv?RESUMES.map((r,i)=>`<div class="file"><span class="fi">${I.file}</span><span style="flex:1;min-width:0"><span style="font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(i===0?S.cv.name:r)}</span><span class="faint">${i===0?`${S.cv.size}・${S.cv.date}・主要履歷`:'412 KB・2026/09/10'}・AI 已解析</span></span>${i?`<button class="btn ghost sm" type="button" onclick="toast('已設為主要履歷')">設為主要</button>`:''}<button class="ib sm" type="button" aria-label="刪除履歷" onclick="toast('原型中先保留範例履歷')">${I.trash}</button></div>`).join(''):''}
+        <label class="drop" id="drop" for="cvFile">${I.upload}<span style="font-weight:500">拖曳檔案到這裡，或點擊上傳</span><span class="faint">PDF、Word，10 MB 以內</span><input type="file" id="cvFile" accept=".pdf,.doc,.docx" hidden></label></div>
+      ${S.hasCv?`<div class="doc"><div class="sub-h">Ava 從履歷讀到的</div>
+        <div class="row" style="margin-top:8px">${S.skills.map(s=>`<span class="tagx">${esc(s)}</span>`).join('')}</div>
+        <ul style="margin-top:10px"><li>前端工程師・Shoply Taiwan（2023/12 – 現在）</li><li>前端實習生・Cubic Interactive（2023/02 – 2023/08）</li></ul>
+        <div class="grid2" style="margin-top:4px"><div><div class="sub-h">履歷亮點</div><ul class="ticks"><li>成果有量化數字</li><li>技能和職缺需求相符</li></ul></div>
+        <div><div class="sub-h">可以更好</div><ul class="ticks warn"><li>補上帶人或 mentor 經驗</li><li>專案描述加上你的角色</li></ul></div></div>
+        <p class="faint" style="margin-top:12px">讀錯了嗎？直接修改履歷檔案後重新上傳就好。</p></div>`:''}`,
+    goal:`<p class="faint" style="padding-top:12px">選填。只用來在「職缺」頁推薦適合你的職缺。</p>
+      <div class="srow col"><span>想找的職位</span><input class="inp" value="資深前端工程師、UI 工程師" aria-label="想找的職位"></div>
+      <div class="srow col"><span>希望地點</span><input class="inp" value="台北市、新北市、可遠端" aria-label="希望地點"></div>
+      <div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn pri sm" type="button" onclick="toast('已儲存')">儲存</button></div>`,
+    account:`<div class="srow col"><span>名稱</span><input class="inp" value="陳品妤" aria-label="名稱"></div>
+      <div class="srow"><span>Email</span><span class="sv">pinyu.chen@example.com</span></div>
+      <div class="srow"><span>方案</span><span class="sv">Plus・本月剩 18 場</span></div>
+      <div class="srow"><span>刪除所有面試紀錄與錄音</span><button class="btn out sm danger" type="button" onclick="toast('原型中不會真的刪除')">全部刪除</button></div>
+      <div class="srow"><span>刪除帳號</span><button class="btn out sm danger" type="button" onclick="toast('原型中不會真的刪除')">刪除帳號</button></div>`
+  };
+  const s=openModal(`<div class="mhead"><h2>設定</h2><button class="ib" type="button" data-close aria-label="關閉">${I.x}</button></div>
+    <div class="set"><nav class="set-tabs">${tabs.map(([k,n,ic])=>`<button type="button" class="${tab===k?'on':''}" data-st="${k}">${I[ic]}${n}</button>`).join('')}</nav><div class="set-body">${body[tab]}</div></div>`);
+  s.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>openSettings(b.dataset.st));
+  const sel=(id,f)=>{const el=s.querySelector(id); if(el) el.onchange=()=>{f(el.value); if(S.route==='new') render();};};
+  sel('#stTheme',v=>setTheme(v||null)); sel('#stMode',v=>S.mode=v); sel('#stLang',v=>S.lang=v); sel('#stPer',v=>S.persona=v);
+  const f=s.querySelector('#cvFile'), drop=s.querySelector('#drop');
+  if(f){
+    const take=file=>{ if(!file) return; const kb=file.size/1024; S.cv={name:file.name,size:kb>1024?(kb/1024).toFixed(1)+' MB':Math.round(kb)+' KB',date:new Date().toLocaleDateString('zh-TW')}; S.hasCv=true; openSettings('resume'); if(S.route==='new') render(); toast('履歷已上傳，Ava 正在解析'); };
     f.onchange=()=>take(f.files[0]);
     ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')}));
     ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')}));
     drop.addEventListener('drop',e=>take(e.dataTransfer.files[0]));
-    document.getElementById('cvDel').onclick=()=>toast('原型中先保留範例履歷');
-    document.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{SKILLS.splice(+b.dataset.rm,1);render()});
-    const addSkill=()=>{const i=document.getElementById('skillIn');const v=i.value.trim();if(v&&!SKILLS.includes(v)){SKILLS.push(v);render();document.getElementById('skillIn').focus()}};
-    document.getElementById('skillAdd').onclick=addSkill;
-    document.getElementById('skillIn').onkeydown=e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();addSkill()}};
-    document.getElementById('saveProfile').onclick=()=>toast('個人檔案已儲存');
   }
 }
 
-document.querySelectorAll('[data-mascot]').forEach(m=>{m.classList.add('mascot');m.innerHTML=mascot()});
+/* ---------- search modal ---------- */
+function openSearch(){
+  closeDrawer();
+  const s=openModal(`<div class="mhead" style="padding:8px 12px 8px 18px"><span style="color:var(--ink-3)">${I.search.replace('<svg','<svg width="18" height="18"')}</span><input id="sq" class="inp" style="border:0;padding:6px 4px;font-size:1rem" placeholder="搜尋面試紀錄、職缺、題目⋯" aria-label="搜尋"><button class="ib" type="button" data-close aria-label="關閉">${I.x}</button></div><div class="mbody" id="sres" style="padding:8px"></div>`,'sm');
+  const draw=q=>{ q=q.toLowerCase();
+    const a=[...HISTORY.map(h=>({ic:'report',t:h.t,r:h.s+' 分',href:'#report/'+h.id})),...JOBS.map(j=>({ic:'brief',t:j.co+'・'+j.title,r:j.match+'%',job:j.id})),...qs().map(x=>({ic:'book',t:x.t,r:x.cat,href:'#questions/'+S.job}))].filter(x=>!q||x.t.toLowerCase().includes(q)).slice(0,10);
+    $('#sres').innerHTML=a.length?a.map((x,i)=>`<button class="sres" type="button" data-k="${i}">${I[x.ic]}<span class="t">${esc(x.t)}</span><span class="faint">${x.r}</span></button>`).join(''):`<p class="faint" style="padding:16px">找不到結果</p>`;
+    $$('#sres [data-k]').forEach(b=>b.onclick=()=>{const x=a[+b.dataset.k]; closeModal(); if(x.job) openJob(x.job); else location.hash=x.href; });
+  };
+  const inp=s.querySelector('#sq'); inp.oninput=()=>draw(inp.value); draw(''); inp.focus();
+}
+
+/* ---------- router ---------- */
+const PAGES={new:[pageNew,bindNew],chat:[pageChat,bindChat],report:[pageReport,bindReport],prep:[pagePrep,bindPrep],questions:[pageQuestions,bindQuestions],jobs:[pageJobs,bindJobs]};
+function render(){
+  closeMenu();
+  const [page,bind]=PAGES[S.route];
+  $('#view').innerHTML=page(); bind(); renderSide(); renderDock();
+}
+function route(){
+  const [h,arg]=(location.hash||'#new').slice(1).split('/');
+  let next=PAGES[h]?h:'new';
+  S.reportId=next==='report'?(arg||null):null;
+  S.qJob=next==='questions'&&arg&&JOBS.some(x=>x.id===arg)?arg:null;
+  if(S.qJob) S.job=S.qJob;
+  if(next!=='report') S.histQ='';
+  if(S.route==='chat'&&next!=='chat') leaveChat();
+  if(next==='chat'&&!S.iv){ history.replaceState(null,'','#new'); next='new'; }
+  const resuming=next==='chat'&&S.route!=='chat'&&S.iv&&S.iv.paused&&S.iv.phase!=='done';
+  S.route=next; closeModal(); closeDrawer(); render(); if(next!=='chat') $('#view').scrollTop=0;
+  if(resuming){ pushMsg({r:'sys',text:`已回到面試・從第 ${Math.min(S.iv.q+1,S.iv.list.length)} 題繼續`}); resumeIv(); }
+}
+window.addEventListener('hashchange',route);
 applyTheme();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);
 route();
 </script>
-
 </body></html>

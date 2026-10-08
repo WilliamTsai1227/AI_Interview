@@ -1,8 +1,15 @@
 # AI Interview — API 規格書
 
-> 版本：v0.1・後端：FastAPI・Base URL：`/api/v1`
-> 相關文件：[architecture.md](architecture.md)・[postgresql.md](postgresql.md)・[flows.md](flows.md)
+> 版本：v0.2・後端：FastAPI・Base URL：`/api/v1`
+> 相關文件：[architecture.md](architecture.md)・[postgresql.md](postgresql.md)・[flows.md](flows.md)・[AI Interview.html](AI%20Interview.html)（UI 原型）
 > FastAPI 會自動產生 OpenAPI（`/api/v1/docs`），本文件是**設計依據**；實作後以程式產生的 OpenAPI 為準，兩者不一致時更新本文件。
+
+**v0.2 主要變更**（對齊 ChatGPT 風格的 UI 原型與 UX 檢查）：
+
+- 以「**目標職缺**」（`/targets`）為練習單位：加入時自動解析職缺、出第一組題目、產生面試建議；題組、面試建議都掛在目標職缺下（一個目標職缺一個題組）。
+- 面試可**暫停**、**重錄**、離開後 **24 小時內繼續**；斷線不再直接作廢。
+- `POST /interviews` 只需要 `target_id` 與三個選項，題數不足自動補題，不再回 `QUESTION_SET_TOO_SMALL`。
+- 移除 Dashboard、收藏、技能／經歷／大頭貼等手動填寫的個人檔案端點；個人資料以履歷為準。
 
 ---
 
@@ -19,16 +26,16 @@
 |---|---|---|
 | `length_mode` | `quick` / `standard` / `deep` | 快速 3 題 / 標準 5 題 / 深入 8 題 |
 | `persona` | `warm` / `real` / `tough` | 溫和引導 / 真實模擬 / 壓力面試 |
-| `language` | `zh` / `en` / `mixed` | 中文 / English / 中英混合 |
+| `language` | `zh` / `en` / `mixed` | 中文 / 英文 / 中英混合 |
 | `difficulty` | `basic` / `medium` / `advanced` | 基礎 / 中等 / 進階 |
-| `voice_mode` | `live` / `scripted` | 擬真語音 / 標準語音 |
+| `voice_mode` | `live` / `scripted` | 由後端依方案與 GPT‑Live 可用性決定，**使用者不需要選** |
 
 ### 1.2 認證
 
 - 登入成功後：
   - `access_token`（JWT，15 分鐘）放在回應 body，前端存在記憶體，請求時帶 `Authorization: Bearer <token>`。
   - `refresh_token` 放在 `HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth` Cookie，有效 30 天，每次使用都輪替。
-- Access token 過期回 `401 TOKEN_EXPIRED`，前端 `api.js` 自動呼叫 `/auth/refresh` 後重送一次。
+- Access token 過期回 `401 TOKEN_EXPIRED`，前端 `api.js` 自動呼叫 `/auth/refresh` 後重送一次，使用者不會看到登出。
 - 除 `/auth/*` 外，所有端點都需要登入。所有資源都以目前使用者為範圍；存取別人的資源回 `404`（不洩漏存在與否）。
 
 ### 1.3 錯誤格式
@@ -44,23 +51,25 @@
 }
 ```
 
-| HTTP | code | 說明 |
-|---|---|---|
-| 400 | `VALIDATION_ERROR` | 欄位驗證失敗，`details.fields` 列出欄位 |
-| 401 | `UNAUTHENTICATED` / `TOKEN_EXPIRED` | 未登入 / token 過期 |
-| 403 | `FORBIDDEN` / `PLAN_LIMIT_REACHED` | 無權限 / 超過方案用量 |
-| 404 | `NOT_FOUND` | 資源不存在或不屬於你 |
-| 409 | `STATE_CONFLICT` | 面試狀態版本不符或階段不允許此操作 |
-| 409 | `ACTIVE_SESSION_EXISTS` | 已有進行中的面試 |
-| 409 | `REQUEST_IN_PROGRESS` | 同一個 Idempotency-Key 的請求仍在處理中 |
-| 422 | `IDEMPOTENCY_KEY_REUSED` | 同一個 Idempotency-Key 搭配不同的請求內容 |
-| 409 | `RESOURCE_NOT_READY` | 履歷／職缺尚在解析、TTS 尚未完成 |
-| 413 | `FILE_TOO_LARGE` | 檔案過大 |
-| 415 | `UNSUPPORTED_MEDIA_TYPE` | 檔案類型不支援 |
-| 422 | `QUESTION_SET_TOO_SMALL` | 題組題數少於面試長度所需 |
-| 429 | `RATE_LIMITED` | 請求過於頻繁，`Retry-After` 標頭 |
-| 502 | `UPSTREAM_ERROR` | AI 服務錯誤 |
-| 503 | `LIVE_UNAVAILABLE` | GPT‑Live 無法連線（前端應改用 `scripted`） |
+`message` 是可以直接顯示給使用者的中文句子；前端不要顯示 `code` 或 `request_id`（`request_id` 放在「回報問題」裡）。
+
+| HTTP | code | 說明 | 前端該怎麼做 |
+|---|---|---|---|
+| 400 | `VALIDATION_ERROR` | 欄位驗證失敗，`details.fields` 列出欄位 | 在欄位旁顯示訊息 |
+| 401 | `UNAUTHENTICATED` / `TOKEN_EXPIRED` | 未登入 / token 過期 | 自動 refresh；失敗才導向登入 |
+| 403 | `PLAN_LIMIT_REACHED` | 超過方案用量 | 顯示剩餘次數與升級說明 |
+| 404 | `NOT_FOUND` | 資源不存在或不屬於你 | 回到上一層列表 |
+| 409 | `STATE_CONFLICT` | 面試狀態版本不符或階段不允許此操作 | 重新 `GET /interviews/{id}` 同步畫面，不提示錯誤 |
+| 409 | `ACTIVE_SESSION_EXISTS` | 已有未結束的面試，`details.session_id` | 顯示「繼續那場／結束它並開始新的」，不是錯誤訊息 |
+| 409 | `REQUEST_IN_PROGRESS` | 同一個 Idempotency-Key 的請求仍在處理中 | 稍後自動重試 |
+| 409 | `RESOURCE_NOT_READY` | 履歷／職缺尚在解析、題組尚在生成 | 顯示進度，完成後自動繼續 |
+| 413 | `FILE_TOO_LARGE` | 檔案過大 | 顯示上限（履歷 10 MB） |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` | 檔案類型不支援 | 顯示支援格式 |
+| 422 | `IDEMPOTENCY_KEY_REUSED` | 同一個 Idempotency-Key 搭配不同的請求內容 | 產生新 key 重送 |
+| 422 | `JD_UNREADABLE` | 貼上的內容看不出是職缺（太短或沒有職稱） | 提示「至少要有職稱和工作內容」 |
+| 429 | `RATE_LIMITED` | 請求過於頻繁，`Retry-After` 標頭 | 按鈕暫時停用並倒數 |
+| 502 | `UPSTREAM_ERROR` | AI 服務錯誤 | 顯示「Ava 暫時忙不過來，請再試一次」與重試按鈕 |
+| 503 | `LIVE_UNAVAILABLE` | GPT‑Live 無法連線 | 自動改用標準語音，面試照常進行 |
 
 ### 1.4 分頁
 
@@ -70,18 +79,20 @@
 { "items": [ … ], "next_cursor": "eyJ…" }
 ```
 
-`next_cursor` 為 `null` 表示沒有下一頁。
+`next_cursor` 為 `null` 表示沒有下一頁。前端用無限捲動，不顯示頁碼。
 
 ### 1.5 非同步資源
 
-需要 AI 處理的建立動作（履歷解析、題目生成、面試建議、報告）回 `202 Accepted` 與資源狀態，前端以 `GET` 輪詢（建議每 2 秒，最多 60 秒）或訂閱 SSE。狀態一律為：
+需要 AI 處理的動作（履歷解析、職缺解析、題目生成、面試建議、報告）回 `202 Accepted` 與資源狀態，前端以 `GET` 輪詢（建議每 2 秒，最多 60 秒）或訂閱 SSE。狀態一律為：
 
 `pending` → `running` / `processing` → `ready` / `succeeded` | `failed`
+
+**UX 規則**：非同步期間畫面一定顯示「正在做什麼」（例如「Ava 正在依職缺出題⋯」）與骨架，不顯示空白；失敗時顯示可重試的按鈕，不讓使用者卡住。
 
 ### 1.6 冪等與並行控制
 
 - 建立型 `POST` 可帶 `Idempotency-Key: <uuid>`，24 小時內同一 key 回傳第一次的結果。**面試回答上傳必帶**。
-  - 實作：middleware 以 Redis `ai:idem:{user_id}:{key}` 記錄。第一次請求先寫入 `processing`；同 key 的請求還在處理中時回 `409 REQUEST_IN_PROGRESS`（前端稍後重試）；完成後存入狀態碼與回應 body，之後同 key 直接回傳。
+  - 實作：middleware 以 Redis `ai:idem:{user_id}:{key}` 記錄。第一次請求先寫入 `processing`；同 key 的請求還在處理中時回 `409 REQUEST_IN_PROGRESS`；完成後存入狀態碼與回應 body，之後同 key 直接回傳。
   - 同一 key 但 body 不同回 `422 IDEMPOTENCY_KEY_REUSED`。
   - Redis 不可用時，回答上傳退回使用 `answer_attempts.idempotency_key` 唯一約束判斷，仍保證不重複寫入。
 - 面試狀態推進端點必帶 `expected_version`（來自上一次回應的 `state_version`），不符回 `409 STATE_CONFLICT`。
@@ -95,8 +106,9 @@
 | `login_fail` | 每個 Email | 15 分鐘內失敗 5 次即鎖定 15 分鐘 |
 | `register` | 每個 IP | 每小時 10 次 |
 | `resume_upload` | 每位使用者 | 每天 20 次 |
+| `target_create` | 每位使用者 | 每小時 20 個 |
 | `question_gen` | 每位使用者 | 每小時 20 次 |
-| `prep_gen` | 每位使用者 | 每小時 20 次 |
+| `prep_regen` | 每位使用者 | 每小時 10 次 |
 | `interview_create` | 每位使用者 | 每天 10 場（另受方案每月用量限制） |
 | `default` | 每位使用者 | 每分鐘 120 次 |
 
@@ -108,69 +120,60 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 
 | 模組 | 方法 | 路徑 | 說明 | UI |
 |---|---|---|---|---|
-| Auth | POST | `/auth/register` | 註冊 | 登入 |
-| | POST | `/auth/login` | 登入 | 登入 |
+| Auth | POST | `/auth/register` | 註冊 | 登入頁 |
+| | POST | `/auth/login` | 登入 | 登入頁 |
 | | POST | `/auth/refresh` | 換新 access token | — |
-| | POST | `/auth/logout` | 登出 | 側欄 |
-| | GET | `/auth/google/start` | Google OAuth 起點 | 登入 |
-| | GET | `/auth/google/callback` | Google OAuth 回呼 | — |
-| Me | GET | `/me` | 帳號＋個人檔案＋技能＋經歷＋完整度 | 個人檔案、側欄 |
-| | PATCH | `/me/profile` | 更新基本資料、求職意向 | 個人檔案 |
-| | POST | `/me/avatar` | 上傳大頭貼 | 個人檔案 |
-| | PUT | `/me/skills` | 整批覆寫技能 | 個人檔案・技能 |
-| | POST | `/me/experiences` | 新增經歷 | 個人檔案・經歷 |
-| | PATCH | `/me/experiences/{id}` | 修改經歷 | |
-| | DELETE | `/me/experiences/{id}` | 刪除經歷 | |
-| | DELETE | `/me` | 刪除帳號 | 設定 |
-| Resumes | POST | `/resumes` | 上傳履歷（非同步解析） | 個人檔案・履歷 |
-| | GET | `/resumes` | 履歷列表 | 面試建議・履歷選單 |
-| | GET | `/resumes/{id}` | 履歷詳情與解析結果 | |
-| | PATCH | `/resumes/{id}` | 設為主要履歷、改名 | |
-| | DELETE | `/resumes/{id}` | 刪除履歷 | |
-| | GET | `/resumes/{id}/download` | 取得下載連結 | |
-| Jobs | GET | `/jobs` | 搜尋職缺（含契合度） | 職缺找尋 |
-| | GET | `/jobs/{id}` | 職缺詳情 | 職缺詳情 |
-| | POST | `/jobs` | 建立自訂職缺（貼上 JD） | 新增職缺 |
-| | PATCH | `/jobs/{id}` | 修改自訂職缺 | |
-| | DELETE | `/jobs/{id}` | 刪除自訂職缺 | |
-| | PUT | `/jobs/{id}/save` | 收藏 | 收藏 |
-| | DELETE | `/jobs/{id}/save` | 取消收藏 | |
-| | GET | `/me/saved-jobs` | 我的收藏 | |
-| | GET | `/me/jobs` | 我練習過或自訂的職缺（下拉選單用） | 各頁職缺選單 |
-| Preps | POST | `/preps` | 生成面試建議 | 面試建議・重新生成 |
-| | GET | `/preps/latest` | 取得某職缺×履歷最新的建議 | 面試建議 |
-| | GET | `/preps/{id}` | 取得建議 | |
+| | POST | `/auth/logout` | 登出 | 側欄・帳號選單 |
+| | GET | `/auth/google/start` | Google 登入起點 | 登入頁 |
+| | GET | `/auth/google/callback` | Google 登入回呼 | — |
+| Me | GET | `/me` | 帳號、偏好、用量、上手狀態、未結束的面試 | 開啟網站時 |
+| | PATCH | `/me` | 改名稱、偏好（預設長度／風格／語言、求職意向） | 設定・一般／求職意向／帳號 |
+| | DELETE | `/me/interviews` | 刪除所有面試紀錄與錄音 | 設定・帳號 |
+| | DELETE | `/me` | 刪除帳號 | 設定・帳號 |
+| Resumes | POST | `/resumes` | 上傳履歷（非同步解析） | 設定・履歷、新面試 |
+| | GET | `/resumes` | 履歷列表 | 新面試・履歷選單 |
+| | GET | `/resumes/{id}` | 解析結果（經歷、技能、亮點） | 設定・履歷 |
+| | PATCH | `/resumes/{id}` | 設為主要履歷、改名 | 設定・履歷 |
+| | DELETE | `/resumes/{id}` | 刪除履歷 | 設定・履歷 |
+| Targets | GET | `/targets` | 目標職缺列表（含題數、題組狀態） | 側欄、題庫生成、新面試・職缺選單 |
+| | POST | `/targets` | 加入目標職缺（貼上 JD 或從職缺庫）＋自動出題＋面試建議 | 貼上新職缺、職缺詳情 |
+| | GET | `/targets/{id}` | 目標職缺詳情 | 職缺詳情視窗 |
+| | PATCH | `/targets/{id}` | 換預設履歷、修正職缺內容 | 新面試・履歷選單 |
+| | DELETE | `/targets/{id}` | 移出目標職缺（資料保留） | 職缺詳情視窗 |
+| Questions | GET | `/targets/{id}/questions` | 題組 | 題庫生成、新面試・本次題目 |
+| | POST | `/targets/{id}/questions/generate` | 依需求生成題目 | 題庫生成・輸入框 |
+| | GET | `/question-generations/{id}` | 生成進度 | — |
+| | POST | `/targets/{id}/questions` | 新增題目 | 新增題目 |
+| | PATCH | `/targets/{id}/questions/{item_id}` | 修改題目 | 編輯 |
+| | DELETE | `/targets/{id}/questions/{item_id}` | 刪除題目 | 刪除 |
+| | PUT | `/targets/{id}/questions/order` | 重新排序 | 上移／下移 |
+| Prep | GET | `/targets/{id}/prep` | 面試建議（加入目標職缺時自動產生） | 面試建議 |
+| | POST | `/targets/{id}/prep/regenerate` | 重新分析 | 面試建議・重新生成 |
 | | PATCH | `/preps/{id}/checklist/{item_id}` | 勾選準備清單 | 準備清單 |
-| | POST | `/preps/{id}/likely-questions/add-to-set` | 可能題目加入題庫 | 全部加入題庫 |
-| Question Bank | GET | `/question-sets` | 題組列表 | 題目生成 |
-| | POST | `/question-sets` | 建立題組 | |
-| | GET | `/question-sets/{id}` | 題組與題目 | 目前題組 |
-| | PATCH | `/question-sets/{id}` | 改名 | |
-| | DELETE | `/question-sets/{id}` | 刪除題組 | |
-| | POST | `/question-sets/{id}/generations` | AI 生成題目 | 生成題目 |
-| | GET | `/question-generations/{id}` | 生成進度 | |
-| | POST | `/question-sets/{id}/items` | 新增題目 | 新增題目 |
-| | PATCH | `/question-sets/{id}/items/{item_id}` | 修改題目 | 編輯 |
-| | DELETE | `/question-sets/{id}/items/{item_id}` | 刪除題目 | 刪除 |
-| | PUT | `/question-sets/{id}/order` | 重新排序 | 上移／下移 |
-| Interviews | POST | `/interviews` | 建立面試場次 | 開始面試 |
-| | GET | `/interviews` | 面試歷史 | 首頁・最近的面試 |
-| | GET | `/interviews/{id}` | 場次狀態（重連用） | 面試進行中 |
-| | DELETE | `/interviews/{id}` | 刪除面試（含音訊） | |
+| | POST | `/preps/{id}/likely-questions/add` | 可能題目加入題組 | 可能題目加入題組 |
+| Jobs | GET | `/jobs` | 職缺庫搜尋（含契合度） | 職缺 |
+| | GET | `/jobs/{id}` | 職缺詳情 | 職缺詳情視窗 |
+| Interviews | POST | `/interviews` | 建立面試 | 新面試・開始面試 |
+| | GET | `/interviews/active` | 未結束（含暫停中）的面試 | 新面試橫幅、側欄 |
+| | GET | `/interviews/{id}` | 場次狀態（重新整理、繼續用） | 面試進行中 |
 | | POST | `/interviews/{id}/live/connect` | WebRTC SDP 交換 | 面試進行中 |
 | | POST | `/interviews/{id}/start` | 開始，取得第一題 | |
 | | POST | `/interviews/{id}/questions/{qid}/playback-finished` | 主題目播放完成 | |
 | | POST | `/interviews/{id}/questions/{qid}/answers` | 開始作答 | 點麥克風 |
-| | POST | `/interviews/{id}/attempts/{aid}/complete` | 上傳回答並取得下一步 | 再點麥克風 |
-| | POST | `/interviews/{id}/questions/{qid}/skip` | 跳過這題 | 跳過這題 |
+| | POST | `/interviews/{id}/attempts/{aid}/complete` | 上傳回答並取得下一步 | 按 ■ |
+| | POST | `/interviews/{id}/attempts/{aid}/discard` | 重錄（丟掉這次回答） | 重錄 |
+| | POST | `/interviews/{id}/questions/{qid}/skip` | 跳過這題 | 跳過 |
+| | POST | `/interviews/{id}/pause` | 暫停 | 暫停、離開頁面 |
+| | POST | `/interviews/{id}/resume` | 繼續 | 繼續面試 |
 | | POST | `/interviews/{id}/heartbeat` | 心跳 | — |
-| | POST | `/interviews/{id}/end` | 提前結束 | 結束並看評分 |
-| Reports | GET | `/interviews/{id}/report` | 評分報告 | 面試評分 |
-| | GET | `/interviews/{id}/report/events` | 報告進度（SSE） | 報告產生中 |
-| | GET | `/interviews/{id}/answers/{aid}/audio` | 取得回答音訊連結 | 逐題回顧 |
-| | POST | `/interviews/{id}/report/add-to-set` | 題目加入題庫複習 | 加入題庫複習 |
-| | POST | `/interviews/{id}/questions/{qid}/re-evaluate` | 重新評分 | 需複查題目 |
-| Dashboard | GET | `/dashboard` | 首頁彙整 | 首頁 |
+| | POST | `/interviews/{id}/end` | 結束（已作答的題目產生報告） | 結束面試 |
+| Reports | GET | `/interviews` | 面試報告列表＋彙總 | 面試報告 |
+| | GET | `/interviews/{id}/report` | 評分報告 | 報告詳情 |
+| | GET | `/interviews/{id}/report/events` | 報告進度（SSE） | 評分中 |
+| | GET | `/interviews/{id}/answers/{aid}/audio` | 回答錄音連結 | 聽我的錄音 |
+| | POST | `/interviews/{id}/report/add-to-set` | 弱項加入題組 | 弱項加入題組 |
+| | POST | `/interviews/{id}/questions/{qid}/re-evaluate` | 重新評分 | 需複查的題目 |
+| | DELETE | `/interviews/{id}` | 刪除報告與錄音 | 報告・更多 |
 | Admin | POST | `/admin/jobs/import` | 匯入平台職缺 | 後台 |
 
 ---
@@ -186,7 +189,7 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 { "access_token": "eyJ…", "user": { "id": "…", "email": "…", "display_name": "陳品妤", "plan": "free" } }
 ```
 
-密碼至少 8 碼。Email 已存在回 `409 EMAIL_TAKEN`。同時 `Set-Cookie: refresh_token=…`。
+密碼至少 8 碼。Email 已存在回 `409 EMAIL_TAKEN`（訊息：「這個 Email 已經註冊過，直接登入就好」）。同時 `Set-Cookie: refresh_token=…`。註冊完成直接進入「新面試」頁，不另外要求填個人資料。
 
 ### `POST /auth/login`
 
@@ -200,60 +203,54 @@ Request `{ "email", "password" }`，回應同註冊。連續失敗 5 次鎖 15 �
 
 撤銷目前 refresh token，清除 Cookie，回 `204`。
 
-### `GET /auth/google/start` → `302` 到 Google；`GET /auth/google/callback` → 建立／連結帳號後 `302 /#home`，並設 Cookie。
+### `GET /auth/google/start` → `302` 到 Google；`GET /auth/google/callback` → 建立／連結帳號後 `302 /#new`，並設 Cookie。
 
 ---
 
-## 4. Me（個人檔案）
+## 4. Me（帳號與偏好）
 
 ### `GET /me`
 
+前端開啟網站時呼叫一次，決定顯示哪個畫面（新使用者引導、未結束面試橫幅）。
+
 ```json
 {
-  "user": { "id": "…", "email": "pinyu.chen@example.com", "display_name": "陳品妤", "avatar_url": "https://…", "plan": "free" },
-  "profile": {
-    "full_name": "陳品妤", "current_title": "前端工程師", "years_experience": 3,
-    "phone": "0912-345-678", "bio": "喜歡把複雜流程變簡單的前端工程師…",
-    "desired_roles": ["資深前端工程師", "UI 工程師"],
-    "desired_locations": "台北市、新北市、可遠端",
-    "expected_salary": null, "portfolio_url": null
+  "user": { "id": "…", "email": "pinyu.chen@example.com", "display_name": "陳品妤", "plan": "pro" },
+  "preferences": {
+    "default_length": "standard", "default_persona": "warm", "default_language": "zh",
+    "desired_roles": ["資深前端工程師", "UI 工程師"], "desired_locations": ["台北市", "可遠端"]
   },
-  "skills": ["React", "TypeScript", "Next.js", "CSS / Tailwind", "Jest", "Figma", "Git"],
-  "experiences": [
-    { "id": "…", "kind": "work", "organization": "Shoply Taiwan", "title": "前端工程師",
-      "start_date": "2023-12-01", "end_date": null, "is_current": true,
-      "description": "負責會員中心與結帳流程…" }
-  ],
+  "usage": { "period": "2026-10", "interviews_used": 12, "interviews_limit": 30 },
+  "onboarding": { "has_resume": true, "has_target": true, "has_completed_interview": true },
   "primary_resume": { "id": "…", "filename": "陳品妤_履歷_2026.pdf", "parse_status": "parsed" },
-  "completeness": { "percent": 85, "missing": ["portfolio_url", "expected_salary"] }
+  "active_interview": {
+    "id": "…", "status": "paused", "target_id": "…", "company_name": "Acme Cloud",
+    "answered": 1, "current_main_no": 2, "total_main": 5, "resume_deadline": "2026-10-10T08:00:00Z"
+  }
 }
 ```
 
-完整度計算（後端程式）：姓名、職稱、Email、手機、自我介紹、主要履歷、≥3 個技能、≥1 段經歷、想找的職位、希望地點、期望月薪、作品集，共 12 項；可以調整權重。
+- `onboarding` 讓前端顯示對應的引導：沒有目標職缺時，「新面試」頁的主按鈕是「貼上職缺內容」。
+- `active_interview` 為 `null` 表示沒有未結束的面試；有的話，「新面試」頁顯示「繼續面試／結束並產生報告」橫幅，側欄顯示「面試暫停中」。
 
-### `PATCH /me/profile`
-
-部分更新 `profile` 欄位與 `display_name`。回傳同 `GET /me`。
-
-### `POST /me/avatar`
-
-`multipart/form-data`，欄位 `file`（jpg/png/webp，≤ 2 MB）。回 `{ "avatar_url": "…" }`。
-
-### `PUT /me/skills`
+### `PATCH /me`
 
 ```json
-{ "skills": ["React", "TypeScript", "Next.js"] }
+{ "display_name": "陳品妤",
+  "preferences": { "default_length": "quick", "desired_locations": ["台北市"] } }
 ```
 
-最多 30 個，大小寫不分去重，依陣列順序存。回 `{ "skills": [...] }`。
+`preferences` 為部分更新（merge）。**新面試頁每次開始面試時，後端也會把當次的長度／風格／語言寫回 `preferences`**，下次打開就是上次的設定。回傳同 `GET /me`。
 
-### `POST /me/experiences`、`PATCH /me/experiences/{id}`、`DELETE /me/experiences/{id}`
+### `DELETE /me/interviews`
 
-Body 與 `experiences[]` 元素相同（不含 `id`）。
+刪除所有面試、報告、錄音。Body `{ "confirm": "DELETE" }`，回 `202`。
 
 ### `DELETE /me`
 
-Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）。回 `202`，背景刪除所有資料與檔案。
+Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）。回 `202`，背景刪除所有資料與檔案。
+
+> 不提供技能、經歷、手機、大頭貼等編輯端點：經歷與技能以履歷解析結果為準，使用者不需要重複填寫。解析錯誤時，修改履歷檔重新上傳即可。
 
 ---
 
@@ -269,7 +266,8 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
   "parse_status": "pending", "is_primary": true, "created_at": "2026-09-28T03:10:00Z" }
 ```
 
-同一使用者上傳相同檔案（sha256 相同）時，直接回傳既有履歷。
+- 同一使用者上傳相同檔案（sha256 相同）時，直接回傳既有履歷。
+- 第一份履歷解析完成後，系統會為「還沒有預設履歷」的目標職缺補上 `resume_id`，並重新產生它們的面試建議（題組不會被覆蓋）。
 
 ### `GET /resumes`
 
@@ -284,12 +282,19 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
 {
   "id": "…", "filename": "…", "size_bytes": 421888, "is_primary": true,
   "parse_status": "parsed", "parse_error": null,
-  "parsed": { "summary": "…", "skills": ["React"], "experiences": [ … ], "achievements": ["結帳轉換率提升 12%"] },
+  "parsed": {
+    "summary": "…",
+    "skills": ["React", "TypeScript", "Next.js"],
+    "experiences": [ { "org": "Shoply Taiwan", "title": "前端工程師", "start": "2023-12", "end": null } ],
+    "achievements": ["結帳轉換率提升 12%"]
+  },
   "analysis": { "highlights": ["成果有量化數字", "技能和職缺需求相符"],
                 "improvements": ["補上帶人或 mentor 經驗", "專案描述可以加上你的角色"] },
   "created_at": "…"
 }
 ```
+
+設定頁以唯讀方式顯示 `parsed`（「Ava 從履歷讀到的」），讓使用者確認 Ava 讀對了。
 
 ### `PATCH /resumes/{id}`
 
@@ -299,13 +304,212 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
 
 回 `204`。已被面試場次引用的履歷仍可刪除（場次保存的是快照），但原檔會從物件儲存刪除。
 
-### `GET /resumes/{id}/download`
+---
 
-回 `{ "url": "https://…", "expires_in": 300 }`。
+## 6. Targets（目標職缺）
+
+目標職缺是使用者「正在準備的職缺」，也是練習的單位：題組、面試建議、面試、報告都掛在它下面。
+
+### 6.1 目標職缺物件
+
+```json
+{
+  "id": "…",
+  "job": { "id": "…", "source": "user", "company_name": "Acme Cloud", "title": "Backend Engineer",
+           "location_text": null, "tags": ["Python"], "parse_status": "parsed" },
+  "resume": { "id": "…", "filename": "陳品妤_履歷_2026.pdf" },
+  "match_score": 80,
+  "question_set": { "status": "ready", "item_count": 5 },
+  "prep": { "id": "…", "status": "ready" },
+  "last_practiced_at": "2026-10-06T06:32:00Z",
+  "created_at": "…"
+}
+```
+
+`question_set.status = preparing` 時，前端顯示「Ava 正在依職缺出題⋯」並停用「開始面試」按鈕。
+
+### `GET /targets`
+
+依 `last_practiced_at`（沒練過的依建立時間）排序，回 `{ "items": [ …目標職缺物件… ] }`。不分頁（MVP 上限 30 個）。
+
+### `POST /targets`（加入目標職缺）
+
+**一次呼叫完成「加入職缺 → 解析 → 出第一組題目 → 產生面試建議」**，使用者不用到各頁分別操作。
+
+```json
+// A. 貼上職缺內容（最常見）
+{ "raw_text": "Backend Engineer｜Acme Cloud\n工作內容：…", "resume_id": null }
+
+// B. 從職缺庫加入
+{ "job_post_id": "…", "resume_id": null }
+```
+
+- `resume_id` 省略時用主要履歷；使用者沒有履歷時為 `null`，題目與建議只依職缺產生。
+- 方式 A：建立 `job_posts`（`source = user`），排 `parse_job`；解析完成後才排出題與面試建議。
+- 方式 B：職缺已解析，直接排 `generate_questions`（初始題組，預設 8 題、涵蓋各題型）與 `generate_prep`。
+- 已經是目標職缺（含已移出的）時回 `200` 與既有物件，並把 `status` 改回 `active`（找回原本的題組與報告）。
+- 貼上的內容太短或看不出職稱：`422 JD_UNREADABLE`。
+
+```json
+// 202
+{ …目標職缺物件，job.parse_status: "pending"，question_set.status: "preparing"，prep.status: "pending"… }
+```
+
+前端輪詢 `GET /targets/{id}` 直到 `question_set.status = ready`（通常 10 秒內）。
+
+### `GET /targets/{id}`
+
+目標職缺物件，`job` 內含完整職缺內容（`about`、`duties`、`requirements`、`salary_text`…）。
+
+### `PATCH /targets/{id}`
+
+```json
+{ "resume_id": "…" }
+// 或修正 AI 解析錯的職缺內容（僅 source = user 的職缺）
+{ "job": { "title": "Senior Backend Engineer", "company_name": "Acme Cloud" } }
+```
+
+換預設履歷後，系統會重新產生面試建議；題組不變（使用者編輯過的題目不被覆蓋）。
+
+### `DELETE /targets/{id}`
+
+移出目標職缺：`status` 改為 `archived`，回 `204`。題組、面試建議、報告都保留，再次 `POST /targets` 同一職缺即可找回。有未結束的面試時回 `409 ACTIVE_SESSION_EXISTS`。
 
 ---
 
-## 6. Jobs（職缺）
+## 7. Questions（題組）
+
+每個目標職缺剛好一個題組。新面試依題組**順序**取前 N 題。
+
+### `GET /targets/{id}/questions`
+
+```json
+{
+  "status": "ready",
+  "items": [
+    { "id": "…", "order_no": 1, "category": "自我介紹", "difficulty": "basic",
+      "text": "請用兩分鐘介紹你自己，以及為什麼想加入 Northwind Labs？",
+      "competency": "表達與動機", "source": "ai",
+      "source_reason": "職缺為新創，重視候選人對產品的了解" }
+  ],
+  "pending_generation": null
+}
+```
+
+`rubric` 與 `expected_points` 不回傳給前端（避免使用者背答案，也減少傳輸）。
+
+### `POST /targets/{id}/questions/generate`
+
+```json
+// Request：只有 note 是使用者打的字，其他都有預設值
+{ "note": "多問一些系統設計和帶人經驗",
+  "categories": ["技術深度", "系統設計", "團隊合作"],
+  "difficulty": "medium",
+  "count": 5 }
+// 202
+{ "id": "…", "status": "pending" }
+```
+
+| 欄位 | 規則 | 預設 |
+|---|---|---|
+| `note` | 選填，≤ 300 字 | 空 |
+| `categories` | 0–6 個：自我介紹、技術深度、系統設計、團隊合作、情境題、動機與規劃 | 空＝由 Ava 依 `note` 與職缺決定 |
+| `difficulty` | `basic` / `medium` / `advanced` | `medium` |
+| `count` | 3–10 | 5 |
+
+生成的題目**附加到題組最後**，並與既有題目去重。同一題組同時只能有一個生成工作（`409`）。
+
+### `GET /question-generations/{id}`
+
+```json
+{ "id": "…", "status": "succeeded", "created_item_count": 2, "skipped_duplicates": 3, "error": null }
+```
+
+`skipped_duplicates > 0` 時前端提示「有 3 題和現有題目重複，已略過」。
+
+### `POST /targets/{id}/questions`
+
+```json
+{ "text": "你會怎麼幫助一位剛加入的初階工程師快速上手？", "category": "團隊合作", "difficulty": "medium" }
+```
+
+`category` 預設「自訂」、`difficulty` 預設 `medium`。新增到最後。`201` 回傳題目，worker 非同步補上 `rubric`。
+
+### `PATCH /targets/{id}/questions/{item_id}`
+
+可改 `text`、`category`、`difficulty`；改了 `text` 會重新產生 `rubric`。`text` 不可空白（`400`）。
+
+### `DELETE /targets/{id}/questions/{item_id}`
+
+`204`，剩下題目重新排號。
+
+### `PUT /targets/{id}/questions/order`
+
+```json
+{ "item_ids": ["id3", "id1", "id2", "id4", "id5"] }
+```
+
+必須包含題組中全部題目，否則 `400`。上移／下移由前端交換陣列後整批送出。
+
+---
+
+## 8. Prep（面試建議）
+
+加入目標職缺時自動產生，使用者打開「面試建議」頁就有內容，不需要按「生成」。
+
+### `GET /targets/{id}/prep`
+
+```json
+{
+  "id": "…", "status": "ready", "target_id": "…", "resume_id": "…",
+  "match_score": 92,
+  "verdict_title": "整體很適合你",
+  "verdict_text": "技術條件幾乎都符合，要多準備「帶人」和「產品理解」的故事。",
+  "strengths": ["3 年 React 經驗，符合年資要求", "有可量化的效能優化成果"],
+  "gaps": ["履歷沒有寫到帶人或 mentor 經驗", "設計系統只有使用經驗，沒有建置經驗"],
+  "checklist": [
+    { "id": "…", "text": "實際操作 Northwind 的店家後台 demo", "is_checked": true }
+  ],
+  "directions": [ { "label": "React 效能優化與實務經驗", "probability": 92 } ],
+  "likely_questions": [
+    { "index": 0, "priority": "high",
+      "question": "請分享你主導過最有成就感的前端專案。",
+      "why": "JD 強調「主導架構」，面試官想確認你有 owner 經驗。",
+      "tip": "選結帳改版那段，用 STAR 說明你的角色，強調「轉換率 +12%」。",
+      "in_set": false }
+  ],
+  "created_at": "…"
+}
+```
+
+- `status = pending / running` 時前端顯示骨架與「Ava 正在比對你的履歷和職缺⋯」。
+- 沒有履歷時 `strengths` 為空，`verdict_text` 提示「上傳履歷後可以看到你的優勢與落差」。
+- `in_set` 表示這題是否已在題組中，按鈕顯示「已加入」。
+
+### `POST /targets/{id}/prep/regenerate`
+
+`202`，回傳新的 prep（`pending`）。舊的勾選狀態依文字相同的項目沿用。
+
+### `PATCH /preps/{id}/checklist/{item_id}`
+
+`{ "is_checked": true }` → `204`。前端樂觀更新，失敗才回復。
+
+### `POST /preps/{id}/likely-questions/add`
+
+```json
+// Request：不給 indexes 時加入全部
+{ "indexes": [0, 1] }
+// 200
+{ "added": 2, "skipped_duplicates": 0 }
+```
+
+加入的題目寫入該目標職缺的題組（`source = prep`），由 worker 補上 `rubric`。
+
+---
+
+## 9. Jobs（職缺庫）
+
+> 職缺庫是**選用的探索功能**（P4）。核心流程只需要「貼上職缺內容」，不依賴職缺庫。
 
 ### `GET /jobs`
 
@@ -313,9 +517,8 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
 |---|---|
 | `q` | 關鍵字（職稱、公司、技能） |
 | `city` | `台北市` 等 |
-| `filters` | 逗號分隔：`foreign`、`english`、`remote`、`hybrid`、`match80` |
+| `filters` | 逗號分隔：`target`、`foreign`、`remote`、`hybrid`、`match80` |
 | `sort` | `match`（預設）/ `recent` |
-| `scope` | `all`（預設，平台＋自訂）/ `catalog` / `mine` |
 | `limit`、`cursor` | 分頁 |
 
 ```json
@@ -330,7 +533,7 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
       "employment_type": "全職", "work_mode": "hybrid", "work_mode_note": "混合辦公",
       "salary_text": "月薪 75,000 – 95,000",
       "tags": ["React", "TypeScript", "設計系統"],
-      "match_score": 92, "is_saved": false,
+      "match_score": 92, "target_id": null,
       "posted_at": "2026-10-06T00:00:00Z"
     }
   ],
@@ -338,192 +541,19 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
 }
 ```
 
-`match_score` 依主要履歷計算；沒有主要履歷時為 `null`，前端顯示「上傳履歷看契合度」。
+- `match_score` 依主要履歷計算；沒有履歷時為 `null`，前端顯示「上傳履歷看契合度」。
+- `target_id` 不為 `null` 表示已是目標職缺。
+- 使用者有填 `preferences.desired_roles / desired_locations` 時，預設排序會把符合的職缺排前面。
 
 ### `GET /jobs/{id}`
 
-列表欄位，加上：
-
-```json
-{ "about": "Northwind 是總部在新加坡的餐飲 SaaS 公司…",
-  "duties": ["主導後台前端架構與效能優化", "與設計師共建元件庫"],
-  "requirements": ["3 年以上 React 經驗", "熟悉 TypeScript 與狀態管理"],
-  "parse_status": "parsed" }
-```
-
-### `POST /jobs`（自訂職缺）
-
-兩種建立方式：
-
-```json
-// A. 貼上 JD 原文 → 202，AI 非同步解析
-{ "raw_text": "職稱：Senior Frontend Engineer\n公司：…" }
-
-// B. 手動填寫 → 201
-{ "company_name": "Northwind Labs", "title": "Senior Frontend Engineer",
-  "location_text": "台北市信義區", "about": "…", "duties": ["…"], "requirements": ["…"], "tags": ["React"] }
-```
-
-回傳職缺物件，A 方式 `parse_status = "pending"`。
-
-### `PATCH /jobs/{id}`、`DELETE /jobs/{id}`
-
-只能修改／刪除 `source = user` 且屬於自己的職缺，否則 `404`。
-
-### `PUT /jobs/{id}/save`、`DELETE /jobs/{id}/save`
-
-回 `204`。
-
-### `GET /me/saved-jobs`、`GET /me/jobs`
-
-格式同 `GET /jobs`。`/me/jobs` 回傳「收藏、自訂、或曾經練習／生成過題目的職缺」，供各頁的職缺下拉選單使用。
+列表欄位，加上 `about`、`duties`、`requirements`。職缺詳情視窗的「練習這個職缺／題組／面試建議」三個按鈕都會先呼叫 `POST /targets`（已是目標職缺則直接使用）。
 
 ---
 
-## 7. Preps（面試建議）
+## 10. Interviews（面試，核心）
 
-### `POST /preps`
-
-```json
-// Request
-{ "job_post_id": "…", "resume_id": "…" }
-// 202
-{ "id": "…", "status": "pending" }
-```
-
-履歷或職缺尚未解析完成回 `409 RESOURCE_NOT_READY`。
-
-### `GET /preps/latest?job_post_id=…&resume_id=…`
-
-沒有紀錄回 `404`，前端顯示「生成面試建議」按鈕。
-
-### `GET /preps/{id}`
-
-```json
-{
-  "id": "…", "status": "ready", "job_post_id": "…", "resume_id": "…",
-  "match_score": 92,
-  "verdict_title": "整體很適合你",
-  "verdict_text": "技術條件幾乎都符合，要多準備「帶人」和「產品理解」的故事。",
-  "strengths": ["3 年 React 經驗，符合年資要求", "有可量化的效能優化成果"],
-  "gaps": ["履歷沒有寫到帶人或 mentor 經驗", "設計系統只有使用經驗，沒有建置經驗"],
-  "checklist": [
-    { "id": "…", "text": "實際操作 Northwind 的店家後台 demo", "is_checked": true },
-    { "id": "…", "text": "準備 1 個帶新人或 review 的故事", "is_checked": false }
-  ],
-  "directions": [ { "label": "React 效能優化與實務經驗", "probability": 92 } ],
-  "likely_questions": [
-    { "index": 0, "priority": "high",
-      "question": "請分享你主導過最有成就感的前端專案。",
-      "why": "JD 強調「主導架構」，面試官想確認你有 owner 經驗。",
-      "tip": "選結帳改版那段，用 STAR 說明你的角色，強調「轉換率 +12%」。" }
-  ],
-  "created_at": "…"
-}
-```
-
-### `PATCH /preps/{id}/checklist/{item_id}`
-
-`{ "is_checked": true }` → `204`。
-
-### `POST /preps/{id}/likely-questions/add-to-set`
-
-```json
-// Request：不給 question_set_id 時，加到該職缺最近使用的題組（沒有就自動建立）
-{ "question_set_id": null, "indexes": [0, 1, 2, 3] }
-// 200
-{ "question_set_id": "…", "added": 4, "skipped_duplicates": 0 }
-```
-
-加入的題目 `source = prep`，由 worker 補上 `rubric`。
-
----
-
-## 8. Question Bank（題目生成與編輯）
-
-### `GET /question-sets?job_post_id=…`
-
-```json
-{ "items": [ { "id": "…", "name": "Northwind 前端題組", "job_post_id": "…", "item_count": 5, "updated_at": "…" } ] }
-```
-
-### `POST /question-sets`
-
-`{ "job_post_id": "…", "resume_id": "…", "name": "Northwind 前端題組" }` → `201`。
-
-### `GET /question-sets/{id}`
-
-```json
-{
-  "id": "…", "name": "…", "job_post_id": "…", "resume_id": "…",
-  "items": [
-    { "id": "…", "order_no": 1, "category": "自我介紹", "difficulty": "basic",
-      "text": "請用兩分鐘介紹你自己，以及為什麼想加入 Northwind Labs？",
-      "competency": "表達與動機", "source": "ai",
-      "source_reason": "職缺為新創，重視候選人對產品的了解" }
-  ],
-  "pending_generation": null
-}
-```
-
-`rubric` 與 `expected_points` 不回傳給前端（避免使用者背答案，也減少傳輸）。
-
-### `POST /question-sets/{id}/generations`
-
-```json
-// Request
-{ "categories": ["技術深度", "系統設計", "團隊合作"],
-  "difficulty": "medium",
-  "count": 5,
-  "note": "多問一些系統設計和帶人經驗" }
-// 202
-{ "id": "…", "status": "pending" }
-```
-
-| 欄位 | 規則 |
-|---|---|
-| `categories` | 1–6 個，值：自我介紹、技術深度、系統設計、團隊合作、情境題、動機與規劃 |
-| `difficulty` | `basic` / `medium` / `advanced` |
-| `count` | 3–10 |
-| `note` | 選填，≤ 300 字 |
-
-生成的題目**附加到題組最後**，並與既有題目去重。同一題組同時只能有一個生成工作（`409`）。
-
-### `GET /question-generations/{id}`
-
-```json
-{ "id": "…", "status": "succeeded", "created_item_count": 2, "skipped_duplicates": 3, "error": null }
-```
-
-### `POST /question-sets/{id}/items`
-
-```json
-{ "text": "你會怎麼幫助一位剛加入的初階工程師快速上手？", "category": "團隊合作", "difficulty": "medium" }
-```
-
-`category` 預設「自訂」、`difficulty` 預設 `medium`。新增到最後。`201` 回傳題目，worker 非同步補上 `rubric`。
-
-### `PATCH /question-sets/{id}/items/{item_id}`
-
-可改 `text`、`category`、`difficulty`；改了 `text` 會重新產生 `rubric`。`text` 不可空白（`400`）。
-
-### `DELETE /question-sets/{id}/items/{item_id}`
-
-`204`，剩下題目重新排號。
-
-### `PUT /question-sets/{id}/order`
-
-```json
-{ "item_ids": ["id3", "id1", "id2", "id4", "id5"] }
-```
-
-必須包含題組中全部題目，否則 `400`。上移／下移由前端交換陣列後整批送出。
-
----
-
-## 9. Interviews（面試，核心）
-
-### 9.1 場次物件
+### 10.1 場次物件
 
 所有面試端點都回傳或內含這個物件：
 
@@ -537,6 +567,7 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
   "length_mode": "standard",
   "persona": "warm",
   "language": "zh",
+  "target_id": "…",
   "job": { "id": "…", "company_name": "Northwind Labs", "title": "Senior Frontend Engineer" },
   "progress": { "current_main_no": 2, "total_main": 5, "answered": 1, "skipped": 0 },
   "current_question": {
@@ -549,46 +580,50 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
   "current_attempt": null,
   "limits": { "answer_max_sec": 300, "silence_prompt_sec": 12, "heartbeat_sec": 15 },
   "started_at": "…",
-  "elapsed_sec": 214
+  "elapsed_sec": 214,
+  "paused_at": null,
+  "resume_deadline": null
 }
 ```
 
-`phase` 決定前端能做什麼：
+`status` 與 `phase` 決定前端能做什麼：
 
-| phase | 前端畫面 | 允許的呼叫 |
+| status / phase | 前端畫面 | 允許的呼叫 |
 |---|---|---|
-| `asking` | Ava 說話中，麥克風停用 | `playback-finished`、`skip`、`end` |
-| `awaiting_answer` | 「輪到你了，點麥克風開始回答」 | `answers`（開始作答）、`skip`、`end` |
-| `answering` | 錄音中、波形動畫 | `complete`、`end` |
-| `finalizing` | 上傳中 | （等待 `complete` 回應） |
-| `done` | 結束，導向報告 | `GET report` |
+| `in_progress` / `asking` | Ava 說話中，麥克風停用 | `playback-finished`、`skip`、`pause`、`end` |
+| `in_progress` / `awaiting_answer` | 「輪到你了，點麥克風開始回答」 | `answers`、`skip`、`pause`、`end` |
+| `in_progress` / `answering` | 錄音中、波形、「重錄」 | `complete`、`discard`、`pause`、`end` |
+| `in_progress` / `finalizing` | 上傳中 | （等待 `complete` 回應） |
+| `paused` | 「已暫停・計時停止」與「繼續」按鈕 | `resume`、`end` |
+| `completed` / `done` | 結束，報告卡片 | `GET report` |
 
-### 9.2 `POST /interviews`（建立場次）
+### 10.2 `POST /interviews`（建立場次）
+
+新面試頁按「開始面試」時呼叫。**前端必須先取得麥克風權限才呼叫**（見 [flows.md §10](flows.md)），避免建立了場次才發現沒有麥克風。
 
 ```json
 // Request
 {
-  "job_post_id": "…",
+  "target_id": "…",
   "resume_id": "…",
-  "question_set_id": "…",
   "length_mode": "standard",
   "persona": "warm",
   "language": "zh",
-  "voice_mode": "live",
-  "recording_consent": true,
-  "auto_fill": true
+  "recording_consent": true
 }
 ```
 
 處理規則：
 
-1. `recording_consent` 必須為 `true`。
-2. 依 `length_mode` 決定主題目數：`quick` 3、`standard` 5、`deep` 8。從題組**依順序取前 N 題**。
-3. 題組題數不足：`auto_fill = true` 時 AI 依履歷＋職缺補足（補的題目也寫回題組）；否則回 `422 QUESTION_SET_TOO_SMALL`。
-4. 沒給 `question_set_id`：用該職缺最近更新的題組；沒有題組時一律由 AI 生成。
-5. 在同一交易：建立場次、寫入職缺與履歷快照、複製題目到 `session_questions`、排 TTS 工作（優先序 10）。
-6. 已有 `ready` / `in_progress` 的場次回 `409 ACTIVE_SESSION_EXISTS`，`details.session_id` 讓前端可選擇繼續或結束舊場次。
-7. 用量超過方案限制回 `403 PLAN_LIMIT_REACHED`。
+1. `recording_consent` 必須為 `true`（「開始面試」按鈕下方的說明即為告知，按下即同意；第一次面試前另外顯示一次說明）。
+2. `resume_id` 省略時用目標職缺的預設履歷；可為 `null`（沒有履歷也能練）。
+3. 依 `length_mode` 決定主題目數：`quick` 3、`standard` 5、`deep` 8。從題組**依順序取前 N 題**。
+4. **題組題數不足時自動補題**（AI 依履歷＋職缺生成，並寫回題組），不讓使用者卡在「題數不足」。
+5. 題組仍在生成中：回 `409 RESOURCE_NOT_READY`（前端在生成中本來就會停用按鈕）。
+6. `voice_mode` 由後端決定：方案允許且 GPT‑Live 可用時為 `live`，否則 `scripted`。
+7. 在同一交易：建立場次、寫入職缺與履歷快照、複製題目到 `session_questions`、排 TTS 工作；把本次的長度／風格／語言寫回 `users.preferences`、更新 `target_jobs.last_practiced_at`。
+8. 已有未結束（含暫停中）的場次：回 `409 ACTIVE_SESSION_EXISTS`，`details.session_id` 讓前端顯示「回到那場面試／結束它並開始新的」。
+9. 用量超過方案限制回 `403 PLAN_LIMIT_REACHED`。
 
 ```json
 // 201
@@ -596,26 +631,19 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
   "questions": [ { "id": "…", "order_no": 1, "category": "自我介紹" } ] }
 ```
 
-前端輪詢 `GET /interviews/{id}` 直到 `status = ready`（通常 < 5 秒）。題組未修改時 TTS 會重用快取。
+前端輪詢 `GET /interviews/{id}` 直到 `status = ready`（通常 < 5 秒），期間畫面顯示「Ava 準備中⋯」。題組未修改時 TTS 會重用快取。
 
-### 9.3 `GET /interviews`
+### 10.3 `GET /interviews/active`
 
-`?limit=20&cursor=…&status=completed`
+回傳未結束（`preparing` / `ready` / `in_progress` / `paused`）的場次物件，沒有時回 `204`。與 `GET /me` 的 `active_interview` 相同，供頁面切換時刷新。
 
-```json
-{ "items": [ { "id": "…", "ended_at": "2026-10-06T06:32:00Z",
-               "job_label": "Northwind Labs・Senior Frontend Engineer",
-               "status": "completed", "overall_score": 82, "report_status": "ready" } ],
-  "next_cursor": null }
-```
+### 10.4 `GET /interviews/{id}`
 
-### 9.4 `GET /interviews/{id}`
+回傳場次物件。用於：頁面重新整理、從其他頁回來繼續、`409` 後重新同步。若 `phase = answering` 且距離 `current_attempt.answer_started_at` 已超過 `answer_max_sec + 30` 秒，後端先將 attempt 標記 `interrupted`、`phase` 退回 `awaiting_answer` 再回傳。
 
-回傳場次物件。用於：頁面重新整理、斷線重連、`409` 後重新同步。若 `phase = answering` 且距離 `current_attempt.answer_started_at` 已超過 `answer_max_sec + 30` 秒，後端會先將 attempt 標記 `interrupted`、`phase` 退回 `awaiting_answer` 再回傳。
+### 10.5 `POST /interviews/{id}/live/connect`（只限 `voice_mode = live`）
 
-### 9.5 `POST /interviews/{id}/live/connect`（只限 `voice_mode = live`）
-
-前端建立 `RTCPeerConnection`、加入麥克風 track 與 data channel、產生 SDP offer，交給後端代為向 GPT‑Live 建立連線。
+前端建立 `RTCPeerConnection`、加入麥克風 track 與 data channel、產生 SDP offer，交給後端代為向 GPT‑Live 建立連線。繼續暫停的面試時也要重新呼叫。
 
 ```json
 // Request
@@ -628,23 +656,23 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
 
 | 錯誤 | 前端處理 |
 |---|---|
-| `503 LIVE_UNAVAILABLE` | 提示「改用標準語音模式」，後端已把場次 `voice_mode` 改為 `scripted` |
+| `503 LIVE_UNAVAILABLE` | 後端已把場次 `voice_mode` 改為 `scripted`；前端不建立 WebRTC，面試照常進行，只在對話中顯示一行「改用標準語音」 |
 
 > GPT‑Live 的 SDP 交換與 sideband 連接方式以官方文件為準，見 [architecture.md §11](architecture.md)。
 
-### 9.6 `POST /interviews/{id}/start`
+### 10.6 `POST /interviews/{id}/start`
 
 ```json
 // Request
 { "expected_version": 1 }
 // 200
 { "session": { …phase: "asking"… },
-  "intro": { "text": "你好，品妤！歡迎來到今天的面試。我們先從第一題開始：", "tts_url": "…" } }
+  "intro": { "text": "你好，品妤！我是今天的面試官 Ava。我們開始吧。", "tts_url": "…" } }
 ```
 
 前端依序播放 `intro.tts_url` 與 `current_question.tts_url`。
 
-### 9.7 `POST /interviews/{id}/questions/{qid}/playback-finished`
+### 10.7 `POST /interviews/{id}/questions/{qid}/playback-finished`
 
 ```json
 { "expected_version": 2 }
@@ -652,9 +680,9 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
 
 `phase: asking → awaiting_answer`，寫入 `session_questions.asked_at`（**播放紀錄的依據**）。回傳場次物件。
 
-> 若前端播放失敗（例如自動播放被瀏覽器擋住），前端顯示題目文字與「播放」按鈕；使用者看過題目後點「開始回答」時，前端仍先送 `playback-finished`，並在 body 帶 `{ "fallback": "text_shown" }`，後端記在 `live_events`。
+> 若自動播放被瀏覽器擋住，前端顯示題目文字與「播放」按鈕；使用者看過題目後點麥克風時，前端仍先送 `playback-finished`，並在 body 帶 `{ "fallback": "text_shown" }`，後端記在 `live_events`。
 
-### 9.8 `POST /interviews/{id}/questions/{qid}/answers`（開始作答）
+### 10.8 `POST /interviews/{id}/questions/{qid}/answers`（開始作答）
 
 ```json
 // Request
@@ -666,7 +694,7 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
 
 前端收到後才開麥克風 track 並啟動 `MediaRecorder`。後端透過 sideband 告知 GPT‑Live「考生開始回答，安靜聆聽」。
 
-### 9.9 `POST /interviews/{id}/attempts/{aid}/complete`（上傳回答並取得下一步）
+### 10.9 `POST /interviews/{id}/attempts/{aid}/complete`（上傳回答並取得下一步）
 
 **Headers**：`Idempotency-Key: <uuid>`（必填，前端重試時沿用同一個）
 
@@ -712,29 +740,52 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
 }
 ```
 
-`next.type`：
-
-| type | 意義 | 前端動作 |
+| `next.type` | 意義 | 前端動作 |
 |---|---|---|
 | `followup` | 追問 | `delivery = live_voice`：打開 AI 音訊閘門讓 GPT‑Live 念出；`delivery = tts`：播放 `tts_url`。播完送 `playback-finished` |
 | `question` | 下一道主題目 | 播放 `tts_url`（播放前先讓 GPT‑Live 短回應結束，最多等 2 秒） |
-| `completed` | 全部完成 | 播放結尾語、導向報告頁 |
+| `completed` | 全部完成 | 播放結尾語，顯示報告卡片（評分中） |
 
-**錯誤與重試**：網路失敗或 `5xx` 時，前端保留錄音 Blob，以**同一個** `Idempotency-Key` 指數退避重試（1s、2s、4s，最多 5 次）；仍失敗時顯示「重新上傳」按鈕，**不得前進到下一題**。
+**錯誤與重試**：網路失敗或 `5xx` 時，前端保留錄音 Blob，以**同一個** `Idempotency-Key` 指數退避重試（1s、2s、4s，最多 5 次），期間顯示「正在上傳你的回答⋯」；仍失敗時顯示「重新上傳」按鈕，**不得前進到下一題，也不得丟掉錄音**。
 
-### 9.10 `POST /interviews/{id}/questions/{qid}/skip`
+### 10.10 `POST /interviews/{id}/attempts/{aid}/discard`（重錄）
+
+```json
+{ "expected_version": 4 }
+```
+
+只允許 `phase = answering`。前端停止錄音並丟掉 Blob；後端把 attempt 標記 `discarded`、`phase` 退回 `awaiting_answer`，回傳場次物件。使用者再點麥克風即建立 `attempt_no + 1`。不限次數（被丟掉的錄音 24 小時後刪除）。
+
+### 10.11 `POST /interviews/{id}/questions/{qid}/skip`
 
 ```json
 { "expected_version": 3 }
 ```
 
-允許在 `asking` 或 `awaiting_answer`。題目標記 `skipped`，回應格式同 `complete` 的 `next` 與 `session`（GPT‑Live 會說「沒關係，我們換下一題。」）。
+允許在 `asking` 或 `awaiting_answer`。題目標記 `skipped`，回應格式同 `complete` 的 `next` 與 `session`（Ava 會說「沒關係，我們換下一題。」）。
 
-### 9.11 `POST /interviews/{id}/heartbeat`
+### 10.12 `POST /interviews/{id}/pause`、`POST /interviews/{id}/resume`
+
+```json
+// pause Request
+{ "expected_version": 5, "reason": "user" }
+// 200
+{ "session": { "status": "paused", "paused_at": "…", "resume_deadline": "…（paused_at + 24h）", … } }
+```
+
+- `reason`：`user`（按暫停）/ `page_leave`（離開面試頁，前端在 `visibilitychange`／路由切換時送出）。心跳中斷 2 分鐘時，後端也會自動改為 `paused`（`reason = connection_lost`）。
+- 暫停時若正在 `answering`：未送出的錄音丟棄（attempt 標記 `discarded`），回到 `awaiting_answer`。前端暫停畫面會說明。
+- 暫停期間不計時（`paused_total_sec` 累加），後端關閉 GPT‑Live 連線與 sideband。
+- `resume`：`{ "expected_version": 6 }` → `status: in_progress`。若 `asked_at` 已寫入就回到 `awaiting_answer`，否則重新播放目前題目（`asking`）。`voice_mode = live` 時前端接著重新呼叫 `live/connect`。
+- 超過 `resume_deadline` 呼叫 `resume` 回 `409 STATE_CONFLICT`（場次已自動結束，`GET` 會看到 `completed` 或 `aborted`）。
+
+### 10.13 `POST /interviews/{id}/heartbeat`
 
 `{ "phase": "answering", "rtc_state": "connected" }` → `204`。每 15 秒一次；後端更新 `last_heartbeat_at`。
 
-### 9.12 `POST /interviews/{id}/end`
+### 10.14 `POST /interviews/{id}/end`
+
+前端顯示確認視窗後才呼叫（「已回答的 N 題會產生報告，還沒回答的不會評分」）。
 
 ```json
 // Request
@@ -742,17 +793,36 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
 // 200
 { "session": { "status": "completed", "phase": "done", … },
   "report": { "status": "processing" } }
+// 沒有任何已作答題目時
+{ "session": { "status": "aborted", … }, "report": null }
 ```
 
-若結束時正在 `answering`，前端應**先完成 `complete`** 再呼叫 `end`；若無法完成，該 attempt 標記 `interrupted`，不納入評分。未作答的主題目維持 `pending`，報告中顯示「未作答」。後端關閉 sideband 與 GPT‑Live 連線。
-
-### 9.13 `DELETE /interviews/{id}`
-
-`204`。刪除場次、作答、評分、報告與所有音訊檔。
+若結束時正在 `answering`，前端先送出 `complete`（保留這題）再呼叫 `end`；若無法完成，該 attempt 標記 `interrupted`，不納入評分。未作答的主題目在報告中顯示「未作答」。後端關閉 sideband 與 GPT‑Live 連線。
 
 ---
 
-## 10. Reports（評分報告）
+## 11. Reports（面試報告）
+
+### `GET /interviews`（報告列表）
+
+`?limit=20&cursor=…&q=Northwind`
+
+```json
+{
+  "summary": { "total": 6, "avg_score": 73, "best_score": 82 },
+  "items": [
+    { "id": "…", "ended_at": "2026-10-06T06:32:00Z",
+      "target_id": "…", "job_label": "Northwind Labs・Senior Frontend Engineer",
+      "answered_count": 5, "persona": "warm", "duration_sec": 840,
+      "report_status": "ready", "overall_score": 82, "delta_vs_prev": 5 }
+  ],
+  "next_cursor": null
+}
+```
+
+- 只列出已結束且有報告的場次；`report_status = processing` 的列顯示「評分中」。
+- 前端依 `ended_at` 分組為「最近 7 天」「更早」。
+- `delta_vs_prev` 是和**同一個目標職缺**的上一場比較；第一場為 `null`（顯示「首次」）。
 
 ### `GET /interviews/{id}/report`
 
@@ -760,16 +830,16 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
 {
   "status": "ready",
   "session": { "id": "…", "ended_at": "2026-10-06T06:32:00Z", "persona": "warm", "language": "zh",
-               "job_label": "Northwind Labs・Senior Frontend Engineer" },
+               "target_id": "…", "job_label": "Northwind Labs・Senior Frontend Engineer" },
   "overall_score": 82,
   "delta_vs_prev": 5,
   "summary": "你的回答很有具體數據，這是最大的優勢。下次可以加強系統設計題的結構，並少用「嗯」「應該吧」這類讓人覺得不確定的詞。",
   "dimensions": [
-    { "key": "structure",  "label": "內容結構", "score": 84 },
-    { "key": "depth",      "label": "專業深度", "score": 80 },
-    { "key": "fluency",    "label": "表達流暢", "score": 76 },
-    { "key": "job_fit",    "label": "職缺契合", "score": 88 },
-    { "key": "confidence", "label": "自信程度", "score": 72 }
+    { "key": "structure",  "label": "內容結構", "hint": "開頭、經過、結果是否清楚", "score": 84 },
+    { "key": "depth",      "label": "專業深度", "hint": "技術細節與取捨", "score": 80 },
+    { "key": "fluency",    "label": "表達流暢", "hint": "贅詞、停頓與語速", "score": 76 },
+    { "key": "job_fit",    "label": "職缺契合", "hint": "回答與職缺需求的關聯", "score": 88 },
+    { "key": "confidence", "label": "自信程度", "hint": "用詞是否肯定", "score": 72 }
   ],
   "metrics": { "filler_count": 7, "avg_answer_sec": 168, "speech_rate": 198, "speech_rate_unit": "chars_per_min" },
   "focus_areas": ["系統設計題用「目標 → 架構 → 流程 → 衡量」回答"],
@@ -801,102 +871,95 @@ Body `{ "password": "…" }`（OAuth 帳號改為 `{ "confirm": "DELETE" }`）�
 }
 ```
 
-- `status`：`pending` / `processing` / `ready` / `failed`。`processing` 時已完成的題目會先出現，`evaluation.status` 為 `pending` 的題目前端顯示骨架。
+- `status`：`processing` / `ready` / `failed`。`processing` 時前端顯示「Ava 正在逐題轉錄和評分，通常不到一分鐘。完成後會通知你，可以先去做別的事。」與骨架；已完成的題目可先顯示。
 - `evaluation.status = needs_review` 時，`review_reason` 說明原因（例如「錄音幾乎沒有聲音」），前端提供「重新評分」。
-- `status = skipped` 的題目沒有 `answer` 與 `evaluation`。
+- `status = skipped` 的題目顯示「已跳過」，沒有 `answer` 與 `evaluation`。
 - 總分 = 已作答主題目分數平均（追問分數併入主題目，權重 30%），由程式計算。
 
 ### `GET /interviews/{id}/report/events`（SSE）
 
 ```
+event: snapshot
+data: {"evaluated":2,"total":5}
+
 event: evaluation_done
 data: {"question_id":"…","score":86}
 
 event: report_ready
 data: {"overall_score":82}
-
-event: error
-data: {"code":"UPSTREAM_ERROR"}
 ```
 
-實作：worker 完成評分或報告時發布到 Redis Pub/Sub `ai:evt:report:{session_id}`；持有 SSE 連線的 API 實例訂閱該頻道後轉送。為避免訂閱前漏掉事件，SSE 建立後先送一次目前進度（`event: snapshot`），再轉送後續事件。
+實作：worker 完成評分或報告時發布到 Redis Pub/Sub `ai:evt:report:{session_id}`；持有 SSE 連線的 API 實例訂閱該頻道後轉送。SSE 建立後先送一次 `snapshot`，避免漏掉訂閱前的事件。
 
-連線最長 120 秒；前端斷線後或 Redis 不可用時改為輪詢 `GET report`。
+連線最長 120 秒；斷線或 Redis 不可用時改為輪詢 `GET report`。使用者離開報告頁時，前端仍以輕量輪詢 `GET /interviews?limit=1` 偵測完成，並顯示「報告完成了」通知。
 
 ### `GET /interviews/{id}/answers/{aid}/audio`
 
-`{ "url": "https://…", "expires_in": 300 }`。音訊超過保留期限回 `410 GONE`。
+`{ "url": "https://…", "expires_in": 300 }`。音訊超過保留期限回 `410 GONE`（前端隱藏「聽我的錄音」按鈕）。
 
 ### `POST /interviews/{id}/report/add-to-set`
 
 ```json
 // Request：不給 session_question_ids 時，預設加入全部分數 < 80 的題目
-{ "question_set_id": null, "session_question_ids": ["…", "…"] }
+{ "session_question_ids": ["…", "…"] }
 // 200
-{ "question_set_id": "…", "added": 2, "skipped_duplicates": 0 }
+{ "target_id": "…", "added": 2, "skipped_duplicates": 0 }
 ```
+
+加入該場面試所屬目標職缺的題組（`source = report`），並移到題組**最前面**，下次面試優先練。
 
 ### `POST /interviews/{id}/questions/{qid}/re-evaluate`
 
 只允許 `evaluation.status in (failed, needs_review)`，每題最多 2 次。`202`。
 
----
+### `DELETE /interviews/{id}`
 
-## 11. Dashboard（首頁）
-
-### `GET /dashboard`
-
-```json
-{
-  "greeting_name": "品妤",
-  "last_session": {
-    "id": "…", "overall_score": 82, "job_label": "Northwind Labs",
-    "weakest_category": "系統設計"
-  },
-  "trend": [ { "date": "2026-09-20", "score": 62 }, { "date": "2026-10-06", "score": 82 } ],
-  "trend_summary": { "latest": 82, "change_30d": 20 },
-  "streak": { "days": 5, "week": [true, true, true, true, true, false, false] },
-  "recent_sessions": [
-    { "id": "…", "date": "2026-10-06", "job_label": "Northwind Labs・Senior Frontend Engineer", "score": 82 }
-  ],
-  "tip": { "title": "今日小提醒", "text": "回答系統設計題時，先講「目標」再講「做法」，面試官更容易跟上你的思路。" },
-  "recommended_jobs": [
-    { "id": "…", "title": "Senior Frontend Engineer", "company_name": "Northwind Labs", "logo_text": "N", "match_score": 92 }
-  ]
-}
-```
-
-- `trend`：最近 8 場已完成面試的總分。
-- `streak.week`：本週一到週日是否有完成面試（使用者時區）。
-- `tip`：依最近一次報告最弱的維度，從內建提示庫挑選。
-- `recommended_jobs`：主要履歷契合度最高的 3 個平台職缺。
+前端顯示確認視窗後呼叫。`204`。刪除場次、作答、評分、報告與所有音訊檔。
 
 ---
 
-## 12. Admin
+## 12. 前端體驗約定（UX contract）
+
+這些規則讓「最少步驟就能練習」成立，前後端都要遵守：
+
+| 規則 | 說明 |
+|---|---|
+| 一個主要動作 | 每個畫面只有一個實心主按鈕（新面試頁是「開始面試」；沒有目標職缺時是「貼上職缺內容」） |
+| 記住上次設定 | 新面試頁預設選上次練習的目標職缺、履歷、長度、風格、語言（`preferences`、`last_practiced_at`） |
+| 不要求先填資料 | 註冊後直接能練；履歷選填；經歷技能從履歷讀，不另外填表 |
+| 自動準備 | 加入目標職缺 → 自動出題＋面試建議；題數不足 → 開始時自動補題 |
+| 進度可見 | 所有非同步工作都顯示「Ava 正在⋯」與骨架，完成時通知 |
+| 可以後悔 | 錄音中可「重錄」；面試可暫停、24 小時內繼續；移出目標職缺不刪資料 |
+| 危險操作要確認 | 結束面試、刪除報告、刪除全部紀錄、刪除帳號都要確認視窗，並說明後果 |
+| 不讓錯誤擋路 | GPT‑Live 失敗自動降級；上傳失敗保留錄音並重試；`409` 先同步狀態，不跳錯誤 |
+| 一次只有一場面試 | 有未結束的面試時，用「繼續／結束並開始新的」選擇取代錯誤訊息 |
+
+---
+
+## 13. Admin
 
 ### `POST /admin/jobs/import`
 
-需要 `admin` 角色。Body 為職缺陣列（欄位同 `POST /jobs` 方式 B，加 `external_ref`、`posted_at`、`city`、`work_mode`、`is_foreign`、`work_language`），以 `external_ref` upsert。回 `{ "inserted": 10, "updated": 2 }`，並排程計算 embedding。
+需要 `admin` 角色。Body 為職缺陣列（`company_name`、`title`、`location_text`、`about`、`duties`、`requirements`、`tags`、`external_ref`、`posted_at`、`city`、`work_mode`、`is_foreign`、`work_language`），以 `external_ref` upsert。回 `{ "inserted": 10, "updated": 2 }`，並排程計算 embedding。
 
 ---
 
-## 13. 背景工作一覽（非 HTTP，供實作參考）
+## 14. 背景工作一覽（非 HTTP，供實作參考）
 
 工作以 arq 執行（Redis broker），並寫入 PostgreSQL `background_jobs` 作 outbox，見 [architecture.md §4.3.3](architecture.md)。
 
 | kind | 佇列 | 觸發 | 結果 |
 |---|---|---|---|
-| `parse_resume` | default | `POST /resumes` | `resumes.parsed_json`、`analysis_json`、`embedding`；接著排 `compute_matches` |
-| `parse_job` | default | `POST /jobs`（raw_text） | `job_posts` 欄位、`embedding` |
+| `parse_resume` | default | `POST /resumes` | `resumes.parsed_json`、`analysis_json`、`embedding`；接著排 `compute_matches`；第一份履歷時補到目標職缺並排 `generate_prep` |
+| `parse_job` | default | `POST /targets`（貼上 JD） | `job_posts` 欄位、`embedding`；接著排 `generate_questions(initial)` 與 `generate_prep` |
 | `compute_matches` | default | 履歷解析完成、設為主要、職缺匯入 | `job_matches`；清除 `ai:cache:jobs:{resume_id}:*` |
-| `generate_prep` | default | `POST /preps` | `interview_preps`、`prep_checklist_items` |
-| `generate_questions` | default | `POST …/generations`（持有 `ai:lock:qgen:{set_id}`） | `question_set_items` |
-| `build_rubric` | default | 使用者新增／修改題目、從建議加入題目 | `question_set_items.rubric` |
+| `generate_prep` | default | 加入目標職缺、換履歷、重新生成 | `interview_preps`、`prep_checklist_items` |
+| `generate_questions` | default | 加入目標職缺（`initial`，8 題）、`POST …/questions/generate`、開始面試時題數不足（同步補題） | `question_set_items`；`question_sets.status = ready` |
+| `build_rubric` | default | 使用者新增／修改題目、從建議或報告加入題目 | `question_set_items.rubric` |
 | `synthesize_tts` | **interactive** | `POST /interviews` | `session_questions.tts_audio_key`；全部完成後場次改為 `ready` |
 | `transcribe_attempt` | **interactive** | `complete` | `answer_attempts.final_transcript`；接著排 `evaluate_attempt` |
 | `evaluate_attempt` | default | 轉錄完成 | `evaluations`；發布 `evaluation_done`；若場次已結束且全部完成，排 `build_report` |
-| `build_report` | default | 最後一題評分完成（持有 `ai:lock:report:{session_id}`） | `interview_reports`；發布 `report_ready`；清除 `ai:cache:dash:{user_id}` |
+| `build_report` | default | 最後一題評分完成（持有 `ai:lock:report:{session_id}`） | `interview_reports`；發布 `report_ready` |
 
 排程工作（arq cron，由 `default` worker 中的一個實例執行）：
 
@@ -904,6 +967,7 @@ data: {"code":"UPSTREAM_ERROR"}
 |---|---|---|
 | `sweep_outbox` | 每 30 秒 | 重新投遞未投遞或在 Redis 遺失的工作 |
 | `flush_live_events` | 每 2 秒 | 從 Redis Stream `ai:live:events` 批次寫入 `live_events` |
-| `expire_idle_sessions` | 每分鐘 | 無心跳場次改為 `aborted`，排剩下的評分與報告 |
-| `purge_expired_audio` | 每日 | 刪除超過保留期限的音訊 |
+| `pause_lost_sessions` | 每分鐘 | 心跳中斷 2 分鐘的面試改為 `paused`（不是作廢） |
+| `expire_paused_sessions` | 每 10 分鐘 | 暫停超過 24 小時的面試自動結束；有作答就排 `build_report` |
+| `purge_expired_audio` | 每日 | 刪除超過保留期限的音訊、被重錄丟掉的錄音 |
 | `maintain_partitions` | 每日 | 建立下個月分區、刪除過期分區、清除 30 天前完成的工作列 |

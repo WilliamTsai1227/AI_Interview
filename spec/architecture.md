@@ -1,6 +1,6 @@
 # AI Interview — 系統架構規劃書
 
-> 版本：v0.1（MVP 規劃）・日期：2026-10-08
+> 版本：v0.2（MVP 規劃，對齊 ChatGPT 風格 UI 與 UX 檢查）・日期：2026-10-09
 > 相關文件：[api.md](api.md)（API 規格）・[postgresql.md](postgresql.md)（資料庫與 ER 圖）・[flows.md](flows.md)（各功能流程圖）・[AI Interview.html](AI%20Interview.html)（UI 設計稿）
 
 ---
@@ -20,24 +20,56 @@
 1. 一場完成的面試，每一道規劃的主題目都有**播放紀錄**。
 2. 每一題已作答的題目，都能查回**原題、考生音訊、完整逐字稿、評分與改善建議**。
 3. 使用者日後修改履歷或題庫，**舊報告不受影響**（快照）。
+4. 新使用者從註冊到開始第一場面試，只需要**貼上一段職缺內容、按一次「開始面試」**（履歷選填）。
 
 ---
 
-## 2. UI 設計稿功能盤點
+## 2. 介面與使用體驗
 
-依 `AI Interview.html` 原型整理，共 7 個頁面：
+### 2.1 頁面盤點
 
-| 頁面 | 路由 | 功能 | 對應後端模組 |
+依 `AI Interview.html`（ChatGPT 風格：左側精簡功能欄、中間單欄內容、黑白配色、深淺色切換）整理：
+
+| 區域 | 路由 | 功能 | 對應後端模組 |
 |---|---|---|---|
-| 首頁 | `#home` | 問候、上次分數與弱項提示、分數趨勢圖、連續練習天數、最近面試列表、今日小提醒、推薦職缺 | `dashboard` |
-| AI 語音面試 | `#interview` | **設定**：職缺、面試長度（快速 3 題／標準 5 題／深入 8 題）、面試官風格（溫和引導／真實模擬／壓力面試）、語言（中文／English／中英混合）、題目來源（題組）<br>**進行中**：錄音計時、進度條、Ava 說話動畫、主題目文字、麥克風按鈕（點一下開始回答、再點一下結束）、跳過這題、結束並看評分、即時逐字稿 | `interviews`、`live` |
-| 面試評分 | `#report` | 總分環、與上次比較、五維度分數（內容結構／專業深度／表達流暢／職缺契合／自信程度）、贅詞次數、平均每題時間、語速；**逐題回顧**：題目、逐字稿（標示重點句）、做得好的地方、改善建議、「可以這樣說」；加入題庫複習、再練一次 | `reports`、`evaluation` |
-| 面試建議 | `#prep` | 選職缺與履歷、重新生成、契合度、整體評語、你的優勢、需要補強、面試前準備清單（可勾選）、高機率會問的方向（含機率）、可能被問的題目（為什麼會問＋回答建議）、全部加入題庫 | `preps` |
-| 題目生成與編輯 | `#questions` | 生成參數：目標職缺、題目類型（可複選）、難度、題數 3–10、補充需求；題組：上移／下移、編輯、刪除、新增題目 | `question_bank` |
-| 職缺找尋 | `#jobs` | 關鍵字搜尋、地區、快速篩選（外商／英文環境／遠端／混合／契合度 80%+）、依契合度排序、職缺詳情（關於、工作內容、條件）、生成面試建議、模擬面試、收藏 | `jobs`、`matching` |
-| 個人檔案與履歷 | `#profile` | 基本資料、大頭貼、履歷上傳（PDF／Word，10 MB 內）與 AI 解析結果（亮點／可以更好）、工作經歷、完整度、技能標籤、求職意向（職位、地點、期望月薪、作品集） | `users`、`resumes` |
+| 側欄 | — | 搜尋（⌘K）、收合；功能選單（新面試／面試報告／題庫生成／職缺／面試建議）；**目標職缺**清單（題數、出題中）與「新增目標職缺」；有暫停中的面試時最上方顯示「面試暫停中・繼續」；帳號選單（履歷、設定、深淺色、登出） | `targets`、`interviews` |
+| 新面試 | `#new` | **面試準備頁**：目標職缺、履歷（選填）、長度、風格、語言、本次題目預覽、「開始面試」。沒有目標職缺時改為引導「貼上職缺內容」；有暫停中的面試時顯示「繼續面試／結束並產生報告」橫幅 | `targets`、`interviews` |
+| 面試進行中 | `#chat` | 對話式逐字稿（Ava 題目＋使用者回答泡泡）、底部語音列（跳過、重錄、麥克風／停止、進度條）、暫停、結束面試（需確認）、結束後顯示報告卡片（評分中 → 完成） | `interviews`、`live` |
+| 面試報告 | `#report`、`#report/{id}` | 列表：彙總（場數、平均、最高）、搜尋、依時間分組、評分中狀態。詳情：總分與比上次、總評、五個面向、逐題回顧（原題、逐字稿標示重點句、聽我的錄音、做得好、改善建議、可以這樣說）、再練一次、弱項加入題組、刪除報告 | `reports`、`evaluation` |
+| 題庫生成 | `#questions`、`#questions/{target}` | 先選目標職缺；進入後用輸入框請 Ava 出題（題型、難度、題數選填），題目可編輯、排序、刪除、新增 | `question_bank` |
+| 職缺 | `#jobs` | 職缺庫搜尋與分類、職缺詳情視窗（練習這個職缺／題組／面試建議／移出目標職缺）、貼上職缺 | `jobs`、`targets`、`matching` |
+| 面試建議 | `#prep` | 依目標職缺自動產生：契合度、優勢、需要補強、高機率方向、可能被問的題目（可加入題組）、準備清單 | `preps` |
+| 設定 | 視窗 | 一般（主題、預設長度／語言／風格、錄音保留）、履歷（上傳、主要履歷、Ava 從履歷讀到的內容）、求職意向（選填）、帳號（名稱、方案用量、刪除紀錄、刪除帳號） | `account`、`resumes` |
 
-UI 原型沒有、但上線必須補上的：**登入／註冊**、**錄音同意說明**、**面試歷史列表**、**自訂職缺（貼上 JD）**。最後一項很重要：使用者練習的職缺多半不在平台職缺庫裡。
+UI 原型之外，上線還需要：**登入／註冊頁**、**第一次面試前的麥克風權限說明**、**方案升級頁**。
+
+### 2.2 使用體驗原則
+
+產品的賣點是「針對指定職缺反覆練習」，所以每一個設計決定都以**讓使用者用最少步驟開始練、練完馬上知道怎麼改**為準：
+
+| 原則 | 具體做法 | 影響的規格 |
+|---|---|---|
+| **一個練習單位：目標職缺** | 使用者只需要管理「我在準備哪些職缺」；題組、面試建議、報告都自動掛在目標職缺下 | `target_jobs`、`/targets` |
+| **自動準備，不要求設定** | 貼上職缺 → 自動解析、出第一組題目、產生面試建議；開始面試時題數不足自動補題；履歷選填 | `POST /targets`、`POST /interviews` |
+| **記住上次的選擇** | 新面試頁預設上次練習的職缺、履歷、長度、風格、語言；按一次就能開始 | `users.preferences`、`last_practiced_at` |
+| **履歷是唯一資料來源** | 不讓使用者填經歷、技能、手機、薪資；設定頁只唯讀顯示「Ava 從履歷讀到的」 | 移除 `user_profiles` 等表 |
+| **可以後悔** | 錄音中可重錄；面試可暫停、離開頁面自動暫停、24 小時內繼續；移出目標職缺不刪資料 | `discard`、`pause`／`resume`、`archived` |
+| **進度永遠看得見** | 出題、分析、評分都顯示「Ava 正在⋯」與骨架；報告完成時通知，不必停在頁面等 | SSE、輪詢、通知 |
+| **危險操作先確認** | 結束面試（說明哪些題會評分）、刪除報告、刪除全部紀錄、刪除帳號 | `end`、`DELETE` |
+| **錯誤不擋路** | GPT‑Live 失敗自動改用標準語音；上傳失敗保留錄音重試；一次只能一場面試時給「繼續／結束」選擇而不是錯誤 | §6.6、§6.8 |
+| **語音模式不讓使用者選** | `live` / `scripted` 由後端依方案與可用性決定，使用者只感受到「Ava 在問我」 | `voice_mode` |
+
+### 2.3 已移除的設計與原因
+
+| 原本的設計 | 為什麼拿掉 |
+|---|---|
+| 首頁 Dashboard（趨勢圖、連續天數、今日小提醒、推薦職缺） | 和「新面試」搶第一眼；練習進度改在面試報告列表看（場數、平均、最高、比上次） |
+| 自由文字的「對話式」新面試輸入框 | 需要額外的意圖判斷 LLM、會讓使用者以為能隨時聊天；改成結構化的面試準備頁，貼職缺另開視窗 |
+| 收藏職缺 | 和「目標職缺」意思重疊，合併為目標職缺 |
+| 一個職缺多個題組 | 使用者要多做一次「選題組」，MVP 改為一個目標職缺一個題組 |
+| 個人檔案表單（經歷、技能、手機、薪資、作品集、大頭貼、完整度） | 與履歷重複，增加填寫負擔；題目與評分只需要履歷 |
+| 側欄的「最近面試」 | 改到「面試報告」頁統一瀏覽，側欄只留功能與目標職缺 |
+| 報告「分享」 | 報告含錄音與個人資料，MVP 不提供公開分享 |
 
 ---
 
@@ -170,7 +202,7 @@ flowchart LR
 | **限流** | 登入失敗鎖定、題目生成、建立面試、AI 端點 | 計數器高頻寫入、自動過期 |
 | **冪等鍵** | 所有帶 `Idempotency-Key` 的 POST，24 小時內回傳同一結果 | 自動過期；處理中狀態防止並發重送 |
 | **分散式鎖** | 同一題組同時只有一個生成工作、同一場報告只建一次、sideband 擁有者租約 | `SET NX PX` 自動過期，不怕程序當掉留下死鎖 |
-| **快取** | Dashboard、職缺搜尋結果、TTS 音訊位置對照 | 減少重複查詢 |
+| **快取** | 職缺搜尋結果、TTS 音訊位置對照 | 減少重複查詢 |
 
 **不放進 Redis 的**：面試狀態與題目進度（只在 PostgreSQL，靠 `state_version` 控制）、作答紀錄、評分、refresh token、任何沒有 TTL 又無法重建的資料。
 
@@ -191,7 +223,6 @@ flowchart LR
 | 即時字幕緩衝 | `ai:live:tr:{attempt_id}` | LIST（RPUSH 片段） | 2 h |
 | Live 事件串流 | `ai:live:events` | STREAM（consumer group `pg-flusher`） | `MAXLEN ~ 100000` |
 | 報告進度推播 | `ai:evt:report:{session_id}` | Pub/Sub channel | — |
-| 快取：Dashboard | `ai:cache:dash:{user_id}` | STRING（JSON） | 60 s；報告完成時主動刪除 |
 | 快取：職缺搜尋 | `ai:cache:jobs:{resume_id}:{sha1(query)}` | STRING（JSON） | 120 s |
 | 快取：TTS | `ai:cache:tts:{sha1(text, voice, lang)}` | STRING（物件 key） | 30 天 |
 
@@ -264,17 +295,17 @@ backend/
 │   │   └── logging.py          # structlog、request_id
 │   ├── modules/
 │   │   ├── auth/               # 註冊、登入、OAuth、refresh
-│   │   ├── users/              # 個人檔案、技能、經歷、完整度
+│   │   ├── account/            # /me：名稱、偏好、用量、上手狀態、刪除帳號
 │   │   ├── resumes/            # 上傳、解析、主要履歷
-│   │   ├── jobs/               # 職缺庫、自訂職缺、收藏、搜尋
+│   │   ├── targets/            # 目標職缺：加入（貼上 JD／職缺庫）、預設履歷、移出 ← 練習單位
+│   │   ├── jobs/               # 職缺庫搜尋、職缺解析
 │   │   ├── matching/           # 契合度（embedding 粗排）
-│   │   ├── preps/              # 面試建議
-│   │   ├── question_bank/      # 題組、題目生成、排序
-│   │   ├── interviews/         # 面試場次、狀態機、作答紀錄 ← 核心
+│   │   ├── preps/              # 面試建議（加入目標職缺時自動產生）
+│   │   ├── question_bank/      # 題組（一個目標職缺一組）、題目生成、排序
+│   │   ├── interviews/         # 面試場次、狀態機、暫停／繼續、重錄、作答紀錄 ← 核心
 │   │   ├── live/               # GPT-Live 連線、sideband、音訊閘門指令
 │   │   ├── evaluation/         # 逐題轉錄＋評分
-│   │   ├── reports/            # 報告彙整、SSE 進度
-│   │   └── dashboard/          # 首頁彙整
+│   │   └── reports/            # 報告列表與詳情、SSE 進度
 │   │   # 每個模組：router.py / schemas.py / models.py / service.py / repository.py
 │   ├── ai/
 │   │   ├── client.py           # LLMClient：重試、逾時、寫入 llm_calls
@@ -295,7 +326,8 @@ frontend/
 └── js/
     ├── main.js / router.js / state.js
     ├── api.js                   # fetch 包裝：自動 refresh、錯誤格式、Idempotency-Key
-    ├── pages/                   # home / interview / report / prep / questions / jobs / profile / login
+    ├── pages/                   # new（面試準備）/ chat（面試進行中）/ report / questions / jobs / prep / login
+    ├── components/              # sidebar / menu（彈出選單）/ modal / settings / search / toast
     └── interview/
         ├── controller.js        # 前端狀態機（只鏡像後端狀態，不自行推進）
         ├── rtc.js               # WebRTC 連線、data channel 事件
@@ -308,22 +340,20 @@ frontend/
 
 ```mermaid
 flowchart TD
-    auth --> users
-    users --> resumes
+    auth --> account
+    account --> resumes
     resumes --> matching
     jobs --> matching
-    resumes --> preps
-    jobs --> preps
+    jobs --> targets
+    resumes --> targets
+    targets --> question_bank
+    targets --> preps
     preps --> question_bank
-    jobs --> question_bank
-    resumes --> question_bank
     question_bank --> interviews
     interviews --> live
     interviews --> evaluation
     evaluation --> reports
     reports --> question_bank
-    reports --> dashboard
-    matching --> dashboard
 ```
 
 規則：模組之間只透過 `service.py` 互相呼叫，不直接讀別人的 repository；`interviews` 是唯一可以改變面試狀態的模組。
@@ -351,9 +381,13 @@ stateDiagram-v2
     [*] --> preparing: 建立場次（快照題目、排 TTS）
     preparing --> ready: 主題目 TTS 全部完成
     ready --> in_progress: start
+    in_progress --> paused: 按暫停／離開頁面／斷線 2 分鐘
+    paused --> in_progress: 繼續（24 小時內）
+    paused --> completed: 超過 24 小時且有作答（自動產生報告）
+    paused --> aborted: 超過 24 小時且沒有作答
     in_progress --> completed: 所有主題目已作答或跳過
-    in_progress --> completed: 使用者按「結束並看評分」
-    in_progress --> aborted: 逾時無心跳／錯誤
+    in_progress --> completed: 使用者確認「結束面試」且有作答
+    in_progress --> aborted: 結束時沒有任何作答／錯誤
     completed --> [*]
     aborted --> [*]
 ```
@@ -363,7 +397,8 @@ stateDiagram-v2
     [*] --> asking: 後端指定 question_id
     asking --> awaiting_answer: 前端回報主題目播放完成
     awaiting_answer --> answering: 使用者點麥克風
-    answering --> finalizing: 使用者再點麥克風（回答完畢）
+    answering --> finalizing: 使用者按停止（回答完畢）
+    answering --> awaiting_answer: 重錄（丟掉這次回答）
     finalizing --> asking: 音訊與紀錄入庫成功，下一題或追問
     finalizing --> answering: 上傳失敗，停在原題重試
     asking --> asking: 跳過這題
@@ -441,7 +476,8 @@ sequenceDiagram
 - **主要方式**：使用者點麥克風（設計稿已是「點一下開始、再點一下結束」）。
 - **輔助方式**：靜音超過 `ANSWER_SILENCE_PROMPT_SEC`（預設 12 秒），前端打開閘門，讓 GPT‑Live 問「這題還有要補充的嗎？」；**不自動切題**。
 - **上限**：單題作答超過 `ANSWER_MAX_SEC`（預設 300 秒）前端自動結束並上傳。
-- **硬性規則**：音訊上傳成功且 `answer_attempts` 寫入成功，才能進下一題；失敗則停在原題重試。
+- **重錄**：錄音中按「重錄」，丟掉這次錄音（attempt 標記 `discarded`），回到「輪到你了」；不限次數，只有最後送出的那次會評分。
+- **硬性規則**：音訊上傳成功且 `answer_attempts` 寫入成功，才能進下一題；失敗則停在原題重試，錄音不丟。
 
 ### 6.6 語音模式（`voice_mode`）
 
@@ -462,11 +498,21 @@ sequenceDiagram
 
 追問 Agent 在 `complete` 請求中**同步**執行，逾時 3 秒即視為「不追問」。等待期間 GPT‑Live 的短回應會蓋過這段延遲。追問以 `parent_id` 掛在主題目下，獨立保存題目原文、實際念出的內容、回答與評分。
 
-### 6.8 斷線與重連
+### 6.8 暫停、離開與斷線
 
-- 前端每 15 秒送 `heartbeat`；超過 `SESSION_IDLE_TIMEOUT_SEC`（預設 10 分鐘）無心跳，worker 將場次標記 `aborted`，已完成的題目仍會評分。
-- 重新整理頁面後，前端呼叫 `GET /interviews/{id}` 取得 `phase` 與目前題目，**從目前題目重新開始**。若斷在 `answering`，舊 attempt 標記 `interrupted`，以 `attempt_no + 1` 重答。
-- GPT‑Live 斷線：自動重連一次；再失敗則降級為 `scripted` 模式繼續面試，並在場次上記錄 `voice_mode_degraded_at`。
+面試會被打斷是常態（電話、網路、關掉分頁），所以**任何中斷都進入「暫停」，而不是作廢**：
+
+| 情境 | 系統行為 | 使用者看到 |
+|---|---|---|
+| 按「暫停」 | `status = paused`，停止計時，關閉 GPT‑Live 連線；錄音中的回答丟棄 | 「已暫停」視窗：繼續面試／先離開 |
+| 離開面試頁（點側欄、切到別頁） | 前端送 `pause(reason=page_leave)` | 側欄最上方「面試暫停中・繼續」；新面試頁橫幅 |
+| 重新整理、網路短斷 | `GET /interviews/{id}` 回到目前題目；錄音中的回答若本機還有 Blob 就補送 | 從目前題目繼續 |
+| 心跳中斷 2 分鐘 | 後端自動改為 `paused`（`connection_lost`） | 回來時從暫停狀態繼續 |
+| GPT‑Live 斷線 | 自動重連一次；失敗則降級為 `scripted`，狀態機不變，記錄 `voice_mode_degraded_at` | 對話中一行「改用標準語音」 |
+| 暫停超過 24 小時 | 有作答 → 自動結束並產生報告（`end_reason = expired`）；沒有作答 → `aborted` | 報告列表多一份報告 |
+| 有暫停中的面試又按「開始面試」 | 不報錯，詢問「回到那場面試／結束它並開始新的」 | 選擇視窗 |
+
+繼續時：若目前題目已播放過（`asked_at` 有值）就回到「輪到你了」；否則重新播放題目。對話中插入一行「已回到面試・從第 N 題繼續」。
 
 ---
 
@@ -479,8 +525,8 @@ sequenceDiagram
 | **Resume Parser** | 上傳履歷 | 抽出的文字 | 基本資料、經歷、技能、專案、量化成果；履歷亮點／可以更好 | 欄位型別、日期合法 | 快速 |
 | **JD Parser** | 使用者貼上職缺 | JD 原文 | 公司、職稱、地點、工作內容、條件、標籤 | 必填欄位 | 快速 |
 | **Match Scorer** | 履歷或職缺更新 | 履歷與職缺 embedding | 0–100 契合度（cosine 換算） | — | Embedding |
-| **Prep Analyzer** | 面試建議頁 | 履歷結構化資料＋職缺 | 契合度、評語、優勢、補強、準備清單、高機率方向（含機率）、可能題目（原因＋建議） | 機率 0–100、清單 ≤ 8 項 | 推理 |
-| **Question Planner** | 題目生成 | 履歷、職缺、題型、難度、題數、補充需求、既有題目 | 題目陣列：類型、難度、題目、考察能力、預期要點、評分規準、出題理由 | 題數相符、類型覆蓋、與既有題去重（trigram 相似度 > 0.6 剔除）、長度 ≤ 120 字 | 推理 |
+| **Prep Analyzer** | 加入目標職缺、換履歷、按重新生成 | 履歷結構化資料＋職缺 | 契合度、評語、優勢、補強、準備清單、高機率方向（含機率）、可能題目（原因＋建議） | 機率 0–100、清單 ≤ 8 項 | 推理 |
+| **Question Planner** | 加入目標職缺（初始 8 題）、題庫生成輸入框、開始面試時題數不足 | 履歷（可無）、職缺、題型、難度、題數、使用者輸入的需求、既有題目 | 題目陣列：類型、難度、題目、考察能力、預期要點、評分規準、出題理由 | 題數相符、類型覆蓋、與既有題去重（trigram 相似度 > 0.6 剔除）、長度 ≤ 120 字 | 推理 |
 | **Follow-up Decider** | 每題 `complete` | 題目、規準、即時逐字稿、風格、已追問次數 | `{ should_follow_up, question, reason }` | 未超過上限、3 秒逾時 | 快速 |
 | **Answer Evaluator** | 每題最終逐字稿完成 | 題目、規準、職缺摘要、必要履歷背景、完整逐字稿、追問與回答 | 分數、五維度、證據原句、做得好、改善建議、可以這樣說、重點句 | **證據原句必須出現在逐字稿中**，否則剔除；逐字稿過短或品質差 → `needs_review` | 推理 |
 | **Report Aggregator** | 所有題目評分完成 | 各題評分 | 總結評語、共同弱點、下次練習優先順序 | 總分由程式加權計算，**不讓模型算總分** | 快速 |
@@ -531,6 +577,11 @@ sequenceDiagram
 | 越界語音次數 | sideband 偵測到模型在閘門關閉時輸出語音 | 監看趨勢 |
 | 報告產出時間 | 場次結束到報告 ready 的 P95 | < 60 秒 |
 | 單場成本 | 依 `llm_calls` 加總 | 監看 |
+| 首次練習時間 | 註冊到第一場面試開始的中位數 | < 3 分鐘 |
+| 加入職缺到可開始 | `POST /targets` 到題組 `ready` 的 P95 | < 15 秒 |
+| 面試完成率 | 開始的面試中，最後產生報告的比例（含暫停後繼續） | > 70% |
+| 暫停後繼續率 | 暫停的面試中，24 小時內繼續的比例 | 監看 |
+| 重複練習率 | 7 天內對同一目標職缺練第二場的使用者比例 | 監看（核心賣點指標） |
 
 ---
 
@@ -566,7 +617,7 @@ sequenceDiagram
 | 多 API 實例 | 同時面試 > 約 200 場 | 把 sideband 拆成獨立 `live-gateway` 服務；以 `ai:live:owner:{session_id}` 租約決定擁有者，`api` 透過 Redis Pub/Sub `ai:live:cmd:{session_id}` 下指令 |
 | 佇列吞吐 | 評分排隊時間變長 | 水平增加 `default` worker；`interactive` worker 獨立擴充，確保面試中延遲 |
 | Redis 負載 | 記憶體或連線數吃緊 | 快取與佇列拆成兩個 Redis 實例（快取可用 `allkeys-lru`，佇列維持 `noeviction`） |
-| 讀取壓力 | Dashboard／報告查詢變慢 | 加 read replica、報告 JSON 快取 |
+| 讀取壓力 | 報告列表／詳情查詢變慢 | 加 read replica、報告 JSON 快取 |
 
 ---
 
@@ -574,11 +625,11 @@ sequenceDiagram
 
 | 階段 | 範圍 | 完成標準 |
 |---|---|---|
-| **P0 基礎** | 認證、個人檔案、履歷上傳解析、自訂職缺、資料表與 Alembic、Redis＋arq worker 與 outbox、限流與冪等 middleware | 可上傳履歷並看到 AI 解析結果 |
-| **P1 題目** | 題目生成與編輯、面試建議 | 題目明顯依履歷＋職缺客製；出題理由可追溯 |
-| **P2 面試（scripted）** | 狀態機、TTS 主題目、逐題錄音上傳、轉錄、逐題評分、報告頁 | 符合 §1 三條驗收條件 |
+| **P0 基礎** | 認證、`/me`、履歷上傳解析、目標職缺（貼上 JD）、資料表與 Alembic、Redis＋arq worker 與 outbox、限流與冪等 middleware | 貼上職缺後能看到解析結果 |
+| **P1 題目** | 加入目標職缺自動出題、題庫生成與編輯、面試建議自動產生 | 題目明顯依履歷＋職缺客製；出題理由可追溯；加入到可開始 < 15 秒 |
+| **P2 面試（scripted）** | 面試準備頁、狀態機、暫停／繼續、重錄、TTS 主題目、逐題錄音上傳、轉錄、逐題評分、報告列表與詳情 | 符合 §1 四條驗收條件 |
 | **P3 面試（live）** | GPT‑Live WebRTC、sideband、音訊閘門、短回應、動態追問、降級機制 | 漏問率 0%、錯誤切題率 < 3% |
-| **P4 成長** | 職缺庫與契合度、首頁 Dashboard、加入題庫、趨勢、方案與用量限制 | — |
+| **P4 成長** | 職缺庫與契合度、方案與用量限制、升級頁 | — |
 
 ---
 
