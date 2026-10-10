@@ -1,6 +1,6 @@
 # AI Interview — 各功能系統流程圖
 
-> 版本：v0.2・所有圖皆為 Mermaid 格式・對齊 ChatGPT 風格 UI 原型與 UX 檢查
+> 版本：v0.3・所有圖皆為 Mermaid 格式・語音改為串接式（MVP）＋ Realtime API（P3），不使用 GPT‑Live
 > 相關文件：[architecture.md](architecture.md)・[api.md](api.md)・[postgresql.md](postgresql.md)
 
 ## 目錄
@@ -15,10 +15,10 @@
 8. [題目生成（Question Planner Agent）](#8-題目生成question-planner-agent)
 9. [題目編輯與排序](#9-題目編輯與排序)
 10. [開始面試（麥克風權限＋快照＋TTS）](#10-開始面試麥克風權限快照tts)
-11. [即時語音面試：連線](#11-即時語音面試連線)
-12. [即時語音面試：逐題主流程](#12-即時語音面試逐題主流程)
+11. [Realtime 語音連線（P3）](#11-realtime-語音連線p3)
+12. [語音面試：逐題主流程](#12-語音面試逐題主流程)
 13. [面試狀態機](#13-面試狀態機)
-14. [前端音訊與麥克風閘門](#14-前端音訊與麥克風閘門)
+14. [前端音訊路由](#14-前端音訊路由)
 15. [追問決策](#15-追問決策)
 16. [回答上傳失敗與重試](#16-回答上傳失敗與重試)
 17. [暫停、離開、斷線與繼續](#17-暫停離開斷線與繼續)
@@ -229,7 +229,7 @@ flowchart TD
 
 ## 7. 面試建議
 
-面試建議在加入目標職缺時就自動產生，打開頁面就有內容。
+先選目標職缺，再看該職缺的面試建議。面試建議在加入目標職缺時就自動產生；之後的「重新分析」與「再多產生」都**只新增、不刪除**。
 
 ```mermaid
 sequenceDiagram
@@ -241,27 +241,55 @@ sequenceDiagram
     participant W as Worker
     participant AI as OpenAI
 
-    U->>FE: 打開面試建議（預設選上次練習的目標職缺）
+    U->>FE: 點側欄「面試建議」
+    FE->>API: GET /targets
+    API-->>FE: 目標職缺列表（契合度、可能題目數、分析時間或「分析中」）
+    U->>FE: 點一個目標職缺
     FE->>API: GET /targets/{id}/prep
-    alt status = ready
-        API-->>FE: 契合度、優勢、補強、方向、可能題目、清單
-    else pending / running
-        API-->>FE: 進度
-        FE->>U: 骨架＋「Ava 正在比對你的履歷和職缺⋯」，完成後自動顯示
+    API-->>FE: 依據（職缺、履歷、上次分析時間、是否過期）＋分析結果＋可能題目＋清單
+    FE->>U: 最上方依據卡片與「重新分析」；資料過期時提示重新分析
+
+    opt 按「重新分析」（或換了履歷）
+        FE->>API: POST /targets/{id}/prep/analyze { resume_id? }
+        W->>DB: 重新讀取職缺完整內容與履歷解析結果
+        W->>AI: Prep Analyzer（附現有可能題目與清單，用來去重）
+        W->>DB: 更新契合度／優勢／補強／方向；附加新發現的題目與清單（source=reanalyze）
+        FE->>U: 「已重新分析，原本的都保留，新發現的放在最後」
     end
-    opt 按「重新生成」或換了履歷
-        FE->>API: POST /targets/{id}/prep/regenerate
-        W->>AI: Prep Analyzer
-        W->>DB: 新的 interview_preps（勾選狀態依相同文字沿用）
+
+    opt 「可能被問的題目」旁按「再多產生」
+        U->>FE: 小輸入框：想加強的方向、領域、數量
+        FE->>API: POST /preps/{id}/likely-questions/generate { note, category, count }
+        W->>AI: Prep Extender（職缺、履歷、現有可能題目與題組題目）
+        W->>DB: 附加 prep_likely_questions（source=more）
+        FE->>U: 新題目出現在最後並標「新」
     end
-    U->>FE: 勾選準備清單
-    FE->>API: PATCH /preps/{id}/checklist/{item_id}（樂觀更新）
-    U->>FE: 「可能題目加入題組」
-    FE->>API: POST /preps/{id}/likely-questions/add
+
+    opt 「面試前準備清單」旁按「再多產生」
+        FE->>API: POST /preps/{id}/checklist/generate { note, count }
+        W->>DB: 附加 prep_checklist_items（source=more，未勾選）
+    end
+
+    U->>FE: 勾選清單（樂觀更新）
+    FE->>API: PATCH /preps/{id}/checklist/{item_id}
+    U->>FE: 某一題「加入題組」或「全部加入題組」
+    FE->>API: POST /preps/{id}/likely-questions/add-to-set { ids? }
     API->>DB: INSERT question_set_items source=prep（去重）＋ 排 build_rubric
-    API-->>FE: added / skipped_duplicates
     U->>FE: 「開始模擬面試」
     FE->>FE: 前往新面試頁（職缺已選好）
+```
+
+```mermaid
+flowchart TD
+    A["產生請求：重新分析／再多產生"] --> B["讀取職缺完整內容（含使用者修正過的內容）"]
+    B --> C["讀取目前選的履歷解析結果（沒有履歷則略過）"]
+    C --> D["讀取現有可能題目、清單、題組題目"]
+    D --> E["LLM 產生候選"]
+    E --> F["程式去重：與既有項目 trigram 相似度 > 0.6 剔除"]
+    F --> G{"還有新項目？"}
+    G -- 有 --> H["附加在最後，記錄 source 與 generation_id"]
+    G -- 沒有 --> I["created_count=0：提示「沒有新的項目了，換個方向試試」"]
+    H --> J["原本的項目、勾選狀態、已加入題組標記全部保留"]
 ```
 
 ## 8. 題目生成（Question Planner Agent）
@@ -357,47 +385,42 @@ sequenceDiagram
         FE->>U: 對話區顯示「Ava 準備中⋯」
         W->>OBJ: TTS 快取命中就沿用，否則 TTS 後上傳
         W->>DB: 全部完成 → status=ready
-        FE->>API: GET /interviews/{id}（輪詢到 ready）→ live/connect → start
+        FE->>API: GET /interviews/{id}（輪詢到 ready）→（realtime 模式先 realtime/connect）→ start
     end
 ```
 
-## 11. 即時語音面試：連線
+## 11. Realtime 語音連線（P3）
+
+只有 `voice_mode = realtime` 的場次需要這一步；MVP（`scripted`）不建立任何即時語音連線。後端只代理一次 SDP 交換，**不維持長連線**。
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant FE as 前端 rtc.js
+    participant FE as 前端 realtime.js
     participant API as FastAPI
-    participant SB as Sideband 管理器
-    participant GL as GPT-Live
+    participant RT as Realtime API
     participant DB as PostgreSQL
-    participant RD as Redis
 
-    FE->>FE: new RTCPeerConnection，加入麥克風 track（先 disabled）
-    FE->>FE: 建立 data channel，遠端音軌接到 GainNode（gain=0）
+    FE->>FE: new RTCPeerConnection，加入麥克風 track（先停用）與 data channel
     FE->>FE: createOffer → setLocalDescription
-    FE->>API: POST /interviews/{id}/live/connect { sdp_offer }
-    API->>GL: 以後端金鑰提交 SDP offer
+    FE->>API: POST /interviews/{id}/realtime/connect { sdp_offer }
+    API->>RT: 以後端金鑰提交 SDP，並設定 session：turn_detection=null、輸入轉錄、voice、面試官指示
     alt 成功
-        GL-->>API: sdp_answer ＋ 對話識別碼
-        API->>DB: UPDATE interview_sessions live_session_ref
-        API->>RD: SET ai:live:owner:{session_id} = instance_id（NX，TTL 30 秒）
-        API->>SB: 開啟 sideband WebSocket，訂閱 ai:live:cmd:{session_id}
-        SB->>GL: 系統指示（角色、風格、語言、禁止自行出題）
-        SB->>RD: XADD ai:live:events connected
+        RT-->>API: sdp_answer ＋ call id
+        API->>DB: UPDATE interview_sessions realtime_call_id
         API-->>FE: 200 sdp_answer
-        FE->>FE: setRemoteDescription，連線建立
+        FE->>FE: setRemoteDescription，連線建立（模型不會自己說話）
     else 失敗
         API->>DB: voice_mode=scripted，voice_mode_degraded_at=now()
-        API-->>FE: 503 LIVE_UNAVAILABLE
-        FE->>FE: 提示改用標準語音模式，不建立 WebRTC
+        API-->>FE: 503 REALTIME_UNAVAILABLE
+        FE->>FE: 不建立 WebRTC，改用 cues 與 tts_url；對話顯示「改用標準語音」
     end
     FE->>API: POST /interviews/{id}/start
 ```
 
-## 12. 即時語音面試：逐題主流程
+## 12. 語音面試：逐題主流程
 
-這是整個產品最關鍵的流程。主題目由**應用程式播放**，GPT‑Live 只在被允許的時段發聲。
+這是整個產品最關鍵的流程。主題目由**應用程式播放 TTS**；接話在使用者按停止的瞬間就播放；追問由後端決定內容。`realtime` 模式只是把接話與追問換成 Realtime 的語音，流程與 API 完全相同。
 
 ```mermaid
 sequenceDiagram
@@ -406,15 +429,13 @@ sequenceDiagram
     participant FE as 前端控制器
     participant API as FastAPI 狀態機
     participant DB as PostgreSQL
-    participant SB as Sideband
-    participant GL as GPT-Live
-    participant RD as Redis
+    participant STT as 快速轉錄
+    participant RT as Realtime（P3）
     participant OBJ as 物件儲存
     participant W as Worker
 
     Note over FE,API: phase = asking
-    API->>SB: set_question_context(Q)：題目、考察重點、「安靜聆聽」
-    FE->>FE: 麥克風 disabled、AI 閘門關閉
+    FE->>FE: 麥克風關閉
     FE->>U: 播放 Q 的 TTS，畫面打字顯示題目
     FE->>API: POST questions/Q/playback-finished
     API->>DB: asked_at=now()，phase=awaiting_answer
@@ -423,50 +444,52 @@ sequenceDiagram
     U->>FE: 點麥克風
     FE->>API: POST questions/Q/answers
     API->>DB: INSERT answer_attempts A，phase=answering
-    API-->>FE: attempt A
-    FE->>FE: 麥克風 enabled，MediaRecorder.start()
-    U->>GL: 語音回答（WebRTC）
-    GL-->>FE: 即時字幕（data channel）→ 右側逐字稿
-    GL-->>SB: 即時字幕
-    SB->>RD: RPUSH ai:live:tr:{A}；XADD ai:live:events
-
-    opt 靜音超過 12 秒
-        FE->>FE: 短暫打開 AI 閘門
-        GL-->>U: 「這題還有要補充的嗎？」
+    API-->>FE: attempt A ＋ ack（這題結束時要說的接話）
+    FE->>FE: 麥克風開啟，MediaRecorder.start()
+    alt scripted
+        FE->>U: 回答泡泡顯示波形（錄音中）
+    else realtime
+        U->>RT: 麥克風音訊（WebRTC），模型只聽不說
+        RT-->>FE: 即時字幕（data channel）→ 回答泡泡
     end
 
-    U->>FE: 再點麥克風（回答完畢）
-    FE->>FE: MediaRecorder.stop() 取得 Blob，麥克風 disabled
-    FE->>FE: 打開 AI 閘門（短回應窗口 3 秒）
-    API->>SB: allow_reaction()
-    GL-->>U: 「嗯，了解，謝謝你的分享。」
+    opt 靜音超過 12 秒
+        FE->>U: 播放 cues.silence_prompt（realtime：response.create 一次）
+    end
+
+    U->>FE: 按停止（或「重錄」→ discard，回到「輪到你了」）
+    FE->>FE: MediaRecorder.stop() 取得 Blob，麥克風關閉
+    alt scripted
+        FE->>U: 立即播放 ack.tts_url（「嗯，了解。」）
+    else realtime
+        FE->>RT: input_audio_buffer.commit → response.create（ack.realtime_instructions）
+        RT-->>U: 一句自然的接話
+    end
     FE->>API: POST attempts/A/complete（audio、Idempotency-Key）
-    API->>RD: 冪等檢查 ai:idem:{uid}:{key}（SET processing）
     API->>OBJ: 上傳音訊
-    API->>RD: 取出 ai:live:tr:{A} 拼成 live_transcript
-    API->>DB: 交易：attempt saved、Q answered、寫 outbox transcribe_attempt
-    API->>RD: 投遞 arq interactive 佇列
+    API->>STT: 快速轉錄（同步）
+    API->>DB: 交易：attempt saved（quick_transcript）、Q answered、outbox transcribe_attempt
     API->>API: Follow-up Decider（≤ 3 秒）
     API->>DB: 推進到追問或下一題，state_version+1
-    API->>RD: 冪等結果存回（TTL 24 小時）
-    API-->>FE: next
-    FE->>FE: 關閉 AI 閘門
+    API-->>FE: attempt.quick_transcript ＋ next
+    FE->>FE: 回答泡泡換成快速轉錄文字
 
     par 背景
-        RD->>W: transcribe_attempt → evaluate_attempt
-        W->>DB: 寫入逐字稿與評分
+        W->>DB: transcribe_attempt（最終轉錄）→ evaluate_attempt
     end
 
     alt next.type = followup
-        API->>SB: speak_followup(F)
-        FE->>FE: 打開 AI 閘門
-        GL-->>U: 念出追問
-        SB->>DB: 記錄 spoken_text
-        FE->>API: playback-finished(F)
+        alt scripted
+            FE->>U: 播放追問 tts_url
+        else realtime
+            FE->>RT: response.create（念出追問）
+            RT-->>U: 追問
+        end
+        FE->>API: playback-finished(F)（realtime 帶 spoken_text）
     else next.type = question
-        Note over FE: 回到開頭，播放下一題 TTS
+        Note over FE: 等接話播完，回到開頭播放下一題 TTS
     else next.type = completed
-        FE->>U: 播放結尾語，導向報告頁
+        FE->>U: 播放結尾語，顯示報告卡片（評分中）
     end
 ```
 
@@ -530,28 +553,26 @@ stateDiagram-v2
     failed --> [*]: 不評分
 ```
 
-## 14. 前端音訊與麥克風閘門
+## 14. 前端音訊路由
+
+`scripted` 模式只有「播放音檔」與「錄音」兩件事；`realtime` 模式多一條 WebRTC，但模型只在前端送 `response.create` 時說話，所以不需要音訊閘門。
 
 ```mermaid
 flowchart TD
-    subgraph 前端音訊路由
-        MIC["麥克風 MediaStream"] --> T1["track 給 WebRTC（enabled 依 phase）"]
-        MIC --> T2["clone track 給 MediaRecorder（逐題錄音）"]
-        REMOTE["GPT-Live 遠端音軌"] --> GAIN["GainNode（閘門）"] --> SPK["喇叭"]
-        TTS["主題目 TTS 音訊"] --> SPK
+    subgraph 前端音訊
+        MIC["麥克風 MediaStream"] --> REC["MediaRecorder（逐題錄音，兩種模式都有）"]
+        MIC -.->|"realtime：track.enabled 依階段"| RTIN["WebRTC 上行"]
+        FILES["TTS 音檔：主題目、接話、追問、結尾"] --> SPK["喇叭"]
+        RTOUT["realtime：模型語音（只在 response.create 後）"] -.-> SPK
     end
 
-    P{"目前狀態"}
-    P -->|"asking（播放主題目）"| S1["麥克風 OFF・閘門 OFF・播放 TTS"]
-    P -->|"awaiting_answer"| S2["麥克風 OFF・閘門 OFF"]
-    P -->|"answering"| S3["麥克風 ON・閘門 OFF・錄音中"]
-    P -->|"回答結束後 3 秒"| S4["麥克風 OFF・閘門 ON（短回應）"]
-    P -->|"靜音提醒"| S5["麥克風 ON・閘門 ON 一次"]
-    P -->|"追問播放（live_voice）"| S6["麥克風 OFF・閘門 ON"]
-    P -->|"結尾語"| S7["麥克風 OFF・閘門 ON"]
-
-    S1 & S2 & S3 --> X{"sideband 偵測到模型在閘門關閉時輸出語音？"}
-    X -- 是 --> Y["使用者聽不到；記錄 live_events output_while_gated；送取消回應"]
+    P{"目前階段"}
+    P -->|"asking（主題目）"| S1["麥克風 OFF・播放 TTS 主題目"]
+    P -->|"awaiting_answer"| S2["麥克風 OFF・等待使用者"]
+    P -->|"answering"| S3["麥克風 ON・錄音（realtime 同時送上行、顯示即時字幕）"]
+    P -->|"按停止的瞬間"| S4["麥克風 OFF・播放接話（音檔或 response.create）"]
+    P -->|"追問"| S5["麥克風 OFF・播放追問（音檔或 response.create）"]
+    P -->|"暫停"| S6["停止所有播放；丟棄未送出的錄音；realtime 關閉 WebRTC"]
 ```
 
 ## 15. 追問決策
@@ -563,10 +584,8 @@ flowchart TD
     B -- 是 --> C
     B1 -- 否 --> Z["不追問 → 下一道主題目"]
     B1 -- 是 --> C{"風格上限：warm 1／real 1／tough 2"}
-    C --> D{"live_transcript 有內容？"}
-    D -- 否 --> D1["用剛上傳音訊做快速轉錄（逾時 2 秒）"]
-    D1 --> E
-    D -- 是 --> E["Follow-up Decider：題目、規準、逐字稿、風格、已追問次數"]
+    C --> D["快速轉錄（complete 請求內同步完成）"]
+    D --> E["Follow-up Decider：題目、規準、快速轉錄、風格、已追問次數"]
     E --> F{"3 秒內回應？"}
     F -- 否 --> Z
     F -- 是 --> G{"should_follow_up？"}
@@ -575,8 +594,8 @@ flowchart TD
     H -- 不通過 --> Z
     H -- 通過 --> I["INSERT session_questions kind=followup、parent_id、followup_no+1"]
     I --> J{"voice_mode"}
-    J -- live --> K["delivery=live_voice，sideband 要求 GPT-Live 念出"]
-    J -- scripted --> L["即時 TTS（~1 秒），delivery=tts"]
+    J -- realtime --> K["delivery=realtime：回傳 realtime_instructions，前端送 response.create 念出"]
+    J -- scripted --> L["即時 TTS（約 1 秒，接話已遮住等待），delivery=tts"]
 ```
 
 ## 16. 回答上傳失敗與重試
@@ -619,12 +638,12 @@ flowchart TD
     A --> C["離開面試頁（點側欄、切到別頁）"]
     A --> D["重新整理／網路短斷"]
     A --> E["心跳中斷 2 分鐘"]
-    A --> F["WebRTC 斷線"]
+    A --> F["Realtime 連線中斷（P3）"]
 
     B & C --> P1{"正在錄音？"}
     P1 -- 是 --> P2["丟掉未送出的錄音（attempt discarded），回到「輪到你了」"]
     P1 -- 否 --> P3
-    P2 --> P3["POST /pause（reason=user／page_leave）：status=paused，停止計時，關閉 GPT-Live"]
+    P2 --> P3["POST /pause（reason=user／page_leave）：status=paused，停止計時；realtime 關閉 WebRTC"]
     E --> P3
     P3 --> P4["側欄顯示「面試暫停中・繼續」；新面試頁顯示「繼續面試／結束並產生報告」"]
 
@@ -636,13 +655,13 @@ flowchart TD
     D4 -- 否 --> D6["attempt 標記 interrupted，回到「輪到你了」"]
     D2 -->|"done"| D7["顯示報告卡片"]
 
-    F --> F1["重新 live/connect 一次"]
+    F --> F1["重新 realtime/connect 一次"]
     F1 --> F2{"成功？"}
-    F2 -- 是 --> F3["sideband 重送目前題目上下文，繼續"]
-    F2 -- 否 --> F4["降級 scripted：只用 TTS＋錄音，狀態機不變；對話中顯示「改用標準語音」"]
+    F2 -- 是 --> F3["繼續（模型的上下文以後端每次給的指示為準）"]
+    F2 -- 否 --> F4["降級 scripted：改用 cues 與 TTS，狀態機不變；對話中顯示「改用標準語音」"]
 
     P4 --> R{"使用者回來？"}
-    R -->|"24 小時內按「繼續」"| R1["POST /resume → live/connect；對話插入「已回到面試・從第 N 題繼續」"]
+    R -->|"24 小時內按「繼續」"| R1["POST /resume →（realtime）realtime/connect；對話插入「已回到面試・從第 N 題繼續」"]
     R1 --> R2{"目前題目已播放？"}
     R2 -- 是 --> R3["回到「輪到你了」"]
     R2 -- 否 --> R4["重新播放目前題目"]
@@ -671,7 +690,7 @@ flowchart TD
     Z0 -- 否 --> Z
     Z1 --> Z["POST /interviews/{id}/end"]
     Z --> Z2{"有任何作答？"}
-    Z2 -- 有 --> Z3["status=completed，關閉 sideband 與 WebRTC，前往報告詳情（評分中）"]
+    Z2 -- 有 --> Z3["status=completed，realtime 關閉 WebRTC，前往報告詳情（評分中）"]
     Z2 -- 沒有 --> Z4["status=aborted，不產生報告，回到新面試頁"]
     Z3 --> Z5{"所有已存回答都評分完成？"}
     Z5 -- 是 --> Z6["立即排 build_report"]
@@ -837,7 +856,7 @@ flowchart LR
     T["transcribe_attempt"] --> EV["evaluate_attempt"]
     EV --> RP["build_report（全部完成時）"]
     BR["build_rubric"]
-    CRON["arq cron：sweep_outbox／flush_live_events／pause_lost_sessions／expire_paused_sessions／purge_expired_audio／maintain_partitions"]
+    CRON["arq cron：sweep_outbox／pause_lost_sessions／expire_paused_sessions／purge_expired_audio／maintain_partitions"]
 ```
 
 ## 23. AI 呼叫與 Log 記錄

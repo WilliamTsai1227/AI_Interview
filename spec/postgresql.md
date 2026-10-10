@@ -16,7 +16,7 @@
 7. **時間**一律 `timestamptz`，儲存 UTC。
 8. **AI 結構化輸出**存 `jsonb`，但**查詢與排序會用到的欄位**（分數、狀態）獨立成一般欄位。
 9. **軟刪除**只用在使用者可見、可能需要復原的內容（履歷、職缺、題目）；個資刪除請求一律硬刪除。
-10. **PostgreSQL 是唯一真實來源**：Redis（佇列、快取、鎖、即時字幕緩衝）裡的資料都必須能從 PostgreSQL 重建或可以遺失，見 [architecture.md §4.3](architecture.md)。
+10. **PostgreSQL 是唯一真實來源**：Redis（佇列、快取、鎖、冪等鍵）裡的資料都必須能從 PostgreSQL 重建或可以遺失，見 [architecture.md §4.3](architecture.md)。
 11. **目標職缺是練習的單位**：使用者把職缺加入「目標職缺」（`target_jobs`）後，系統自動建立它的題組（一對一）與面試建議；面試、報告都掛在目標職缺下。
 12. **履歷是個人資料的唯一來源**：經歷、技能、成果都從履歷解析（`resumes.parsed_json`），不另外讓使用者填寫表單。
 
@@ -45,7 +45,9 @@ erDiagram
 
     target_jobs ||--o{ interview_preps : analyzed
     resumes ||--o{ interview_preps : input
+    interview_preps ||--o{ prep_likely_questions : contains
     interview_preps ||--o{ prep_checklist_items : contains
+    interview_preps ||--o{ prep_generations : runs
 
     users ||--o{ interview_sessions : takes
     target_jobs ||--o{ interview_sessions : "practiced in"
@@ -58,7 +60,7 @@ erDiagram
     interview_sessions ||--o| interview_reports : summarized
 
     users ||--o{ llm_calls : incurs
-    interview_sessions ||--o{ live_events : logs
+    interview_sessions ||--o{ voice_events : logs
     users ||--o{ app_events : emits
 ```
 
@@ -76,7 +78,7 @@ erDiagram
         text length_mode "quick|standard|deep"
         text persona "warm|real|tough"
         text language "zh|en|mixed"
-        text voice_mode "live|scripted"
+        text voice_mode "scripted|realtime"
         text status "preparing|ready|in_progress|paused|completed|aborted"
         text phase "idle|asking|awaiting_answer|answering|finalizing|done"
         uuid current_question_id FK
@@ -123,7 +125,7 @@ erDiagram
         timestamptz answer_ended_at
         text audio_key
         int audio_duration_ms
-        text live_transcript
+        text quick_transcript
         text final_transcript
         jsonb transcript_segments
         text transcript_status
@@ -221,7 +223,19 @@ erDiagram
         jsonb strengths
         jsonb gaps
         jsonb directions
-        jsonb likely_questions
+        timestamptz analyzed_at
+        timestamptz job_updated_at "分析時的職缺版本"
+    }
+    prep_likely_questions {
+        uuid id PK
+        uuid prep_id FK
+        int order_no
+        text question
+        text why
+        text tip
+        text priority
+        text source "initial|more|reanalyze"
+        uuid question_set_item_id FK "已加入題組"
     }
     prep_checklist_items {
         uuid id PK
@@ -229,9 +243,20 @@ erDiagram
         text text
         bool is_checked
         int sort_order
+        text source "initial|more|reanalyze"
+    }
+    prep_generations {
+        uuid id PK
+        uuid prep_id FK
+        text kind "analyze|likely_more|checklist_more"
+        jsonb params
+        text status
+        int created_count
     }
     target_jobs ||--|| question_sets : "has one"
     target_jobs ||--o{ interview_preps : analyzed
+    interview_preps ||--o{ prep_likely_questions : contains
+    interview_preps ||--o{ prep_generations : runs
     question_sets ||--o{ question_set_items : contains
     question_sets ||--o{ question_generations : runs
     question_generations |o--o{ question_set_items : produced
@@ -315,8 +340,10 @@ erDiagram
 | 職缺 | `job_posts` | 平台職缺與使用者貼上的職缺 | 職缺 |
 | | `target_jobs` | 目標職缺：使用者正在準備的職缺，記住預設履歷 | 側欄・目標職缺 |
 | | `job_matches` | 履歷×職缺契合度快取 | 職缺・契合度 |
-| 準備 | `interview_preps` | 面試建議分析結果（每個目標職缺自動產生） | 面試建議 |
-| | `prep_checklist_items` | 準備清單勾選狀態 | 面試建議・清單 |
+| 準備 | `interview_preps` | 面試建議分析結果（每個目標職缺一份，重新分析時更新） | 面試建議 |
+| | `prep_likely_questions` | 可能被問的題目（只附加不刪除，可加入題組） | 面試建議・可能題目 |
+| | `prep_checklist_items` | 準備清單與勾選狀態（只附加不刪除） | 面試建議・清單 |
+| | `prep_generations` | 一次分析或「再多產生」的工作與參數 | 面試建議・重新分析／再多產生 |
 | 題組 | `question_sets` | 題組，與目標職缺一對一 | 題庫生成 |
 | | `question_set_items` | 題組中的題目（可編輯、排序） | 題庫生成・題目列 |
 | | `question_generations` | 一次 AI 生成工作與參數 | 題庫生成・輸入框 |
@@ -327,7 +354,7 @@ erDiagram
 | | `interview_reports` | 整場報告 | 面試報告 |
 | 系統 | `background_jobs` | 背景工作 outbox 與執行紀錄（實際佇列在 Redis／arq） | — |
 | Log | `llm_calls` | AI 呼叫與成本（月分區） | — |
-| | `live_events` | GPT‑Live sideband 事件（月分區） | — |
+| | `voice_events` | 語音事件：播放、自動播放被擋、Realtime 連線與降級（月分區） | — |
 | | `app_events` | 產品事件與稽核（月分區） | — |
 
 ---
@@ -501,8 +528,8 @@ CREATE INDEX ix_job_matches_rank ON job_matches(resume_id, score DESC);
 CREATE TABLE interview_preps (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id           uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  target_job_id     uuid NOT NULL REFERENCES target_jobs(id) ON DELETE CASCADE,
-  resume_id         uuid REFERENCES resumes(id),          -- 沒有履歷時只依職缺分析
+  target_job_id     uuid NOT NULL UNIQUE REFERENCES target_jobs(id) ON DELETE CASCADE,   -- 每個目標職缺一份；重新分析時更新這一列
+  resume_id         uuid REFERENCES resumes(id),          -- 上次分析用的履歷；沒有履歷時只依職缺分析
   job_post_id       uuid NOT NULL REFERENCES job_posts(id),
   status            text NOT NULL DEFAULT 'pending'
                     CHECK (status IN ('pending','running','ready','failed')),
@@ -512,22 +539,58 @@ CREATE TABLE interview_preps (
   strengths         jsonb,                   -- ["3 年 React 經驗…"]
   gaps              jsonb,                   -- ["履歷沒有寫到帶人…"]
   directions        jsonb,                   -- [{"label":"React 效能優化","probability":92}]
-  likely_questions  jsonb,                   -- [{"question","why","tip","priority":"high|medium|low"}]
+  analyzed_at       timestamptz,             -- 上次分析完成時間（依據卡片顯示）
+  job_updated_at    timestamptz,             -- 分析時職缺的 updated_at；之後職缺有改就提示重新分析
   model             text,
   prompt_version    text,
   error             text,
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX ix_preps_latest ON interview_preps(target_job_id, created_at DESC);
+
+-- 「重新分析」與「再多產生」的工作紀錄（同一份 prep 同時只能有一個進行中）
+CREATE TABLE prep_generations (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  prep_id        uuid NOT NULL REFERENCES interview_preps(id) ON DELETE CASCADE,
+  kind           text NOT NULL CHECK (kind IN ('analyze','likely_more','checklist_more')),
+  params         jsonb NOT NULL DEFAULT '{}',   -- {note, category, count, resume_id}
+  status         text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','succeeded','failed')),
+  created_count  int NOT NULL DEFAULT 0,
+  model          text,
+  prompt_version text,
+  error          text,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  finished_at    timestamptz
+);
+CREATE UNIQUE INDEX uq_prep_generation_running ON prep_generations(prep_id) WHERE status IN ('pending','running');
+
+-- 可能被問的題目：只附加，不刪除
+CREATE TABLE prep_likely_questions (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  prep_id               uuid NOT NULL REFERENCES interview_preps(id) ON DELETE CASCADE,
+  generation_id         uuid REFERENCES prep_generations(id) ON DELETE SET NULL,
+  order_no              int NOT NULL,
+  question              text NOT NULL,
+  why                   text,
+  tip                   text,
+  priority              text NOT NULL CHECK (priority IN ('high','medium','low')),
+  source                text NOT NULL CHECK (source IN ('initial','more','reanalyze')),
+  question_set_item_id  uuid,                          -- 已加入題組；FK 於 §4.6 建立題組表後補上
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (prep_id, order_no)
+);
+CREATE INDEX ix_prep_likely_text_trgm ON prep_likely_questions USING gin (question gin_trgm_ops);  -- 產生時去重
 
 CREATE TABLE prep_checklist_items (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  prep_id     uuid NOT NULL REFERENCES interview_preps(id) ON DELETE CASCADE,
-  text        text NOT NULL,
-  is_checked  boolean NOT NULL DEFAULT false,
-  sort_order  int NOT NULL,
-  updated_at  timestamptz NOT NULL DEFAULT now()
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  prep_id        uuid NOT NULL REFERENCES interview_preps(id) ON DELETE CASCADE,
+  generation_id  uuid REFERENCES prep_generations(id) ON DELETE SET NULL,
+  text           text NOT NULL,
+  is_checked     boolean NOT NULL DEFAULT false,
+  sort_order     int NOT NULL,
+  source         text NOT NULL DEFAULT 'initial' CHECK (source IN ('initial','more','reanalyze')),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX ix_prep_checklist ON prep_checklist_items(prep_id, sort_order);
 ```
@@ -581,6 +644,9 @@ CREATE TABLE question_set_items (
 ALTER TABLE question_set_items
   ADD CONSTRAINT uq_set_items_order UNIQUE (set_id, order_no) DEFERRABLE INITIALLY DEFERRED;
 CREATE INDEX ix_set_items_text_trgm ON question_set_items USING gin (text gin_trgm_ops);
+
+ALTER TABLE prep_likely_questions
+  ADD CONSTRAINT fk_prep_likely_set_item FOREIGN KEY (question_set_item_id) REFERENCES question_set_items(id) ON DELETE SET NULL;
 ```
 
 > 刪除題目時同時把 `order_no` 改成負數或重新排號，避免軟刪除的列佔住順序。實作上建議：刪除＝軟刪除＋同交易重排剩下題目。
@@ -598,8 +664,8 @@ CREATE TABLE interview_sessions (
   length_mode             text NOT NULL CHECK (length_mode IN ('quick','standard','deep')),
   persona                 text NOT NULL CHECK (persona IN ('warm','real','tough')),
   language                text NOT NULL CHECK (language IN ('zh','en','mixed')),
-  voice_mode              text NOT NULL CHECK (voice_mode IN ('live','scripted')),
-  voice_mode_degraded_at  timestamptz,       -- live 降級為 scripted 的時間
+  voice_mode              text NOT NULL CHECK (voice_mode IN ('scripted','realtime')),  -- MVP 一律 scripted；realtime 為 P3
+  voice_mode_degraded_at  timestamptz,       -- realtime 降級為 scripted 的時間
   status                  text NOT NULL DEFAULT 'preparing'
                           CHECK (status IN ('preparing','ready','in_progress','paused','completed','aborted')),
   phase                   text NOT NULL DEFAULT 'idle'
@@ -610,8 +676,7 @@ CREATE TABLE interview_sessions (
   job_snapshot            jsonb NOT NULL,
   resume_snapshot         jsonb NOT NULL,    -- 只放出題與評分需要的結構化欄位
   planned_question_count  smallint NOT NULL,
-  live_provider           text,
-  live_session_ref        text,              -- 供 sideband 連線用的對話 ID
+  realtime_call_id        text,              -- realtime 模式最近一次 WebRTC 連線的識別碼（除錯用）
   recording_consent_at    timestamptz,
   last_heartbeat_at       timestamptz,
   paused_at               timestamptz,       -- 使用者按暫停、離開頁面或斷線超過 2 分鐘；24 小時內可繼續
@@ -640,7 +705,7 @@ CREATE TABLE session_questions (
   category         text NOT NULL,
   difficulty       text NOT NULL,
   text             text NOT NULL,            -- 建立後不可修改
-  spoken_text      text,                     -- live 模式追問由 GPT-Live 念出時的實際內容
+  spoken_text      text,                     -- realtime 模式追問由模型念出時的實際內容（取自輸出字幕）
   competency       text,
   expected_points  jsonb NOT NULL DEFAULT '[]',
   rubric           jsonb,
@@ -668,7 +733,7 @@ CREATE TABLE answer_attempts (
   audio_mime           text,
   audio_bytes          int,
   audio_duration_ms    int,
-  live_transcript      text,                 -- 即時字幕拼接，僅供追問判斷與顯示
+  quick_transcript     text,                 -- 送出回答時同步產生的快速轉錄，供追問判斷與畫面顯示（不用於評分）
   final_transcript     text,                 -- 從完整錄音轉錄，評分依據
   transcript_segments  jsonb,                -- [{start_ms,end_ms,text}]
   transcript_status    text NOT NULL DEFAULT 'pending'
@@ -780,7 +845,7 @@ CREATE TABLE llm_calls (
   created_at           timestamptz NOT NULL DEFAULT now(),
   user_id              uuid,
   session_id           uuid,
-  purpose              text NOT NULL,        -- resume_parse, jd_parse, prep, question_gen, followup, evaluate, report, stt, tts, live, embedding
+  purpose              text NOT NULL,        -- resume_parse, jd_parse, prep, question_gen, followup, evaluate, report, stt_quick, stt, tts, realtime, embedding
   provider             text NOT NULL DEFAULT 'openai',
   model                text NOT NULL,
   prompt_version       text,
@@ -799,17 +864,17 @@ CREATE TABLE llm_calls (
 CREATE INDEX ix_llm_calls_session ON llm_calls(session_id);
 CREATE INDEX ix_llm_calls_user    ON llm_calls(user_id, created_at);
 
-CREATE TABLE live_events (
+CREATE TABLE voice_events (
   id                   bigint GENERATED ALWAYS AS IDENTITY,
   created_at           timestamptz NOT NULL DEFAULT now(),
   session_id           uuid NOT NULL,
   session_question_id  uuid,
-  source               text NOT NULL CHECK (source IN ('sideband','client','server')),
-  event_type           text NOT NULL,        -- transcript.delta, output_while_gated, phase_change, reconnect…
+  source               text NOT NULL CHECK (source IN ('client','server')),  -- client：前端隨 heartbeat 回報
+  event_type           text NOT NULL,        -- playback_finished, autoplay_blocked, realtime_connected, realtime_degraded, phase_change…
   payload              jsonb,
   PRIMARY KEY (id, created_at)
 ) PARTITION BY RANGE (created_at);
-CREATE INDEX ix_live_events_session ON live_events(session_id, created_at);
+CREATE INDEX ix_voice_events_session ON voice_events(session_id, created_at);
 
 CREATE TABLE app_events (
   id          bigint GENERATED ALWAYS AS IDENTITY,
@@ -827,7 +892,7 @@ CREATE INDEX ix_app_events_user ON app_events(user_id, created_at);
 
 -- 分區範例（用 pg_partman 或 worker 每日排程預先建立下個月）
 CREATE TABLE llm_calls_2026_10   PARTITION OF llm_calls   FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
-CREATE TABLE live_events_2026_10 PARTITION OF live_events FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
+CREATE TABLE voice_events_2026_10 PARTITION OF voice_events FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
 CREATE TABLE app_events_2026_10  PARTITION OF app_events  FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
 ```
 
@@ -847,7 +912,6 @@ Log 表**刻意不加外鍵**：寫入要快，且刪除使用者時 log 以 `us
 | `question_set_items.rubric` | `{ "version":"r1", "criteria":[{"key":"structure","desc":"是否用 STAR 或目標→做法→結果","weight":0.25}, …], "must_mention":["量化成果"] }` |
 | `evaluations.dimensions` | `{ "structure":60, "depth":65, "fluency":62, "job_fit":78, "confidence":55 }` |
 | `interview_preps.directions` | `[ { "label":"React 效能優化與實務經驗", "probability":92 } ]` |
-| `interview_preps.likely_questions` | `[ { "question","why","tip","priority":"high" } ]` |
 | `question_generations.params` | `{ "categories":["技術深度","系統設計"], "difficulty":"medium", "count":5, "note":"多問帶人經驗" }` |
 
 所有 JSONB 結構由後端 Pydantic model 定義與驗證，資料庫不做 JSON Schema 檢查。
@@ -881,7 +945,7 @@ BEGIN;
   UPDATE answer_attempts
      SET status = 'saved', is_final = true, answer_ended_at = $ended_at,
          audio_key = $audio_key, audio_bytes = $bytes, audio_duration_ms = $dur,
-         live_transcript = $live_text,  -- 從 Redis ai:live:tr:{attempt_id} 取出拼接
+         quick_transcript = $quick_text,  -- 快速轉錄結果（交易前已完成）
          idempotency_key = $idem_key
    WHERE id = $attempt_id AND status = 'answering';
 
@@ -993,7 +1057,7 @@ RETURNING id, status;   -- status = completed 的排 build_report
 | 回答音訊（物件儲存） | 180 天 | 每日工作刪除物件並把 `audio_key` 設為 NULL |
 | 逐字稿、評分、報告 | 帳號存續期間 | 使用者刪除單場面試時 `ON DELETE CASCADE` |
 | 履歷原檔 | 帳號存續期間 | 使用者刪除 → 軟刪除＋立即刪除物件；30 天後硬刪除列 |
-| `live_events` | 30 天 | `DROP` 舊分區 |
+| `voice_events` | 30 天 | `DROP` 舊分區 |
 | `llm_calls`、`app_events` | 13 個月 | `DROP` 舊分區 |
 | `refresh_tokens` | 過期後 7 天 | 每日清理 |
 | 暫停中的面試 | 24 小時 | 自動結束；有作答就產生報告（`end_reason = expired`） |
