@@ -601,7 +601,7 @@ function setTheme(t){S.theme=t; try{t?localStorage.setItem('ai-theme',t):localSt
 $('#themeBtn').onclick=()=>setTheme(isDark()?'light':'dark');
 
 /* ---------- sidebar ---------- */
-const NAV=[['new','新面試','edit'],['questions','題庫生成','book'],['prep','面試建議','bulb'],['jobs','職缺搜尋','search'],['targets','目標職缺','target'],['report','面試報告','report']];
+const NAV=[['new','新面試','edit'],['questions','題庫生成','book'],['jobs','職缺搜尋','search'],['targets','目標職缺','target'],['prep','面試建議','bulb'],['report','面試報告','report']];
 const targets=()=>JOBS.filter(j=>S.saved.has(j.id));
 const unfinished=()=>!!(S.iv&&S.iv.phase!=='done');
 function renderSide(){
