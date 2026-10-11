@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>AI Interview</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230d0d0d' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M4 10v4M8 6v12M12 9v6M16 4v16M20 10v4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/css/app.css">
+  <script>
+    // 先套用主題，避免閃爍
+    try { const t = localStorage.getItem("ai-theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+  </script>
+  <script type="module" src="/js/main.js"></script>
+</head>
+<body>
+  <div class="app" id="app" hidden>
+    <aside class="side" id="side" aria-label="側邊欄">
+      <div class="side-top">
+        <a class="brand" href="#new" id="brand"></a>
+        <button class="ib" id="sSearch" type="button" aria-label="搜尋（⌘K）"></button>
+        <button class="ib" id="sClose" type="button" aria-label="關閉側邊欄"></button>
+      </div>
+      <div class="side-scroll" id="sideList"></div>
+      <div class="side-foot">
+        <button class="me" id="meBtn" type="button"></button>
+      </div>
+    </aside>
+    <div class="backdrop" id="backdrop"></div>
+    <div class="main">
+      <header class="head">
+        <button class="ib when-collapsed" id="hOpen" type="button" aria-label="開啟側邊欄"></button>
+        <a class="ib when-collapsed hide-m" id="hNew" href="#new" aria-label="新面試"></a>
+        <div class="title" id="hTitle"></div>
+        <span class="sp"></span>
+        <div class="row" id="hRight" style="gap:4px;flex-wrap:nowrap"></div>
+        <button class="ib" id="themeBtn" type="button" aria-label="切換深色/淺色"></button>
+      </header>
+      <div class="view" id="view"></div>
+      <div class="dock" id="dock" hidden></div>
+    </div>
+  </div>
+  <div id="login" hidden></div>
+  <div class="toast" id="toast" role="status"></div>
+</body>
+</html>
