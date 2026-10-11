@@ -1,9 +1,11 @@
 # AI Interview — 系統架構規劃書
 
-> 版本：v0.3（MVP 規劃）・日期：2026-10-10
+> 版本：v0.4（MVP 規劃）・日期：2026-10-10
 > 相關文件：[api.md](api.md)（API 規格）・[postgresql.md](postgresql.md)（資料庫與 ER 圖）・[flows.md](flows.md)（各功能流程圖）・[AI Interview.html](AI%20Interview.html)（UI 設計稿）
 >
 > **v0.3 變更**：即時語音改為「**串接式語音（MVP）＋ Realtime API（擬真升級）**」，不再使用 GPT‑Live。理由見 [§6.1](#61-語音技術選型)。後端不再為每場面試維持 sideband 長連線，也不再需要音訊閘門，API 程序變成無狀態、可水平擴充。
+>
+> **v0.4 變更**：資料存取改為**手寫 SQL**（§4.2.1）；追問改為每道主題目可設定的四種規則，次數由程式計數、追問各自評分、整組分數（§6.5）；履歷與錄音改為**直接上傳到物件儲存**（§6.9）；新增高併發設計（§9.4）與職缺 ETL（§12）。
 
 ---
 
@@ -171,7 +173,7 @@ flowchart LR
 | 前端 | **原生 HTML / CSS / JavaScript（ES Modules）**，無建置步驟 | 沿用原型的 hash router 與元件寫法；面試頁需要直接操作 WebRTC、WebAudio、MediaRecorder，原生 API 最直接 | 頁面變多、需要型別檢查時加 Vite＋TypeScript（不換框架） |
 | 前端樣式 | 沿用原型 CSS Variables（黑白、深淺色） | 設計稿已完成 token | — |
 | 後端框架 | **FastAPI**＋Pydantic v2 | 非同步、SSE、OpenAPI 自動文件 | — |
-| ORM／遷移 | **SQLAlchemy 2.0（async）＋asyncpg＋Alembic** | 成熟、支援 PostgreSQL 特性（JSONB、陣列、部分索引） | — |
+| 資料存取／遷移 | **asyncpg＋手寫 SQL**（repository 層）；遷移用 **`migrations/*.sql` 純 SQL 檔＋極簡 runner**（`app/core/migrate.py`） | 查詢就是 [postgresql.md](postgresql.md) 裡的 SQL，可直接 `EXPLAIN`；大量使用 PostgreSQL 特性（`FOR UPDATE`、可延遲約束、部分索引、`ON CONFLICT`、pgvector），不需要 ORM 翻譯；見 §4.2.1 | 簡單 CRUD 變多、想少寫樣板時，可局部加 SQLAlchemy Core（只當查詢組裝器，不用 ORM 關聯） |
 | 主資料庫 | **PostgreSQL 16** | 交易一致性（狀態推進）、JSONB 存 AI 結構化輸出、陣列、部分索引、分區表 | — |
 | 向量 | **pgvector**（PostgreSQL 擴充） | 職缺契合度排序用 embedding；不必另開向量資料庫 | 職缺量 > 百萬筆再評估 |
 | 全文搜尋 | `pg_trgm` 三元組索引 | 中文斷詞在 PG 內建全文搜尋效果差，trigram 對中英混合關鍵字足夠 | 搜尋需求變重時改 Meilisearch / OpenSearch |
@@ -199,6 +201,41 @@ flowchart LR
 | 何時該換 | — | 單日事件量到千萬筆以上、或需要彈性分片時 |
 
 結論：**持久保存的 Log 用 PostgreSQL**。改用串接式／Realtime 後，語音事件量大幅下降（不再逐筆記錄 sideband 字幕片段），直接寫入 PostgreSQL 即可。系統運行 log（stdout）另外送到 log 平台（如 Grafana Loki、CloudWatch），不進資料庫。
+
+### 4.2.1 資料存取方式：直接寫 SQL
+
+**不使用 ORM**（不用 SQLAlchemy ORM 的 model 與關聯載入），所有讀寫都在各模組的 `repository.py` 以參數化 SQL 完成：
+
+```python
+# modules/interviews/repository.py
+async def lock_session(conn: Connection, session_id: UUID, user_id: UUID) -> Record | None:
+    return await conn.fetchrow(
+        """
+        SELECT * FROM interview_sessions
+         WHERE id = $1 AND user_id = $2
+         FOR UPDATE
+        """,
+        session_id, user_id,
+    )
+
+async def count_followups(conn: Connection, main_question_id: UUID) -> int:
+    return await conn.fetchval(
+        "SELECT count(*) FROM session_questions WHERE parent_id = $1",
+        main_question_id,
+    )
+```
+
+| 規則 | 說明 |
+|---|---|
+| 一律參數化 | 只用 `$1, $2…`，**禁止**字串拼接 SQL；動態排序／篩選欄位用白名單對照 |
+| 交易邊界在 service | `async with pool.acquire() as conn, conn.transaction():`，repository 函式只接收 `conn`，不自己開交易 |
+| 回傳 → Pydantic | repository 回傳 `Record`，service 轉成 `schemas.py` 的 Pydantic model；API 不直接吐 `Record` |
+| JSONB／陣列／vector | 連線建立時註冊 codec（`set_type_codec` for `jsonb`；`pgvector.asyncpg.register_vector`） |
+| 一處一份 SQL | 同一個查詢只寫在一個 repository 函式中；postgresql.md §6 的查詢就是實作版本 |
+| 遷移 | `migrations/NNNN_*.sql` 純 SQL，`python -m app.core.migrate` 依序執行並記錄在 `schema_migrations`；DDL 與 postgresql.md §4 一致；不需要 SQLAlchemy／Alembic |
+| 測試 | repository 測試直接連真的 PostgreSQL（testcontainers），不 mock 資料庫 |
+
+為什麼不用 ORM：這個系統的關鍵操作（推進面試狀態、計算追問數、整組分數、outbox、去重）都是需要精準控制的 SQL；ORM 的延遲載入、自動 flush 與產生的 SQL 反而增加不確定性。代價是要多寫一些 `SELECT`／`INSERT` 樣板，可接受。
 
 ### 4.3 Redis 使用規劃
 
@@ -232,6 +269,11 @@ flowchart LR
 | 報告進度推播 | `ai:evt:report:{session_id}` | Pub/Sub channel | — |
 | 快取：職缺搜尋 | `ai:cache:jobs:{resume_id}:{sha1(query)}` | STRING（JSON） | 120 s |
 | 快取：TTS | `ai:cache:tts:{sha1(text, voice, lang)}` | STRING（物件 key） | 30 天 |
+| OpenAI 並行上限 | `ai:sem:openai:{model}` | ZSET（持有者 token → 到期時間） | 單次呼叫逾時 |
+| OpenAI 每分鐘 token | `ai:tpm:openai:{model}:{minute}` | STRING（INCRBY 預估 token） | 2 min |
+| 進行中面試數 | `ai:live_interviews` | ZSET（session_id → 最後心跳） | 依心跳清除 |
+| 履歷重複上傳 | `ai:resume_hash:{user_id}:{sha256}` | STRING（resume_id） | 7 天 |
+| 鎖：職缺 ETL | `ai:lock:job_ingest:{category}` | STRING | 30 min |
 
 #### 4.3.3 工作投遞：Outbox 模式
 
@@ -293,7 +335,7 @@ backend/
 │   ├── main.py                 # FastAPI app、router 掛載
 │   ├── core/
 │   │   ├── config.py           # pydantic-settings，所有模型名稱、金鑰、上限皆由環境變數設定
-│   │   ├── db.py               # async engine / session
+│   │   ├── db.py               # asyncpg 連線池、codec 註冊（jsonb、vector）、交易 helper
 │   │   ├── security.py         # 密碼雜湊、JWT、Cookie
 │   │   ├── errors.py           # 統一錯誤格式
 │   │   ├── storage.py          # S3 客戶端、預簽名 URL
@@ -302,9 +344,11 @@ backend/
 │   ├── modules/
 │   │   ├── auth/               # 註冊、登入、OAuth、refresh
 │   │   ├── account/            # /me：名稱、偏好、用量、上手狀態、刪除帳號
-│   │   ├── resumes/            # 上傳、解析、主要履歷
+│   │   ├── uploads/            # 直接上傳：發上傳單據與預簽名 PUT、驗證物件（大小、MIME、magic bytes）
+│   │   ├── resumes/            # 履歷建立（帶 upload_id）、解析、主要履歷
 │   │   ├── targets/            # 目標職缺：加入（貼上 JD／職缺庫）、預設履歷、移出 ← 練習單位
-│   │   ├── jobs/               # 職缺庫搜尋、職缺解析
+│   │   ├── jobs/               # 職缺搜尋、職缺解析、前往原始職缺頁
+│   │   ├── job_ingest/         # 職缺 ETL：網路搜尋 → 驗證 → 分類 → 上架／送審、定期檢查、AI 稽核（§12）
 │   │   ├── matching/           # 契合度（embedding 粗排）
 │   │   ├── preps/              # 面試建議（加入目標職缺時自動產生）
 │   │   ├── question_bank/      # 題組（一個目標職缺一組）、題目生成、排序
@@ -312,18 +356,20 @@ backend/
 │   │   ├── voice/              # VoiceProvider：TTS 與接話短句快取、快速轉錄、Realtime SDP 代理與指示
 │   │   ├── evaluation/         # 最終轉錄＋逐題評分
 │   │   └── reports/            # 報告列表與詳情、SSE 進度
-│   │   # 每個模組：router.py / schemas.py / models.py / service.py / repository.py
+│   │   ├── admin/              # 職缺審核佇列、ETL 執行紀錄
+│   │   # 每個模組：router.py（含請求 schema）/ service.py；SQL 較多的模組另拆 repository.py（手寫 SQL，見 §4.2.1）
 │   ├── ai/
-│   │   ├── client.py           # LLMClient：重試、逾時、寫入 llm_calls
+│   │   ├── client.py           # LLMClient：重試、逾時、寫入 llm_calls、經過 limiter
+│   │   ├── limiter.py          # OpenAI 並行與 TPM 控管、優先順序（§9.4）
 │   │   ├── prompts/            # 版本化提示詞（*.md，含 prompt_version）
 │   │   ├── schemas/            # 每個 agent 的 JSON Schema
 │   │   └── agents/             # 見 §7
 │   └── workers/
 │       ├── queue.py            # enqueue：寫 outbox＋投遞 arq；狀態更新
 │       ├── settings.py         # arq WorkerSettings（interactive / default 兩組）
-│       ├── cron.py             # sweeper、暫停逾時、音訊清理、分區維護
+│       ├── cron.py             # sweeper、暫停逾時、音訊與上傳清理、分區維護、職缺 ETL／檢查／稽核
 │       └── handlers/           # 每種 job kind 一個 handler
-├── alembic/
+├── migrations/                 # 0001_init.sql、0002_….sql（純 SQL）
 └── tests/
 
 frontend/
@@ -349,7 +395,10 @@ flowchart TD
     account --> resumes
     resumes --> matching
     jobs --> matching
+    job_ingest --> jobs
     jobs --> targets
+    uploads --> resumes
+    uploads --> interviews
     resumes --> targets
     targets --> question_bank
     targets --> preps
@@ -494,17 +543,55 @@ sequenceDiagram
 - scripted：每種語言 × 風格預先合成 6–10 句短句（「嗯，了解。」「謝謝你的分享。」「這個例子很具體。」），前端在使用者按停止的**同時**隨機播放一句，遮住上傳與追問判斷的等待時間。最後一題前換成「好的，我們來聊最後一題。」。
 - realtime：後端在 `answers` 回應中先給好接話指示（例如「用 10 字以內自然回應，不評論對錯」），前端在按停止時先送 `input_audio_buffer.commit` 再送 `response.create`。
 
-**追問規則**
+**追問規則（每道主題目可設定）**
 
-| 面試官風格 | 每道主題目追問上限 | 觸發條件 |
-|---|---|---|
-| 溫和引導 `warm` | 0–1 | 回答過短（< 40 字）或明顯離題 |
-| 真實模擬 `real` | 1 | 缺少評分規準中的關鍵要點 |
-| 壓力面試 `tough` | 2 | 缺少細節、數據、取捨理由 |
+在題庫生成的每道題目上設定「追問規則」，開始面試時複製到 `session_questions`（快照，之後改題庫不影響進行中的面試）：
 
-追問 Agent 在 `complete` 請求中**同步**執行，輸入是快速轉錄的文字；逾時 3 秒即視為「不追問」。追問內容由後端產生並存成 `session_questions`（`kind = followup`）。
+| 規則 `followup_mode` | 介面文字 | 次數由誰決定 | 內容由誰決定 | 適合 |
+|---|---|---|---|---|
+| `none` | 不追問 | — | — | 暖身題、自我介紹 |
+| `fixed` | 固定追問 N 次（1–3） | **程式**：一定問滿 N 次 | AI 依回答寫（Follow-up Writer）；逾時改用通用追問 | 想確實練「被追問」 |
+| `planned` | 預設追問（自己寫好的子題） | **程式**：依子題數量 | 使用者事先寫好，照順序問 | 已知面試官會問的延伸題 |
+| `adaptive` | Ava 判斷（最多 N 次，1–2） | AI 判斷是否追問，程式限制上限 | AI（Follow-up Decider） | 預設；最像真實面試 |
 
-- scripted：後端即時 TTS 合成追問（約 1 秒），回傳 `tts_url`。
+新題目的預設：AI 出題時建議規則（行為題多為 `adaptive` 1，系統設計題多為 `fixed` 2），使用者可在題目列的「追問」選單修改。
+
+**次數一律由程式計數，不交給 AI**：
+
+```python
+asked = await repo.count_followups(conn, main.id)          # SELECT count(*) … WHERE parent_id = $1
+match main.followup_mode:
+    case "none":
+        nxt = None
+    case "fixed" if asked < main.followup_target:
+        text = await writer.write(main, transcript, timeout=3) or generic_followup(main, asked)
+        nxt = Followup(text, source="fixed_ai" if text_ok else "fixed_fallback")
+    case "planned" if asked < main.followup_target:
+        nxt = Followup(planned[asked].text, source="planned")         # 不呼叫 AI
+    case "adaptive" if asked < main.followup_target:
+        d = await decider.decide(main, transcript, timeout=3)          # 逾時 = 不追問
+        nxt = Followup(d.question, source="adaptive_ai") if d.should_follow_up else None
+    case _:
+        nxt = None
+# nxt 為 None → 下一道主題目；跳過主題目時，它的追問一併跳過
+```
+
+追問存成 `session_questions`（`kind = followup`、`parent_id` = 主題目、`followup_no` = 1, 2…），`UNIQUE (session_id, order_no, followup_no)` 保證重送也不會多問。
+
+**評分與整組分數**
+
+- 主題目與每個追問**各自**有一筆作答與評分（`evaluations`），各自有改善建議與「可以這樣說」。
+- 整組分數 = 主題目 × 60% ＋ 追問平均 × 40%（沒有追問時 = 主題目分數；權重可設定），存在 `question_group_scores`。
+- 整場總分 = 所有主題目整組分數的平均，由程式計算。
+
+**進度與時間**
+
+- 進度顯示「第 2 題・追問 1／2」；「題數」只算主題目（`adaptive` 的追問數事先未知，顯示「追問」而不顯示分母）。
+- 預估時間包含追問：`fixed`、`planned` 依次數計算，`adaptive` 以上限的一半估算。
+
+**念出追問**
+
+- scripted：後端即時 TTS 合成追問（約 1 秒），回傳 `tts_url`；`planned` 的追問在開始面試時就預先合成。
 - realtime：後端回傳追問原文與指示，前端送 `response.create`（指示「念出以下追問，可微調語氣，不得改變意思」）；模型實際說出的內容從輸出字幕取得，前端在 `playback-finished` 帶回 `spoken_text`。
 
 ### 6.6 語音模式（`voice_mode`）
@@ -564,6 +651,17 @@ sequenceDiagram
 
 繼續時：若目前題目已播放過（`asked_at` 有值）就回到「輪到你了」；否則重新播放題目。對話中插入一行「已回到面試・從第 N 題繼續」。realtime 模式重新建立 WebRTC。
 
+### 6.9 直接上傳到物件儲存
+
+履歷與回答錄音**不經過 API 伺服器**，前端直接上傳到 S3／R2，API 只發單據與驗證：
+
+1. `POST /uploads {purpose, content_type, size}` → API 檢查大小與類型上限、建立 `upload_tickets`，回傳 `upload_id` 與 5 分鐘有效的預簽名 `PUT` 網址（限定 `Content-Type` 與 `Content-Length`）。
+2. 前端 `PUT` 檔案到物件儲存。
+3. `POST /resumes {upload_id}` 或 `POST …/answers/{id}/complete {upload_id}`：API 以 `HEAD` 確認物件存在、大小相符，讀前 4 KB 檢查 magic bytes，單據改為 `consumed`；找不到 → `409 UPLOAD_NOT_FOUND`，前端重新上傳。
+4. 沒被使用的物件 1 小時後由 cron 刪除。
+
+好處：API 不用承受大檔案頻寬與記憶體，上傳失敗只需重試第 2 步；錄音在本機保留到 `complete` 成功為止，失敗不會遺失回答。
+
 ---
 
 ## 7. AI Agents 設計
@@ -578,9 +676,13 @@ sequenceDiagram
 | **Prep Analyzer** | 加入目標職缺、換履歷、修改職缺、按「重新分析」 | **每次都重新讀取**職缺完整內容＋履歷解析結果（可無）＋現有可能題目與清單 | 契合度、評語、優勢、補強、高機率方向（含機率）；**新發現的**可能題目與清單項目 | 機率 0–100；新項目與既有項目 trigram 相似度 > 0.6 剔除；只附加不刪除 | 推理 |
 | **Prep Extender** | 可能題目／準備清單的「再多產生」 | 職缺完整內容、履歷、現有項目（含題組題目）、使用者輸入的需求、領域、數量 | 指定數量的新可能題目（原因＋建議）或新清單項目 | 去重；數量相符；只附加 | 快速 |
 | **Question Planner** | 加入目標職缺（初始 8 題）、題庫生成輸入框、開始面試時題數不足 | 履歷（可無）、職缺、題型、難度、題數、使用者輸入的需求、既有題目 | 題目陣列：類型、難度、題目、考察能力、預期要點、評分規準、出題理由 | 題數相符、類型覆蓋、與既有題去重（trigram 相似度 > 0.6 剔除）、長度 ≤ 120 字 | 推理 |
-| **Follow-up Decider** | 每題 `complete` | 題目、規準、**快速轉錄**文字、風格、已追問次數 | `{ should_follow_up, question, reason }` | 未超過上限、長度 ≤ 80 字、3 秒逾時 | 快速 |
-| **Answer Evaluator** | 每題最終逐字稿完成 | 題目、規準、職缺摘要、必要履歷背景、完整逐字稿、追問與回答 | 分數、五維度、證據原句、做得好、改善建議、可以這樣說、重點句 | **證據原句必須出現在逐字稿中**，否則剔除；逐字稿過短或品質差 → `needs_review` | 推理 |
-| **Report Aggregator** | 所有題目評分完成 | 各題評分 | 總結評語、共同弱點、下次練習優先順序 | 總分由程式加權計算，**不讓模型算總分** | 快速 |
+| **Follow-up Writer** | `fixed` 規則、尚未問滿 | 題目、規準、**快速轉錄**文字、前面的追問與回答、風格 | `{ question, reason }`（一定要產生一題） | 長度 ≤ 80 字、不得重複前面追問；3 秒逾時改用通用追問 | 快速 |
+| **Follow-up Decider** | `adaptive` 規則、未達上限 | 題目、規準、**快速轉錄**文字、風格、已追問次數與上限 | `{ should_follow_up, question, reason }` | 程式檢查上限、長度 ≤ 80 字；3 秒逾時 = 不追問 | 快速 |
+| **Answer Evaluator** | 每題（主題目與每個追問各自）最終逐字稿完成 | 題目、規準、職缺摘要、必要履歷背景、完整逐字稿；追問另附主題目與先前回答作為脈絡 | 分數、五維度、證據原句、做得好、改善建議、可以這樣說、重點句 | **證據原句必須出現在逐字稿中**，否則剔除；逐字稿過短或品質差 → `needs_review` | 推理 |
+| **Report Aggregator** | 所有題目評分完成 | 各題評分與整組分數 | 總結評語、共同弱點、下次練習優先順序 | 整組分數與總分由程式加權計算，**不讓模型算分數** | 快速 |
+| **Job Extractor** | 職缺 ETL（§12） | 分類、地區等搜尋條件；Responses API `web_search` | 職缺陣列：公司、職稱、地點、條件重點、**原始網址** | JSON Schema、網址可連線、網域白名單、去重 | 推理 |
+| **Job Classifier** | ETL 抓回、使用者貼上職缺 | 職稱、條件 | 分類、資歷、信心分數、2–3 句摘要 | 分類必須在 `job_categories`；信心 < 0.7 → 送審 | 快速 |
+| **Job Auditor** | 每日 | 前一天上架的職缺抽樣＋被檢舉的職缺 | 疑似錯誤清單與原因 | 只產生報告寄給管理者，不自動修改 | 快速 |
 
 模型名稱全部透過環境變數設定（`LLM_MODEL_REASONING`、`LLM_MODEL_FAST`、`STT_MODEL_FAST`、`STT_MODEL`、`TTS_MODEL`、`TTS_VOICE`、`EMBEDDING_MODEL`、`REALTIME_MODEL`），不寫死在程式中。
 
@@ -674,17 +776,35 @@ sequenceDiagram
 | Redis 負載 | 記憶體或連線數吃緊 | 快取與佇列拆成兩個 Redis 實例（快取可用 `allkeys-lru`，佇列維持 `noeviction`） |
 | 讀取壓力 | 報告列表／詳情查詢變慢 | 加 read replica、報告 JSON 快取 |
 
+### 9.4 高併發設計
+
+**瓶頸是 OpenAI 的速率限制與延遲，不是 API 或資料庫**。所以設計重點是「保護進行中的面試」：
+
+| 風險 | 做法 |
+|---|---|
+| OpenAI 速率限制（RPM／TPM）被打滿 | `ai/limiter.py`：每個模型一個 Redis 信號量（`ai:sem:openai:{model}`）＋每分鐘 token 計數；超過時排隊等候，不直接打到 OpenAI 收 429 |
+| 批次工作拖慢面試 | 優先順序：**面試中（追問、快速轉錄、TTS） > 評分與報告 > 出題與建議 > 職缺 ETL**。信號量保留 30% 名額只給面試中呼叫；`interactive` worker 與 `default` worker 分開 |
+| 同時開始太多場面試 | **准入控制**：`POST /interviews` 檢查 `ai:live_interviews` 數量與 limiter 剩餘容量，超過門檻回 `503 SERVICE_BUSY`＋`Retry-After`，前端顯示「目前人數較多，約 N 分鐘後再試」；**已開始的面試不受影響** |
+| 評分與報告排隊 | 報告是非同步的，排隊只會延後完成時間；SSE 顯示「評分中」；`default` worker 依佇列長度水平擴充 |
+| OpenAI 429／5xx | 指數退避＋抖動重試（最多 3 次，尊重 `Retry-After`）；面試中的追問逾時就照規則降級（fixed → 通用追問、adaptive → 不追問），不卡住面試 |
+| 履歷解析耗盡 worker | 最多 10 頁、單檔 60 秒逾時、解析並行上限 4、同一檔案 sha256 去重（7 天內重複上傳直接回傳既有結果） |
+| 上傳頻寬 | 直接上傳到物件儲存（§6.9），API 不經手檔案 |
+| 資料庫連線 | asyncpg 連線池（每個程序 10–20）；正式環境前面放 PgBouncer（transaction mode，asyncpg 關閉 statement cache） |
+| 突發流量的限流 | 每位使用者：建立面試 10 次／小時、出題 30 次／小時、上傳 20 次／小時（Redis 固定視窗） |
+
+容量估算方式：一場面試約 5–10 次文字 LLM 呼叫＋5–10 次 STT＋5–10 次 TTS，集中在 15 分鐘內。以 OpenAI 帳號的 RPM／TPM 上限 × 70%（扣掉保留給批次的部分）÷ 每場每分鐘呼叫數 ≈ **可同時進行的面試數**，作為准入門檻的初始值，上線後依 `llm_calls` 實際數據調整。
+
 ---
 
 ## 10. 開發階段規劃
 
 | 階段 | 範圍 | 完成標準 |
 |---|---|---|
-| **P0 基礎** | 認證、`/me`、履歷上傳解析、目標職缺（貼上 JD）、資料表與 Alembic、Redis＋arq worker 與 outbox、限流與冪等 middleware | 貼上職缺後能看到解析結果 |
+| **P0 基礎** | 認證、`/me`、履歷上傳解析、目標職缺（貼上 JD）、資料表與 SQL 遷移、Redis＋arq worker 與 outbox、限流與冪等 middleware | 貼上職缺後能看到解析結果 |
 | **P1 題目** | 加入目標職缺自動出題、題庫生成與編輯、面試建議自動產生 | 題目明顯依履歷＋職缺客製；出題理由可追溯；加入到可開始 < 15 秒 |
 | **P2 面試（scripted）** | 面試準備頁、狀態機、暫停／繼續、重錄、TTS 主題目、預合成接話、逐題錄音上傳、快速轉錄與追問、最終轉錄、逐題評分、報告列表與詳情 | 符合 §1 四條驗收條件；按停止到接話 < 300 ms |
 | **P3 面試（realtime）** | Realtime WebRTC（後端代理 SDP）、`turn_detection: null`、即時字幕、Realtime 接話與追問、降級回 scripted | 漏問率 0%、Realtime 降級率 < 5%；使用者盲測覺得比 scripted 自然 |
-| **P4 成長** | 職缺庫與契合度、方案與用量限制、升級頁 | — |
+| **P4 成長** | 職缺 ETL 與審核（§12）、職缺搜尋與契合度、方案與用量限制、升級頁 | 平台職缺 100% 有原始職缺頁；送審比例 < 20% |
 
 ---
 
@@ -716,3 +836,33 @@ class Speech:
 ```
 
 先實作 `ScriptedVoice`（P2），再實作 `RealtimeVoice`（P3）；若日後評估 GPT‑Live，也只是新增一個實作。
+
+---
+
+## 12. 職缺資料管線（ETL）
+
+**目標**：讓「職缺搜尋」有足夠的真實職缺，同時降低著作權與資料正確性的風險。
+
+### 12.1 原則
+
+| 原則 | 做法 |
+|---|---|
+| 只存事實，不轉貼原文 | 存公司、職稱、地點、薪資區間、條件重點（Ava 改寫的條列）、2–3 句摘要；**不存**原始職缺全文 |
+| 一定附原始網址 | 每筆平台職缺都有 `source_url`，詳情頁有「前往原始職缺頁 ↗」，應徵一律導回原站 |
+| 優先使用公開 API | 公司若使用 Greenhouse、Lever 等 ATS，直接用其公開職缺 API（資料最正確、授權最清楚）；其次才用網路搜尋 |
+| 不爬需登入或禁止爬取的網站 | 遵守 robots.txt 與各站使用條款；LinkedIn 等只存使用者自己貼上的內容 |
+| AI 抓的資料要經過程式驗證 | 不直接上架 AI 回傳的內容 |
+| 上線前請法律顧問確認 | 特別是各求職網站的使用條款 |
+
+### 12.2 流程
+
+| 步驟 | 執行 | 內容 |
+|---|---|---|
+| 1. 搜尋 | arq cron（每日；量大後改 EventBridge＋Lambda） | 依 `job_categories` × 地區組合查詢；Job Extractor 用 Responses API `web_search` 回傳 JSON（含原始網址） |
+| 2. 程式驗證 | worker | JSON Schema、網域白名單、網址 `HEAD` 200、公司名稱與網域一致性、`(source_site, external_ref)` 與正規化網址去重 |
+| 3. 分類 | Job Classifier | 分類、資歷、摘要、信心分數 |
+| 4. 上架或送審 | worker | 信心 ≥ 0.7 且沒有警示 → `published`；否則 `pending_review`，進後台審核佇列 |
+| 5. 定期檢查 | 每日 cron | 重新確認 `source_url`：404／已關閉 → `closed`；刊登超過 30 天未再出現 → `closed` |
+| 6. AI 稽核 | 每日 cron | Job Auditor 抽樣檢查前一天上架的職缺，產生摘要 email 寄給管理者 |
+
+每次執行記錄在 `job_ingest_runs`（抓回、通過、上架、送審、下架數量與成本）。ETL 使用 limiter 的最低優先順序，不影響面試。

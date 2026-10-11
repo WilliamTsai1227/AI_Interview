@@ -288,6 +288,20 @@ ul.ticks.warn li::before{content:"!";font-weight:700}
 .acc-act{display:flex;justify-content:flex-end;margin-top:10px}
 .center-cta{display:flex;flex-direction:column;align-items:center;gap:10px;padding:36px 12px;text-align:center}
 
+/* follow-ups */
+.fu-pill{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:999px;border:1px solid var(--line-2);font-size:.75rem;color:var(--ink-2);margin-left:6px;vertical-align:1px}
+.fu-pill:hover{background:var(--hover);color:var(--ink)}
+.fu-pill svg{width:12px;height:12px}
+.fu-list{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.fu-item{display:flex;align-items:center;gap:10px;padding:6px 6px 6px 12px;border-radius:10px;background:var(--surface);font-size:.88rem}
+.fu-item .k{color:var(--ink-3);font-size:.78rem;flex:none}
+.fu-item .t{flex:1;min-width:0}
+.fu-list .inp{font-size:.88rem;padding:7px 12px}
+.fu-sec{margin-top:20px;padding-left:16px;border-left:2px solid var(--line-2)}
+.fu-sec .qh h3{font-size:.95rem}
+.grp{font-size:.8rem;color:var(--ink-3);font-weight:500;margin-left:8px}
+.src-link{display:inline-flex;align-items:center;gap:6px}
+
 /* question bank */
 .qrow{display:flex;align-items:flex-start;gap:14px;padding:14px 10px;border-radius:12px;transition:background .12s}
 .qrow:hover{background:var(--hover)}
@@ -499,13 +513,18 @@ const JOBS=[
    about:'跨境物流平台，前端團隊 8 人，正在拆分單體前端。',
    duties:['帶領前端團隊與招募','規劃微前端遷移','訂定工程規範'],req:['5 年以上前端經驗','2 年以上帶人經驗','大型專案架構經驗']}
 ];
+/* 職缺搜尋只存事實欄位＋Ava 寫的摘要，一律導回原始職缺頁 */
+[['j1','104 人力銀行','https://www.104.com.tw/','2 天前'],['j2','LinkedIn','https://www.linkedin.com/jobs/','今天'],['j3','CakeResume','https://www.cake.me/jobs','5 天前'],['j4','Yourator','https://www.yourator.co/jobs','1 週前'],['j5','104 人力銀行','https://www.104.com.tw/','3 天前'],['j6','CakeResume','https://www.cake.me/jobs','今天']]
+  .forEach(([id,src,url,seen])=>{const j=JOBS.find(x=>x.id===id); Object.assign(j,{src,url,seen});});
+function srcLine(j){ return j.url?`<div class="faint" style="margin-top:10px">資料來源：${j.src}・${j.seen}確認仍在招募・內容為 Ava 整理的摘要</div>`:`<div class="faint" style="margin-top:10px">這是你貼上的職缺內容</div>`; }
+function srcBtn(j,cls='btn out'){ return j.url?`<a class="${cls} src-link" href="${j.url}" target="_blank" rel="noopener noreferrer">前往原始職缺頁 ↗</a>`:''; }
 const SETS={
  j1:[
-  {cat:'自我介紹',lv:'基礎',t:'請用兩分鐘介紹你自己，以及為什麼想加入 Northwind Labs？'},
-  {cat:'技術深度',lv:'進階',t:'你在過去專案中如何處理 React 應用的效能問題？請舉一個實際例子。'},
-  {cat:'團隊合作',lv:'中等',t:'分享一次你和設計師意見不同的經驗，最後怎麼取得共識？'},
-  {cat:'系統設計',lv:'進階',t:'如果要從零建立一套給 5 個產品線共用的元件庫，你會怎麼規劃？'},
-  {cat:'動機與規劃',lv:'基礎',t:'未來三年，你希望自己在技術或職涯上有什麼樣的成長？'}
+  {cat:'自我介紹',lv:'基礎',t:'請用兩分鐘介紹你自己，以及為什麼想加入 Northwind Labs？',fu:{mode:'none'}},
+  {cat:'技術深度',lv:'進階',t:'你在過去專案中如何處理 React 應用的效能問題？請舉一個實際例子。',fu:{mode:'fixed',n:2}},
+  {cat:'團隊合作',lv:'中等',t:'分享一次你和設計師意見不同的經驗，最後怎麼取得共識？',fu:{mode:'adaptive',n:1}},
+  {cat:'系統設計',lv:'進階',t:'如果要從零建立一套給 5 個產品線共用的元件庫，你會怎麼規劃？',fu:{mode:'planned',planned:['為什麼選 monorepo，而不是讓各產品線各自維護？','上線後你會用什麼指標判斷元件庫成功？']}},
+  {cat:'動機與規劃',lv:'基礎',t:'未來三年，你希望自己在技術或職涯上有什麼樣的成長？',fu:{mode:'none'}}
 ],
  j2:[
   {cat:'自我介紹',lv:'基礎',t:'請用英文簡短介紹你自己，以及為什麼對支付產業有興趣？'},
@@ -514,6 +533,21 @@ const SETS={
  ]
 };
 const qs=(id=S.job)=>SETS[id]||(SETS[id]=[]);
+/* 追問規則：次數由程式計數，內容才交給 AI 寫 */
+const fuOf=q=>q.fu||{mode:'adaptive',n:1};
+function fuLabel(q){const f=fuOf(q);return f.mode==='none'?'不追問':f.mode==='fixed'?`固定追問 ${f.n} 次`:f.mode==='planned'?`預設追問 ${(f.planned||[]).length} 題`:`Ava 判斷（最多 ${f.n} 次）`;}
+function fuExpected(q){const f=fuOf(q);return f.mode==='fixed'?f.n:f.mode==='planned'?(f.planned||[]).length:f.mode==='adaptive'?0.5:0;}
+const FU_BANK={'你在過去專案中如何處理 React 應用的效能問題？請舉一個實際例子。':['你剛提到虛擬捲動，為什麼選它而不是分頁？','這次之後，你怎麼避免同樣的效能問題再發生？','如果資料量再大十倍，你會怎麼調整？']};
+const FU_GENERIC=['可以再具體說明你在這件事裡負責的部分嗎？','這個結果你是怎麼衡量的？','如果重來一次，你會有什麼不同的做法？'];
+const FU_ANS=['因為列表要支援快速捲動和篩選，分頁會打斷操作；虛擬捲動只渲染看得到的部分，體驗比較好。','之後我在 CI 加了效能預算，渲染超過 1 秒就會提醒，也把 Profiler 檢查放進 Code Review 清單。','我會先盤點各產品線最常用的元件，用 monorepo 統一版本，避免各自維護造成不一致。','我會追蹤採用率、UI 不一致的回報數，還有新頁面開發時間有沒有縮短。'];
+/* 依追問規則決定這題要問哪些追問（fixed 一定問滿 N 次；planned 照順序；adaptive 由 Ava 判斷） */
+function planFollowups(q,mainIndex){
+  const f=fuOf(q), bank=FU_BANK[q.t]||FU_GENERIC;
+  if(f.mode==='fixed') return Array.from({length:f.n},(_,k)=>bank[k%bank.length]);
+  if(f.mode==='planned') return [...(f.planned||[])];
+  if(f.mode==='adaptive') return mainIndex%2===0?bank.slice(0,Math.min(1,f.n)):[];
+  return [];
+}
 /* 每個目標職缺一份面試建議；「再多產生」與「重新分析」都只新增、不刪除 */
 const PREPS={
  j1:{state:'ready',at:'10/06 14:32',cv:'陳品妤_履歷_2026.pdf',
@@ -556,6 +590,14 @@ const REPORT=[
   {score:68,good:['有提到 design token 與 Storybook，方向正確','知道要先盤點現況，不是直接開做'],fix:['開頭的「嗯⋯」和「應該會用吧」讓回答聽起來不確定','缺少版本策略、貢獻流程、採用率追蹤等主管會關心的面向','建議用「目標 → 架構 → 流程 → 衡量」四段來回答系統設計題'],better:'我會分四步：第一，訪談 5 個產品線、盤點元件，找出共用度最高的 20 個；第二，和設計師訂出 design token，用 monorepo 管理，元件獨立版本、遵守語意化版本號；第三，建立貢獻流程與 Storybook 文件，讓各產品線能提需求；最後追蹤採用率與 UI 不一致回報數，每季檢討。',hl:'嗯⋯我會先盤點'},
   {score:79,good:['目標清楚，有提到「帶領小團隊」','和職缺的資深定位相符'],fix:['可以說出具體的里程碑，例如第一年想完成什麼','把「產品思維」連結到 Northwind 的業務，例如了解店家營運'],better:'第一年我想先把後台效能和元件庫做到穩定，成為團隊裡架構問題的第一窗口；第二、三年希望能帶 2 到 3 位工程師，也多跟 PM 和店家訪談，讓技術決策更貼近餐飲現場的需求。',hl:'帶領小團隊'}
 ];
+/* 報告：有追問的題目，主題目與每個追問獨立評分，另外算整組分數（主題目 60%、追問平分 40%） */
+const REPORT_FU={
+ 1:[{q:'你剛提到虛擬捲動，為什麼選它而不是分頁？',a:FU_ANS[0],score:80,good:['說出使用情境（快速捲動、篩選）'],fix:['可以補充虛擬捲動的缺點，例如無障礙與 SEO，展現完整的取捨'],better:'分頁會打斷「邊捲邊篩選」的操作，所以我選虛擬捲動；代價是螢幕閱讀器支援較差，我另外補了鍵盤導覽與 aria 標記。'},
+    {q:'這次之後，你怎麼避免同樣的效能問題再發生？',a:FU_ANS[1],score:83,good:['有具體的預防機制（CI 效能預算）'],fix:['補一句成效，例如之後半年沒有再發生'],better:'我在 CI 加了效能預算，PR 讓列表渲染超過 1 秒就會提醒；導入後半年沒有再出現類似問題。'}],
+ 3:[{q:'為什麼選 monorepo，而不是讓各產品線各自維護？',a:FU_ANS[2],score:66,good:['知道統一版本的好處'],fix:['沒有提到 monorepo 的代價（建置時間、權限管理）','缺少讓各產品線願意採用的方法'],better:'我選 monorepo 是為了統一版本與發布流程；代價是建置時間變長，所以會搭配增量建置，並用 CODEOWNERS 管理各產品線的權限。'},
+    {q:'上線後你會用什麼指標判斷元件庫成功？',a:FU_ANS[3],score:74,good:['指標具體，有採用率與開發時間'],fix:['可以設定目標值與檢討頻率'],better:'我會看三個指標：各產品線採用率（目標半年 70%）、UI 不一致回報數、新頁面開發時間；每季和設計師一起檢討。'}]
+};
+const groupScore=(main,fus)=>fus&&fus.length?Math.round(main*0.6+fus.reduce((a,f)=>a+f.score,0)/fus.length*0.4):main;
 const HISTORY=[
   {id:'r6',job:'j1',t:'Northwind Labs・Senior Frontend Engineer',s:82,delta:5,when:'10/06 14:32',grp:'最近 7 天',n:5,per:'溫和引導',dur:'14 分鐘'},
   {id:'r5',job:'j2',t:'Bluepeak Pay・Frontend Engineer, Payments',s:77,delta:3,when:'10/04 20:10',grp:'最近 7 天',n:3,per:'真實模擬',dur:'9 分鐘'},
@@ -568,7 +610,7 @@ HISTORY.forEach(h=>h.ready=true);
 /* 面試結束後報告不會立刻好：先顯示「評分中」，完成後通知 */
 function addHistory(iv){
   const j=job(iv.job), id='r'+Date.now(), prev=HISTORY.find(h=>h.job===iv.job&&h.ready);
-  HISTORY.unshift({id,job:iv.job,t:`${j.co}・${j.title}`,s:82,delta:prev?82-prev.s:null,when:'剛剛',grp:'最近 7 天',n:iv.answered,per:PERSONAS[iv.persona].name,dur:Math.max(1,Math.round(iv.t/60))+' 分鐘',ready:false});
+  HISTORY.unshift({id,job:iv.job,t:`${j.co}・${j.title}`,s:82,delta:prev?82-prev.s:null,when:'剛剛',grp:'最近 7 天',n:Math.max(1,iv.answeredMain),per:PERSONAS[iv.persona].name,dur:Math.max(1,Math.round(iv.t/60))+' 分鐘',ready:false});
   setTimeout(()=>{ const h=HISTORY.find(x=>x.id===id); if(!h) return; h.ready=true; toast('報告完成了');
     if(S.route==='report') render(); if(S.route==='chat') renderDock();
     const c=$('#rc-'+id); if(c){const t=document.createElement('div');t.innerHTML=cardHTML(id);c.replaceWith(t.firstElementChild);} },3500);
@@ -692,7 +734,8 @@ function pageNew(){
   if(has&&!S.saved.has(S.job)) S.job=tg[0].id;
   const j=job(S.job), n=MODES[S.mode].n, prep=has&&S.preparing.has(S.job);
   const list=has?qs().slice(0,n):[], short=n-list.length;
-  const mins=list.reduce((a,q)=>a+(EST[q.lv]||3),0)+short*3;
+  const fuMin=list.reduce((a,q)=>a+fuExpected(q)*2,0);
+  const mins=Math.round(list.reduce((a,q)=>a+(EST[q.lv]||3),0)+short*3+fuMin);
   const iv=S.iv;
   setHead('','新面試');
   return `<div class="setup-wrap">
@@ -703,13 +746,13 @@ function pageNew(){
       <div class="su-row"><span class="k">職缺</span><div class="v">${has?`<button class="picker" type="button" id="cJob"><b>${esc(j.co)}</b><span>${esc(j.title)}</span>${I.chev}</button>`:`<button class="btn pri sm" type="button" id="cJd">${I.plus}貼上職缺內容</button><a class="linkb" href="#jobs">或從職缺庫挑選</a>`}</div></div>
       <div class="su-row"><span class="k">履歷</span><div class="v">${S.hasCv?`<button class="picker" type="button" id="cCv">${I.file}<b>${esc(S.cvSel||RESUMES[0])}</b>${I.chev}</button>`:`<button class="btn out sm" type="button" id="cUp">${I.upload}上傳履歷</button><span class="hint">選填。沒有履歷也能練，題目會只依職缺出</span>`}</div></div>
       ${has?`
-      <div class="su-row"><span class="k">長度</span><div class="v">${seg('sMode',Object.entries(MODES).map(([k,m])=>[k,`${m.name} ${m.n}`]),S.mode)}<span class="hint">約 ${mins} 分鐘</span></div></div>
+      <div class="su-row"><span class="k">長度</span><div class="v">${seg('sMode',Object.entries(MODES).map(([k,m])=>[k,`${m.name} ${m.n}`]),S.mode)}<span class="hint">約 ${mins} 分鐘（含追問）</span></div></div>
       <div class="su-row"><span class="k">風格</span><div class="v">${seg('sPer',Object.entries(PERSONAS).map(([k,p])=>[k,p.name.slice(0,2)]),S.persona)}<span class="hint">${PERSONAS[S.persona].sub}</span></div></div>
       <div class="su-row"><span class="k">語言</span><div class="v">${seg('sLang',Object.entries(LANGS).map(([k,v])=>[k,v==='English'?'英文':v]),S.lang)}</div></div>
       <div class="qprev">
         <div class="qprev-h"><span>本次題目（${n} 題）</span><a href="#questions/${S.job}">編輯面試題庫${I.right.replace('<svg','<svg width="14" height="14"')}</a></div>
         ${prep?`<div class="skel" style="height:20px;margin:10px 0"></div><div class="skel" style="height:20px;margin:10px 0"></div><div class="faint">Ava 正在依職缺和履歷出題⋯</div>`:
-        `<ol>${list.map((q,i)=>`<li><span class="n">${i+1}</span><span>${esc(q.t)}</span><span class="c">${q.cat}</span></li>`).join('')}
+        `<ol>${list.map((q,i)=>{const f=fuOf(q);const ft=f.mode==='fixed'?`＋追問 ${f.n}`:f.mode==='planned'?`＋追問 ${(f.planned||[]).length}`:f.mode==='adaptive'?'＋可能追問':'';return `<li><span class="n">${i+1}</span><span>${esc(q.t)}</span><span class="c">${q.cat}${ft?`・${ft}`:''}</span></li>`}).join('')}
         ${short>0?`<li class="auto"><span class="n">${list.length+1}</span><span>還差 ${short} 題，開始時 Ava 會自動補上</span></li>`:''}</ol>`}
       </div>`:''}
     </div>
@@ -763,7 +806,7 @@ function startInterview(){
   const base=qs().slice(0,n), fill=genericSet(j).filter(g=>!qs().some(q=>q.t===g.t)).slice(0,n-base.length);
   if(fill.length) qs().push(...fill);
   const list=[...base,...fill];
-  S.iv={job:S.job,persona:S.persona,q:0,list,phase:'wait',t:0,answered:0,asked:-1,paused:false,
+  S.iv={job:S.job,persona:S.persona,q:0,fk:0,fuList:null,list,phase:'wait',t:0,answered:0,answeredMain:0,asked:'',paused:false,
     msgs:[{r:'sys',text:`${j.co}・${j.title}・${MODES[S.mode].name} ${list.length} 題・${PERSONAS[S.persona].name}・${LANGS[S.lang]}`}]};
   if(location.hash==='#chat') render(); else location.hash='#chat';
   startClock(); later(()=>askQ(true),500);
@@ -803,7 +846,7 @@ function discardLive(){
 function pauseIv(){
   const iv=S.iv; if(!iv||iv.phase==='done') return;
   discardLive(); timers.forEach(clearTimeout); timers=[];
-  iv.paused=true; iv.phase=iv.asked===iv.q?'ready':'wait';
+  iv.paused=true; iv.phase=isAsked(iv)?'ready':'wait';
   render();
   const s=openModal(`<div class="mbody" style="text-align:center;padding:32px 24px 26px"><h2 style="font-size:1.2rem;font-weight:600">已暫停</h2>
     <p class="muted" style="margin-top:8px">計時已停止。可以先離開，24 小時內都能從「新面試」回來接著練。</p>
@@ -814,14 +857,14 @@ function pauseIv(){
 function resumeIv(){
   const iv=S.iv; if(!iv) return;
   iv.paused=false; startClock();
-  if(iv.asked!==iv.q) askQ(false); else setPhase('ready');
+  if(!isAsked(iv)) askCurrent(); else setPhase('ready');
 }
 function leaveChat(){
   const iv=S.iv; if(!iv) return;
   if(iv.phase==='done'){ stopTimers(); S.iv=null; return; }
   const was=iv.paused;
   discardLive(); stopTimers();
-  iv.paused=true; iv.phase=iv.asked===iv.q?'ready':'wait';
+  iv.paused=true; iv.phase=isAsked(iv)?'ready':'wait';
   if(!was) toast('面試已暫停，24 小時內都能回來繼續');
 }
 function pageChat(){
@@ -859,12 +902,19 @@ function pushMsg(m,speed,done){
     if(i<full.length) later(step,40);
     else { tx.classList.remove('cursor'); if(m.acts){const t2=document.createElement('div');t2.innerHTML=msgHTML(m);el.replaceWith(t2.firstElementChild);} done&&done(); } })();
 }
+const curKey=iv=>`${iv.q}:${iv.fk}`;
+const isAsked=iv=>iv.asked===curKey(iv);
+function askCurrent(){ const iv=S.iv; if(iv.fk>0) askFu(); else askQ(false); }
 function askQ(first){
-  const iv=S.iv; if(!iv) return; const q=iv.list[iv.q]; iv.asked=iv.q; setPhase('wait'); updateProgress();
+  const iv=S.iv; if(!iv) return; const q=iv.list[iv.q]; iv.fk=0; iv.fuList=null; iv.asked=curKey(iv); setPhase('wait'); updateProgress();
   const pre=first?`你好，${ME.short}！我是今天的面試官 Ava。我們開始吧。\n\n`:'';
   pushMsg({r:'ai',lab:`第 ${iv.q+1} 題・${q.cat}`,text:pre+q.t,acts:true},2,()=>setPhase('ready'));
 }
-function updateProgress(){const b=$('#hTitle .badge'); if(b&&S.iv) b.textContent=`${Math.min(S.iv.q+1,S.iv.list.length)} / ${S.iv.list.length}`; drawProg();}
+function askFu(){
+  const iv=S.iv; if(!iv) return; iv.asked=curKey(iv); setPhase('wait'); updateProgress();
+  pushMsg({r:'ai',lab:`第 ${iv.q+1} 題・追問 ${iv.fk}/${iv.fuList.length}`,text:iv.fuList[iv.fk-1],acts:true},2,()=>setPhase('ready'));
+}
+function updateProgress(){const b=$('#hTitle .badge'); const iv=S.iv; if(b&&iv) b.textContent=`${Math.min(iv.q+1,iv.list.length)} / ${iv.list.length}${iv.fk>0?`・追問 ${iv.fk}/${iv.fuList.length}`:''}`; drawProg();}
 function setPhase(p){ if(!S.iv) return; S.iv.phase=p; renderDock(); }
 function drawProg(){const p=$('#prog'); if(p&&S.iv) p.innerHTML=S.iv.list.map((_,i)=>`<i class="${i<S.iv.q?'d':i===S.iv.q?'c':''}"></i>`).join('');}
 function renderDock(){
@@ -887,7 +937,7 @@ function renderDock(){
 }
 function startAnswer(){
   const iv=S.iv; setPhase('live');
-  const full=ANSWERS[iv.q]||'這題我想一下⋯我會先釐清需求，再提出幾個可行方案和取捨。';
+  const full=iv.fk>0?FU_ANS[(iv.q+iv.fk)%FU_ANS.length]:(ANSWERS[iv.q]||'這題我想一下⋯我會先釐清需求，再提出幾個可行方案和取捨。');
   const m={r:'me',text:full}; iv.msgs.push(m);
   const el=document.createElement('div'); el.className='m-me cursor'; $('#chat').appendChild(el); scrollEnd();
   let i=0, sec=0; ans={el,m,full};
@@ -898,16 +948,28 @@ const REACT=['謝謝你的分享，開場就有具體成果，很好。','了解
 function finishAnswer(){
   const iv=S.iv; timers.forEach(clearTimeout); timers=[];
   if(ans){ans.el.textContent=ans.full;ans.el.classList.remove('cursor');ans=null}
-  iv.answered++;
-  next(REACT[iv.q]);
+  iv.answered++; if(iv.fk===0) iv.answeredMain++;
+  afterAnswer(true);
 }
 function skipQ(){
   const iv=S.iv; timers.forEach(clearTimeout); timers=[];
-  pushMsg({r:'me',text:'（跳過這題）',skip:true});
-  next('沒關係，我們換下一題。');
+  pushMsg({r:'me',text:iv.fk>0?'（跳過這個追問）':'（跳過這題）',skip:true});
+  if(iv.fk===0){ iv.fuList=[]; }     /* 跳過主題目時，它的追問也一起跳過 */
+  afterAnswer(false);
+}
+/* 狀態機：主題目答完 → 依追問規則決定追問；追問全部問完才回到下一道主題目 */
+function afterAnswer(answered){
+  const iv=S.iv;
+  if(iv.fk===0&&iv.fuList===null) iv.fuList=answered?planFollowups(iv.list[iv.q],iv.q):[];
+  if(iv.fuList&&iv.fk<iv.fuList.length){
+    iv.fk++; setPhase('wait');
+    pushMsg({r:'ai',text:['嗯，了解。','好，我想再多問一點。','謝謝，接著問你。'][iv.fk%3]},2,()=>later(askFu,250));
+    return;
+  }
+  next(answered?REACT[iv.q]:'沒關係，我們換下一題。');
 }
 function next(reaction){
-  const iv=S.iv; iv.q++; setPhase('wait');
+  const iv=S.iv; iv.q++; iv.fk=0; iv.fuList=null; setPhase('wait');
   if(iv.q>=iv.list.length){
     updateProgress();
     const bye=iv.answered?'今天的面試到這裡結束，你表現得很棒！我會依你每一題的回答，整理評分和改善建議。':'今天的面試到這裡結束。這次沒有回答的題目，所以不會產生報告。';
@@ -969,8 +1031,9 @@ function pageReportDetail(){
     </tbody></table></div>
 
     <h2>逐題回顧</h2>
-    ${REPORT.slice(0,h.n).map((r,i)=>`<section class="qsec">
-      <div class="qh"><h3>${i+1}. ${BASEQ[i].cat}</h3><span class="sc num">${sc(r.score)}</span></div>
+    ${REPORT.slice(0,h.n).map((r,i)=>{const fus=h.job==='j1'?REPORT_FU[i]:null; return `<section class="qsec">
+      <div class="qh"><h3>${i+1}. ${BASEQ[i].cat}${fus?`<span class="grp">主題目＋${fus.length} 個追問・整組分數</span>`:''}</h3><span class="sc num">${sc(groupScore(r.score,fus))}</span></div>
+      ${fus?`<div class="sub-h" style="margin-top:6px">主題目・${sc(r.score)} 分</div>`:''}
       <blockquote>${BASEQ[i].t}</blockquote>
       <div class="sub-h" style="display:flex;align-items:center;gap:8px">你的回答<button class="linkb" type="button" data-play style="font-weight:400">${I.speak.replace('<svg','<svg width="14" height="14"')}聽我的錄音</button></div>
       <p class="muted" style="margin-top:6px">${ANSWERS[i].replace(r.hl,`<mark>${r.hl}</mark>`)}</p>
@@ -979,7 +1042,15 @@ function pageReportDetail(){
         <div><div class="sub-h">改善建議</div><ul class="ticks warn">${r.fix.map(x=>`<li>${x}</li>`).join('')}</ul></div>
       </div>
       <div class="codebox"><div class="cb-h">${I.speak}可以這樣說<span class="sp"></span><button class="ib sm" type="button" aria-label="複製建議說法" data-copy="${i}">${I.copy}</button></div><div class="cb-b">${r.better}</div></div>
-    </section>`).join('')}
+      ${(fus||[]).map((f,k)=>`<div class="fu-sec">
+        <div class="qh"><h3>追問 ${k+1}</h3><span class="sc num">${sc(f.score)}</span></div>
+        <blockquote>${esc(f.q)}</blockquote>
+        <div class="sub-h" style="display:flex;align-items:center;gap:8px">你的回答<button class="linkb" type="button" data-play style="font-weight:400">${I.speak.replace('<svg','<svg width="14" height="14"')}聽我的錄音</button></div>
+        <p class="muted" style="margin-top:6px">${esc(f.a)}</p>
+        <div class="grid2"><div><div class="sub-h">做得好的地方</div><ul class="ticks">${f.good.map(x=>`<li>${x}</li>`).join('')}</ul></div><div><div class="sub-h">改善建議</div><ul class="ticks warn">${f.fix.map(x=>`<li>${x}</li>`).join('')}</ul></div></div>
+        <div class="codebox"><div class="cb-h">${I.speak}可以這樣說</div><div class="cb-b">${f.better}</div></div>
+      </div>`).join('')}
+    </section>`}).join('')}
     <div class="row" style="margin-top:28px"><button class="btn pri" type="button" id="again">${I.redo}再練一次</button><button class="btn out" type="button" onclick="toast('分數低於 80 的題目已加入 ${esc(job(h.job).co)} 面試題庫，下次面試會優先練')">${I.plus}弱項加入面試題庫</button></div>
   </div>`;
 }
@@ -1146,7 +1217,8 @@ function pageSetList(){
 function qRow(q,i){
   return `<div class="qrow" data-i="${i}"><span class="no">${i+1}</span><div class="bd">${q.editing?
     `<textarea id="qe${i}" rows="3" aria-label="題目內容">${esc(q.t)}</textarea><div class="row" style="margin-top:8px"><button class="btn pri sm" type="button" data-a="save">儲存</button><button class="btn ghost sm" type="button" data-a="cancel">取消</button></div>`:
-    `<div class="qt">${esc(q.t)}</div><div class="meta">${q.cat}・${q.lv}</div>`}</div>
+    `<div class="qt">${esc(q.t)}</div><div class="meta">${q.cat}・${q.lv}<button class="fu-pill" type="button" data-fu="${i}">${I.chat}追問：${fuLabel(q)}${I.chev}</button></div>
+     ${fuOf(q).mode==='planned'?`<div class="fu-list">${(q.fu.planned||[]).map((t,k)=>`<div class="fu-item"><span class="k">追問 ${k+1}</span><span class="t">${esc(t)}</span><button class="ib sm" type="button" data-fud="${i}:${k}" aria-label="刪除這個追問">${I.x}</button></div>`).join('')}<input class="inp" data-fuin="${i}" placeholder="新增一個預設追問，按 Enter" aria-label="新增預設追問"></div>`:''}`}</div>
     ${q.editing?'':`<div class="ops"><button class="ib sm" type="button" data-a="up" aria-label="上移" ${i===0?'disabled':''}>${I.arrUp}</button><button class="ib sm" type="button" data-a="down" aria-label="下移" ${i===qs().length-1?'disabled':''}>${I.arrDn}</button><button class="ib sm" type="button" data-a="edit" aria-label="編輯">${I.pencil}</button><button class="ib sm" type="button" data-a="del" aria-label="刪除">${I.trash}</button></div>`}</div>`;
 }
 function bindQuestions(){
@@ -1168,6 +1240,18 @@ function bindQuestions(){
   $('#gGo').onclick=gen;
   $('#gNote').onkeydown=e=>{ if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();gen();} };
   $('#qAdd').onclick=()=>{qs().push({cat:'自訂',lv:'中等',t:'',editing:true});render();const t=$('#qe'+(qs().length-1));if(t){t.focus();t.scrollIntoView({block:'center'})}};
+  $$('[data-fu]').forEach(b=>b.onclick=e=>{ const q=qs()[+b.dataset.fu], f=fuOf(q);
+    openMenu(e.currentTarget,[{title:'這題要怎麼追問？'},
+      {label:'不追問',v:'none',checked:f.mode==='none'},
+      ...[1,2,3].map(n=>({label:`固定追問 ${n} 次`,sub:n===2?'例如主題目加 2 個追問，共三輪':'次數固定，內容由 Ava 依你的回答寫',v:'fixed'+n,checked:f.mode==='fixed'&&f.n===n})),
+      {label:'由 Ava 判斷（最多 1 次）',sub:'回答不夠完整時才追問',v:'adaptive1',checked:f.mode==='adaptive'&&f.n===1},
+      {label:'由 Ava 判斷（最多 2 次）',v:'adaptive2',checked:f.mode==='adaptive'&&f.n===2},
+      {label:'預設追問（自己寫）',sub:'照你寫的追問依序問',v:'planned',checked:f.mode==='planned'}],v=>{
+        if(v==='none') q.fu={mode:'none'}; else if(v.startsWith('fixed')) q.fu={mode:'fixed',n:+v.slice(5)};
+        else if(v.startsWith('adaptive')) q.fu={mode:'adaptive',n:+v.slice(8)}; else q.fu={mode:'planned',planned:(f.planned||[])};
+        render(); toast(`已設定：${fuLabel(q)}`); if(v==='planned'){ const inp=$(`[data-fuin="${qs().indexOf(q)}"]`); if(inp) inp.focus(); } }); });
+  $$('[data-fud]').forEach(b=>b.onclick=()=>{ const [i,k]=b.dataset.fud.split(':').map(Number); qs()[i].fu.planned.splice(k,1); render(); });
+  $$('[data-fuin]').forEach(inp=>inp.onkeydown=e=>{ if(e.key==='Enter'&&!e.isComposing){ const v=inp.value.trim(); if(!v) return; const i=+inp.dataset.fuin; qs()[i].fu.planned.push(v); render(); const n=$(`[data-fuin="${i}"]`); if(n) n.focus(); } });
   $$('.qrow [data-a]').forEach(b=>b.onclick=()=>{
     const i=+b.closest('.qrow').dataset.i,a=b.dataset.a,q=qs()[i];
     if(a==='up'&&i>0)[qs()[i-1],qs()[i]]=[qs()[i],qs()[i-1]];
@@ -1205,10 +1289,12 @@ function pageTargets(){
       <h1 style="font-size:1.6rem;margin-top:14px">${esc(j.title)}</h1>
       <div class="muted" style="margin-top:2px">${esc(j.co)}・${j.loc}</div>
       <div class="row" style="justify-content:center;margin-top:12px"><span class="tagx">${j.match}% 契合</span><span class="tagx">${j.type}</span><span class="tagx">${j.pay}</span></div>
+      ${srcLine(j)}
       <div class="row" style="justify-content:center;margin-top:20px">
         <a class="btn pri" href="#new" id="tGo">${I.mic}練習這個職缺</a>
         <a class="btn out" href="#questions/${j.id}">${I.book}面試題庫</a>
         <a class="btn out" href="#prep/${j.id}">${I.bulb}面試建議</a>
+        ${srcBtn(j)}
       </div>
     </div>
     <div class="basis" style="margin-top:28px">
@@ -1270,6 +1356,8 @@ function openJob(id){
         <h2 style="font-size:1.4rem;font-weight:600;margin-top:14px">${esc(j.title)}</h2>
         <div class="muted" style="margin-top:2px">${esc(j.co)}・${j.loc}</div>
         <div class="row" style="justify-content:center;margin-top:12px"><span class="tagx">${j.match}% 契合</span><span class="tagx">${j.type}</span><span class="tagx">${j.pay}</span>${saved?'<span class="tagx">目標職缺</span>':''}</div>
+        ${srcLine(j)}
+        ${j.url?`<div style="margin-top:12px">${srcBtn(j,'btn out sm')}</div>`:''}
       </div>
       <div class="doc" style="margin-top:22px">
         <p class="muted">${esc(j.about)}</p>

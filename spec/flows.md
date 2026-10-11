@@ -1,6 +1,7 @@
 # AI Interview — 各功能系統流程圖
 
-> 版本：v0.3・所有圖皆為 Mermaid 格式・語音改為串接式（MVP）＋ Realtime API（P3），不使用 GPT‑Live
+> 版本：v0.4・所有圖皆為 Mermaid 格式・語音改為串接式（MVP）＋ Realtime API（P3），不使用 GPT‑Live
+> v0.4：履歷與錄音直接上傳到物件儲存（§3、§12、§16）、四種追問規則（§15）、職缺 ETL（§25）、准入控制與 OpenAI 限流（§26）
 > 相關文件：[architecture.md](architecture.md)・[api.md](api.md)・[postgresql.md](postgresql.md)
 
 ## 目錄
@@ -29,6 +30,8 @@
 22. [背景工作生命週期](#22-背景工作生命週期)
 23. [AI 呼叫與 Log 記錄](#23-ai-呼叫與-log-記錄)
 24. [使用者完整旅程](#24-使用者完整旅程)
+25. [職缺 ETL 與定期檢查](#25-職缺-etl-與定期檢查)
+26. [准入控制與 OpenAI 限流](#26-准入控制與-openai-限流)
 
 ---
 
@@ -97,19 +100,24 @@ sequenceDiagram
 
     U->>FE: 拖曳或選擇 PDF／Word
     FE->>FE: 檢查副檔名與 ≤ 10 MB
-    FE->>API: POST /resumes（multipart）
-    API->>API: 檢查 MIME、計算 sha256
-    alt 相同檔案已上傳過
+    FE->>API: POST /uploads（purpose=resume, content_type, size）
+    API->>DB: INSERT upload_tickets（issued）
+    API-->>FE: upload_id ＋ 預簽名 PUT 網址（5 分鐘）
+    FE->>OBJ: PUT 檔案（直接上傳，不經過 API）
+    FE->>API: POST /resumes（upload_id）
+    API->>OBJ: HEAD 確認大小、讀前 4 KB 檢查 magic bytes、計算 sha256
+    alt 物件不存在或不符
+        API-->>FE: 409 UPLOAD_NOT_FOUND → 重新上傳
+    else 相同檔案 7 天內已上傳過
         API-->>FE: 200 既有履歷
     else 新檔案
-        API->>OBJ: PUT users/{uid}/resumes/{id}
-        API->>DB: INSERT resumes（pending）＋ background_jobs parse_resume（同一交易）
+        API->>DB: INSERT resumes（pending）、ticket consumed ＋ background_jobs parse_resume（同一交易）
         API-->>FE: 202 parse_status=pending
     end
     FE->>FE: 顯示「Ava 正在解析內容」
     W->>DB: 取出 parse_resume
     W->>OBJ: 下載原檔
-    W->>W: pdfplumber / python-docx 抽文字
+    W->>W: pdfplumber / python-docx 抽文字（≤ 10 頁、60 秒逾時、並行上限 4）
     alt 抽不到文字（掃描檔）
         W->>AI: 以視覺模型讀取頁面
     end
@@ -465,11 +473,13 @@ sequenceDiagram
         FE->>RT: input_audio_buffer.commit → response.create（ack.realtime_instructions）
         RT-->>U: 一句自然的接話
     end
-    FE->>API: POST attempts/A/complete（audio、Idempotency-Key）
-    API->>OBJ: 上傳音訊
+    FE->>API: POST /uploads（answer_audio）→ 預簽名 PUT
+    FE->>OBJ: PUT 錄音（Blob 保留在本機直到 complete 成功）
+    FE->>API: POST attempts/A/complete（upload_id、Idempotency-Key）
+    API->>OBJ: HEAD 確認錄音
     API->>STT: 快速轉錄（同步）
     API->>DB: 交易：attempt saved（quick_transcript）、Q answered、outbox transcribe_attempt
-    API->>API: Follow-up Decider（≤ 3 秒）
+    API->>API: 追問規則（§15）：程式計數，必要時呼叫 Writer／Decider（≤ 3 秒）
     API->>DB: 推進到追問或下一題，state_version+1
     API-->>FE: attempt.quick_transcript ＋ next
     FE->>FE: 回答泡泡換成快速轉錄文字
@@ -577,41 +587,68 @@ flowchart TD
 
 ## 15. 追問決策
 
+每道主題目的追問規則（`none`／`fixed`／`planned`／`adaptive`）在開始面試時複製到 `session_questions`。**追問次數一律由程式計數**，AI 只負責寫內容或（`adaptive` 時）判斷要不要問。
+
 ```mermaid
 flowchart TD
-    A["complete：回答已入庫"] --> B{"這是主題目？"}
-    B -- 否（已是追問） --> B1{"該主題目追問數 < 上限？"}
-    B -- 是 --> C
-    B1 -- 否 --> Z["不追問 → 下一道主題目"]
-    B1 -- 是 --> C{"風格上限：warm 1／real 1／tough 2"}
-    C --> D["快速轉錄（complete 請求內同步完成）"]
-    D --> E["Follow-up Decider：題目、規準、快速轉錄、風格、已追問次數"]
-    E --> F{"3 秒內回應？"}
-    F -- 否 --> Z
-    F -- 是 --> G{"should_follow_up？"}
-    G -- 否 --> Z
-    G -- 是 --> H["程式檢查：長度 ≤ 80 字、不是新主題、與主題目相關"]
-    H -- 不通過 --> Z
-    H -- 通過 --> I["INSERT session_questions kind=followup、parent_id、followup_no+1"]
+    A["complete：回答已入庫"] --> M["找出主題目 M（目前是主題目就是自己，是追問就取 parent）"]
+    M --> N["asked = SELECT count(*) FROM session_questions WHERE parent_id = M"]
+    N --> R{"M.followup_mode"}
+    R -- none --> Z["下一道主題目"]
+    R -- fixed --> F1{"asked < followup_target？"}
+    F1 -- 否 --> Z
+    F1 -- 是 --> F2["Follow-up Writer：依快速轉錄寫一題（≤ 3 秒）"]
+    F2 --> F3{"成功且通過檢查？"}
+    F3 -- 是 --> I1["followup_source = fixed_ai"]
+    F3 -- 否 --> F4["通用追問（依題型的範本）"] --> I2["followup_source = fixed_fallback"]
+    R -- planned --> P1{"還有第 asked+1 個預設追問？"}
+    P1 -- 否 --> Z
+    P1 -- 是 --> P2["取 question_set_followups 該題（不呼叫 AI）"] --> I3["followup_source = planned"]
+    R -- adaptive --> D1{"asked < followup_target（上限）？"}
+    D1 -- 否 --> Z
+    D1 -- 是 --> D2["Follow-up Decider（≤ 3 秒）"]
+    D2 --> D3{"逾時或 should_follow_up = false？"}
+    D3 -- 是 --> Z
+    D3 -- 否 --> D4["程式檢查：≤ 80 字、與主題目相關"]
+    D4 -- 不通過 --> Z
+    D4 -- 通過 --> I4["followup_source = adaptive_ai"]
+    I1 & I2 & I3 & I4 --> I["INSERT session_questions kind=followup、parent_id=M、followup_no=asked+1"]
     I --> J{"voice_mode"}
-    J -- realtime --> K["delivery=realtime：回傳 realtime_instructions，前端送 response.create 念出"]
-    J -- scripted --> L["即時 TTS（約 1 秒，接話已遮住等待），delivery=tts"]
+    J -- realtime --> K["回傳 realtime_instructions，前端送 response.create 念出"]
+    J -- scripted --> L["即時 TTS（planned 已預先合成），delivery=tts"]
+```
+
+進度顯示「第 2 題・追問 1／2」（`adaptive` 只顯示「追問 1」）；跳過主題目時，它的追問一併跳過。
+
+**評分**：主題目與每個追問各自評分與給建議；報告產生時計算整組分數（主題目 60%＋追問平均 40%），寫入 `question_group_scores`。
+
+```mermaid
+flowchart LR
+    E1["主題目評分 72"] --> G["整組分數 = 72×0.6 + avg(58, 64)×0.4 = 68"]
+    E2["追問 1 評分 58"] --> G
+    E3["追問 2 評分 64"] --> G
+    G --> T["整場總分 = 各主題目整組分數平均"]
 ```
 
 ## 16. 回答上傳失敗與重試
 
 ```mermaid
 flowchart TD
-    A["MediaRecorder.stop() → Blob"] --> B["產生 Idempotency-Key（存在 sessionStorage）"]
-    B --> C["POST complete"]
+    A["MediaRecorder.stop() → Blob（保留在 IndexedDB）"] --> B["產生 Idempotency-Key（存在 sessionStorage）"]
+    B --> U1["POST /uploads → 預簽名 PUT"]
+    U1 --> U2["PUT 到物件儲存"]
+    U2 --> U3{"成功？"}
+    U3 -- 否 --> H
+    U3 -- 是 --> C["POST complete（upload_id）"]
     C --> D{"結果"}
+    D -->|"409 UPLOAD_NOT_FOUND"| U1
     D -- 200 --> E["清除暫存，處理 next"]
     D -->|"409 STATE_CONFLICT"| F["GET /interviews/{id}"]
     F --> F1{"attempt 已是 saved？"}
     F1 -- 是 --> E
     F1 -- 否 --> G["依伺服器狀態重設畫面"]
     D -->|"網路錯誤／5xx"| H{"重試次數 < 5？"}
-    H -- 是 --> I["指數退避 1s、2s、4s…，相同 Idempotency-Key"] --> C
+    H -- 是 --> I["指數退避 1s、2s、4s…，相同 Idempotency-Key"] --> U1
     H -- 否 --> J["顯示「上傳失敗，重新上傳」，停在原題"]
     J --> K["使用者點重新上傳"] --> C
     D -->|"413／415"| L["提示重答本題（新 attempt）"]
@@ -909,3 +946,68 @@ flowchart TD
     K -- 換職缺 --> C
 ```
 
+## 25. 職缺 ETL 與定期檢查
+
+只存事實與 Ava 寫的摘要，不轉貼原文；每筆平台職缺都附原始網址（詳情「前往原始職缺頁 ↗」）。
+
+```mermaid
+flowchart TD
+    C["cron 每日（之後改 EventBridge＋Lambda）"] --> L{"取得 ai:lock:job_ingest:{category}？"}
+    L -- 否 --> X["略過（已有執行中）"]
+    L -- 是 --> R["INSERT job_ingest_runs（running）"]
+    R --> S{"公司有公開 ATS API？"}
+    S -- "是（Greenhouse／Lever）" --> A1["呼叫公開職缺 API"]
+    S -- 否 --> A2["Job Extractor：Responses API web_search → JSON（含原始網址）"]
+    A1 & A2 --> V["程式驗證：Schema、網域白名單、HEAD 200、公司與網域一致、網址正規化去重"]
+    V -- 不通過 --> D["丟棄，計入統計"]
+    V -- 通過 --> K["Job Classifier：分類、資歷、摘要、信心分數"]
+    K --> Q{"信心 ≥ 0.7 且沒有警示？"}
+    Q -- 是 --> P["UPSERT job_posts review_status = published"]
+    Q -- 否 --> PR["UPSERT job_posts review_status = pending_review"]
+    PR --> AD["後台審核佇列：上架／拒絕／修改分類"]
+    P & PR --> F["UPDATE job_ingest_runs 統計與成本（succeeded）"]
+```
+
+```mermaid
+flowchart TD
+    V0["每日 cron：檢查 last_verified_at 最舊的 active 平台職缺"] --> V1["HEAD／GET source_url"]
+    V1 --> V2{"結果"}
+    V2 -- "200 且仍在刊登" --> V3["last_verified_at = now()"]
+    V2 -- "404／已關閉" --> V4["status = closed"]
+    V2 -- 逾時 --> V5{"連續失敗 3 次？"}
+    V5 -- 是 --> V4
+    V5 -- 否 --> V6["明天再試"]
+    V3 --> V7{"刊登超過 30 天未再被搜尋到？"}
+    V7 -- 是 --> V4
+    V4 --> V8["已被設為目標職缺的保留，練習紀錄不受影響"]
+    A0["每日 cron：Job Auditor 抽樣前一天上架的職缺"] --> A1["產生疑似錯誤清單"] --> A2["email 摘要給管理者（不自動修改）"]
+```
+
+## 26. 准入控制與 OpenAI 限流
+
+瓶頸是 OpenAI 速率限制，因此優先保護**進行中的面試**。
+
+```mermaid
+flowchart TD
+    N["POST /interviews（開始面試）"] --> N1{"ai:live_interviews 數量與 limiter 剩餘容量 < 門檻？"}
+    N1 -- 否 --> N2["503 SERVICE_BUSY ＋ Retry-After"] --> N3["前端：「目前人數較多，約 N 分鐘後再試」"]
+    N1 -- 是 --> N4["建立場次，ZADD ai:live_interviews"]
+```
+
+```mermaid
+flowchart TD
+    C["任何 OpenAI 呼叫（LLMClient）"] --> P{"優先順序"}
+    P -- "面試中：追問、快速轉錄、TTS" --> S1["可使用全部名額（含保留的 30%）"]
+    P -- "評分、報告" --> S2["只能用一般名額"]
+    P -- "出題、建議" --> S2
+    P -- "職缺 ETL" --> S3["最低優先，只在空閒時執行"]
+    S1 & S2 & S3 --> T{"取得 ai:sem:openai:{model} 名額且 TPM 未超過？"}
+    T -- 否 --> W["排隊等候（面試中最多等 2 秒，超過走降級）"]
+    W --> T
+    T -- 是 --> O["呼叫 OpenAI"]
+    O --> R{"結果"}
+    R -- 成功 --> Rel["釋放名額，寫入 llm_calls"]
+    R -- "429／5xx" --> B["指數退避＋抖動，尊重 Retry-After，最多 3 次"]
+    B --> T
+    W -. "面試中逾時" .-> G["降級：fixed → 通用追問；adaptive → 不追問；面試不中斷"]
+```

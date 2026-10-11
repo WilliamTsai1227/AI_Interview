@@ -1,8 +1,14 @@
 # AI Interview — API 規格書
 
-> 版本：v0.3・後端：FastAPI・Base URL：`/api/v1`
+> 版本：v0.4・後端：FastAPI・Base URL：`/api/v1`
 > 相關文件：[architecture.md](architecture.md)・[postgresql.md](postgresql.md)・[flows.md](flows.md)・[AI Interview.html](AI%20Interview.html)（UI 原型）
 > FastAPI 會自動產生 OpenAPI（`/api/v1/docs`），本文件是**設計依據**；實作後以程式產生的 OpenAPI 為準，兩者不一致時更新本文件。
+
+**v0.4 變更**：
+- **追問規則**：每道題目設定 `none`／`fixed`／`planned`／`adaptive`；追問次數由程式計數，AI 只負責寫內容；報告每道主題目有「整組分數」，主題目與每個追問各自評分與建議。
+- **直接上傳**：履歷與回答錄音改為「取得上傳網址 → 直接上傳到物件儲存 → 通知 API」，不經過 API 傳檔案（§5.1）。
+- **職缺搜尋資料管線**：職缺帶 `source_url`（原始職缺頁）、分類、審核狀態；新增管理後台的審核端點（§13）。
+- **高併發**：新增 `503 SERVICE_BUSY`（新面試進場排隊）；OpenAI 用量控管見 [architecture.md §9.4](architecture.md)。
 
 **v0.3 變更**：即時語音改為「串接式（`scripted`，MVP）＋ Realtime API（`realtime`，P3）」，不再使用 GPT‑Live；`live/connect` 改為 `realtime/connect`，`complete` 回應帶接話與追問的語音資訊，見 [architecture.md §6](architecture.md)。
 
@@ -72,6 +78,8 @@
 | 429 | `RATE_LIMITED` | 請求過於頻繁，`Retry-After` 標頭 | 按鈕暫時停用並倒數 |
 | 502 | `UPSTREAM_ERROR` | AI 服務錯誤 | 顯示「Ava 暫時忙不過來，請再試一次」與重試按鈕 |
 | 503 | `REALTIME_UNAVAILABLE` | Realtime API 無法連線 | 自動改用標準語音（`scripted`），面試照常進行 |
+| 503 | `SERVICE_BUSY` | 目前同時面試人數已達上限（新面試進場控管），附 `Retry-After` 與 `details.estimated_wait_sec` | 顯示「目前人數較多，約 30 秒後自動開始」並倒數重試；**只會發生在開始新面試時**，進行中的面試不受影響 |
+| 409 | `UPLOAD_NOT_FOUND` | 上傳單據不存在、過期，或物件儲存裡找不到檔案 | 重新取得上傳網址再上傳 |
 
 ### 1.4 分頁
 
@@ -132,7 +140,8 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 | | PATCH | `/me` | 改名稱、偏好（預設長度／風格／語言、求職意向） | 設定・一般／求職意向／帳號 |
 | | DELETE | `/me/interviews` | 刪除所有面試紀錄與錄音 | 設定・帳號 |
 | | DELETE | `/me` | 刪除帳號 | 設定・帳號 |
-| Resumes | POST | `/resumes` | 上傳履歷（非同步解析） | 設定・履歷、新面試 |
+| Uploads | POST | `/uploads` | 取得直接上傳到物件儲存的網址（履歷、回答錄音） | 上傳前 |
+| Resumes | POST | `/resumes` | 上傳完成後建立履歷（非同步解析） | 設定・履歷、新面試 |
 | | GET | `/resumes` | 履歷列表 | 新面試・履歷選單 |
 | | GET | `/resumes/{id}` | 解析結果（經歷、技能、亮點） | 設定・履歷 |
 | | PATCH | `/resumes/{id}` | 設為主要履歷、改名 | 設定・履歷 |
@@ -149,6 +158,7 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 | | PATCH | `/targets/{id}/questions/{item_id}` | 修改題目 | 編輯 |
 | | DELETE | `/targets/{id}/questions/{item_id}` | 刪除題目 | 刪除 |
 | | PUT | `/targets/{id}/questions/order` | 重新排序 | 上移／下移 |
+| | PUT | `/targets/{id}/questions/{item_id}/followups` | 設定這題的追問規則與預設追問 | 題目列的「追問」選單 |
 | Prep | GET | `/targets/{id}/prep` | 面試建議（加入目標職缺時自動產生）＋分析依據 | 面試建議・職缺詳情 |
 | | POST | `/targets/{id}/prep/analyze` | 重新分析（重讀職缺與履歷；只新增不刪除） | 依據卡片・重新分析 |
 | | POST | `/preps/{id}/likely-questions/generate` | 再多產生可能題目（附加） | 可能被問的題目・再多產生 |
@@ -165,7 +175,7 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 | | POST | `/interviews/{id}/start` | 開始，取得第一題 | |
 | | POST | `/interviews/{id}/questions/{qid}/playback-finished` | 主題目播放完成 | |
 | | POST | `/interviews/{id}/questions/{qid}/answers` | 開始作答 | 點麥克風 |
-| | POST | `/interviews/{id}/attempts/{aid}/complete` | 上傳回答並取得下一步 | 按 ■ |
+| | POST | `/interviews/{id}/attempts/{aid}/complete` | 回答已上傳，取得下一步（追問或下一題） | 按 ■ |
 | | POST | `/interviews/{id}/attempts/{aid}/discard` | 重錄（丟掉這次回答） | 重錄 |
 | | POST | `/interviews/{id}/questions/{qid}/skip` | 跳過這題 | 跳過 |
 | | POST | `/interviews/{id}/pause` | 暫停 | 暫停、離開頁面 |
@@ -179,7 +189,10 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 | | POST | `/interviews/{id}/report/add-to-set` | 弱項加入題組 | 弱項加入題組 |
 | | POST | `/interviews/{id}/questions/{qid}/re-evaluate` | 重新評分 | 需複查的題目 |
 | | DELETE | `/interviews/{id}` | 刪除報告與錄音 | 報告・更多 |
-| Admin | POST | `/admin/jobs/import` | 匯入平台職缺 | 後台 |
+| Admin | POST | `/admin/jobs/import` | 匯入平台職缺（合作夥伴、ATS） | 後台 |
+| | GET | `/admin/jobs/review-queue` | 待審職缺（ETL 低信心或驗證失敗） | 後台・待審清單 |
+| | PATCH | `/admin/jobs/{id}/review` | 上架、下架、修正分類 | 後台・待審清單 |
+| | GET | `/admin/job-ingest-runs` | ETL 執行紀錄與統計 | 後台・資料管線 |
 
 ---
 
@@ -208,7 +221,28 @@ Request `{ "email", "password" }`，回應同註冊。連續失敗 5 次鎖 15 �
 
 撤銷目前 refresh token，清除 Cookie，回 `204`。
 
-### `GET /auth/google/start` → `302` 到 Google；`GET /auth/google/callback` → 建立／連結帳號後 `302 /#new`，並設 Cookie。
+### `GET /auth/providers`
+
+`{ "password": true, "google": true }`。登入頁依此決定是否顯示「使用 Google 繼續」（後端沒有設定 `GOOGLE_CLIENT_ID`／`GOOGLE_CLIENT_SECRET` 時為 `false`）。
+
+### `GET /auth/google/start` → `302` 到 Google
+
+OAuth 2.0 授權碼流程＋PKCE（S256），`scope = openid email profile`。產生一次性 `state` 與 `code_verifier` 存在 Redis（10 分鐘）；`state` 另外寫入 `oauth_state` Cookie（`HttpOnly; SameSite=Lax; Path=/api/v1/auth/google`，因為 Google 導回來是跨站的頂層 GET，`Strict` 不會被送回）。未設定 Google 時回 `404`。
+
+### `GET /auth/google/callback`
+
+驗證 `state`（Cookie 與 Redis 都要相符，用過即失效）→ 用授權碼與 `code_verifier` 換 token → 讀取使用者資料 → 建立或連結帳號 → 設定與一般登入相同的 `refresh_token` Cookie → `302 /#new`，前端照常呼叫 `/auth/refresh` 取得 access token。
+
+| 情況 | 處理 |
+|---|---|
+| 已連結過這個 Google 帳號（`oauth_identities.provider_user_id = sub`） | 直接登入 |
+| 同一個 Email 已用密碼註冊 | 連結到該帳號。若該帳號 Email 從未驗證（`email_verified_at IS NULL`），先清除密碼並撤銷所有登入，防止「先用別人的 Email 註冊」的搶先註冊攻擊 |
+| 都沒有 | 建立新帳號（`password_hash = NULL`、`email_verified_at = now()`） |
+| Google 回傳 `email_verified = false` | 拒絕 |
+
+失敗時 `302 /?auth_error=<code>`，前端在登入頁顯示訊息：`cancelled`（使用者取消）、`state`（逾時或連結失效）、`unverified`、`failed`、`disabled`。
+
+用密碼登入沒有密碼的 Google 帳號：`401 USE_GOOGLE`（「這個帳號是用 Google 登入的」）。`GET /me` 的 `user` 帶 `has_password` 與 `providers`（例如 `["google"]`），設定頁據此決定刪除帳號要輸入密碼或 `DELETE`。
 
 ---
 
@@ -261,17 +295,42 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 
 ## 5. Resumes（履歷）
 
-### `POST /resumes`
+### 5.1 `POST /uploads`（取得上傳網址）
 
-`multipart/form-data`：`file`（`.pdf` / `.doc` / `.docx`，≤ 10 MB）、`set_primary`（boolean，預設：沒有主要履歷時為 true）。
+履歷與回答錄音都**不經過 API 傳檔案**，前端直接上傳到物件儲存，避免大量上傳塞住 API。
 
 ```json
+// Request
+{ "purpose": "resume", "filename": "陳品妤_履歷_2026.pdf", "content_type": "application/pdf", "size_bytes": 421888 }
+// 或
+{ "purpose": "answer_audio", "attempt_id": "…", "content_type": "audio/webm", "size_bytes": 1048576 }
+// 201
+{ "upload_id": "…", "method": "PUT", "url": "https://…（5 分鐘有效的預簽名網址）",
+  "headers": { "Content-Type": "application/pdf" }, "object_key": "users/…/uploads/…", "expires_in": 300 }
+```
+
+| `purpose` | 允許的類型 | 大小上限 |
+|---|---|---|
+| `resume` | PDF、DOC、DOCX | 10 MB |
+| `answer_audio` | `audio/webm`、`audio/mp4` | 15 MB；`attempt_id` 必須是自己正在作答的 attempt |
+
+- 後端只建立一筆上傳單據（`upload_tickets`），不碰檔案內容；大小與類型由預簽名網址的條件強制。
+- 前端 `PUT` 到 `url` 成功後，把 `upload_id` 交給對應的 API（建立履歷、送出回答）。後端會用 HEAD 確認物件存在、大小與類型符合，才繼續處理；不符合回 `409 UPLOAD_NOT_FOUND`。
+- 沒有被使用的上傳物件，每日清理工作會刪除。
+
+### `POST /resumes`
+
+```json
+// Request：檔案已用 /uploads 上傳完成
+{ "upload_id": "…", "set_primary": true }
 // 202
 { "id": "…", "filename": "陳品妤_履歷_2026.pdf", "size_bytes": 421888,
   "parse_status": "pending", "is_primary": true, "created_at": "2026-09-28T03:10:00Z" }
 ```
 
+- `set_primary` 預設：沒有主要履歷時為 `true`。
 - 同一使用者上傳相同檔案（sha256 相同）時，直接回傳既有履歷。
+- 解析的防護：超過 10 頁只解析前 10 頁；掃描檔才使用視覺模型，且限制頁數；單份解析逾時 60 秒；同時解析的數量有上限（見 [architecture.md §9.4](architecture.md)）。上傳成功就先回應，解析完成再通知。
 - 第一份履歷解析完成後，系統會為「還沒有預設履歷」的目標職缺補上 `resume_id`，並重新產生它們的面試建議（題組不會被覆蓋）。
 
 ### `GET /resumes`
@@ -383,9 +442,20 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 
 ---
 
-## 7. Questions（題組）
+## 7. Questions（面試題庫）
 
-每個目標職缺剛好一個題組。新面試依題組**順序**取前 N 題。
+每個目標職缺剛好一個題組（介面上稱「面試題庫」）。新面試依題組**順序**取前 N 道**主題目**；每道主題目可以設定**追問規則**。
+
+### 7.1 追問規則
+
+| `followup_mode` | 意思 | 次數 | 追問內容 |
+|---|---|---|---|
+| `none` | 不追問 | 0 | — |
+| `fixed` | **固定追問 N 次**（例如 2 → 主題目加追問共三輪） | `followup_count`（1–3），**由程式計數，一定問滿** | Ava 依使用者剛才的回答寫 |
+| `planned` | 預設追問，依序問完 | 預設追問的數量（1–5） | 使用者或 Ava 事先寫好的子題目 |
+| `adaptive` | 由 Ava 判斷要不要追問 | 最多 `followup_count`（1–2） | Ava 判斷後寫 |
+
+新題目的預設：自我介紹、動機與規劃為 `none`；其他題型為 `adaptive`（最多 1 次）。使用者可在題庫生成頁每一題的「追問」選單修改。
 
 ### `GET /targets/{id}/questions`
 
@@ -393,16 +463,23 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 {
   "status": "ready",
   "items": [
-    { "id": "…", "order_no": 1, "category": "自我介紹", "difficulty": "basic",
-      "text": "請用兩分鐘介紹你自己，以及為什麼想加入 Northwind Labs？",
-      "competency": "表達與動機", "source": "ai",
-      "source_reason": "職缺為新創，重視候選人對產品的了解" }
+    { "id": "…", "order_no": 2, "category": "技術深度", "difficulty": "advanced",
+      "text": "你在過去專案中如何處理 React 應用的效能問題？請舉一個實際例子。",
+      "competency": "效能優化", "source": "ai",
+      "source_reason": "職缺要求主導後台效能優化",
+      "followup": { "mode": "fixed", "count": 2, "planned": [] } },
+    { "id": "…", "order_no": 4, "category": "系統設計", "difficulty": "advanced",
+      "text": "如果要從零建立一套給 5 個產品線共用的元件庫，你會怎麼規劃？",
+      "followup": { "mode": "planned", "count": 2,
+                    "planned": [ { "id": "…", "order_no": 1, "text": "為什麼選 monorepo，而不是讓各產品線各自維護？" },
+                                 { "id": "…", "order_no": 2, "text": "上線後你會用什麼指標判斷元件庫成功？" } ] } }
   ],
   "pending_generation": null
 }
 ```
 
-`rubric` 與 `expected_points` 不回傳給前端（避免使用者背答案，也減少傳輸）。
+- `items` 只列主題目；預設追問放在各題的 `followup.planned`。
+- `rubric` 與 `expected_points` 不回傳給前端（避免使用者背答案，也減少傳輸）。
 
 ### `POST /targets/{id}/questions/generate`
 
@@ -423,7 +500,7 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 | `difficulty` | `basic` / `medium` / `advanced` | `medium` |
 | `count` | 3–10 | 5 |
 
-生成的題目**附加到題組最後**，並與既有題目去重。同一題組同時只能有一個生成工作（`409`）。
+生成的題目**附加到題組最後**，並與既有題目去重；追問規則套用上面的預設。同一題組同時只能有一個生成工作（`409`）。
 
 ### `GET /question-generations/{id}`
 
@@ -436,18 +513,32 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 ### `POST /targets/{id}/questions`
 
 ```json
-{ "text": "你會怎麼幫助一位剛加入的初階工程師快速上手？", "category": "團隊合作", "difficulty": "medium" }
+{ "text": "你會怎麼幫助一位剛加入的初階工程師快速上手？", "category": "團隊合作", "difficulty": "medium",
+  "followup": { "mode": "fixed", "count": 1 } }
 ```
 
-`category` 預設「自訂」、`difficulty` 預設 `medium`。新增到最後。`201` 回傳題目，worker 非同步補上 `rubric`。
+`category` 預設「自訂」、`difficulty` 預設 `medium`、`followup` 預設 `adaptive`（最多 1 次）。新增到最後。`201` 回傳題目，worker 非同步補上 `rubric`。
 
 ### `PATCH /targets/{id}/questions/{item_id}`
 
 可改 `text`、`category`、`difficulty`；改了 `text` 會重新產生 `rubric`。`text` 不可空白（`400`）。
 
+### `PUT /targets/{id}/questions/{item_id}/followups`（設定追問規則）
+
+```json
+// 固定追問 2 次
+{ "mode": "fixed", "count": 2 }
+// 預設追問：整批覆寫，依陣列順序提問
+{ "mode": "planned", "planned": ["為什麼選 monorepo？", "上線後用什麼指標判斷成功？"] }
+// 不追問
+{ "mode": "none" }
+```
+
+回傳題目物件。`planned` 1–5 題、每題 ≤ 200 字；`fixed` 的 `count` 1–3；`adaptive` 的 `count` 1–2。預設追問同樣由 worker 補上評分規準。只影響之後開始的面試，進行中的面試用的是開始時的快照。
+
 ### `DELETE /targets/{id}/questions/{item_id}`
 
-`204`，剩下題目重新排號。
+`204`，剩下題目重新排號；它的預設追問一併刪除。
 
 ### `PUT /targets/{id}/questions/order`
 
@@ -455,7 +546,7 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 { "item_ids": ["id3", "id1", "id2", "id4", "id5"] }
 ```
 
-必須包含題組中全部題目，否則 `400`。上移／下移由前端交換陣列後整批送出。
+必須包含題組中全部主題目，否則 `400`。上移／下移由前端交換陣列後整批送出；預設追問跟著主題目移動。
 
 ---
 
@@ -573,9 +664,11 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 
 ---
 
-## 9. Jobs（職缺庫）
+## 9. Jobs（職缺搜尋）
 
-> 職缺庫是**選用的探索功能**（P4）。核心流程只需要「貼上職缺內容」，不依賴職缺庫。
+> 職缺搜尋是**選用的探索功能**（P4）。核心流程只需要「貼上職缺內容」，不依賴職缺庫。資料來源與 ETL 見 [architecture.md §12](architecture.md)。
+
+**原則**：只存事實欄位（職稱、公司、地點、薪資、刊登日期）與 **Ava 自己寫的 2–3 句摘要**，不轉貼原文；每個職缺都有 `source_url`，詳情一律提供「前往原始職缺頁」。
 
 ### `GET /jobs`
 
@@ -583,7 +676,9 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 |---|---|
 | `q` | 關鍵字（職稱、公司、技能） |
 | `city` | `台北市` 等 |
-| `filters` | 逗號分隔：`target`、`foreign`、`remote`、`hybrid`、`match80` |
+| `category` | 職能分類代碼，例如 `backend`、`frontend`、`data`（見 `job_categories`） |
+| `seniority` | `junior` / `mid` / `senior` / `lead` |
+| `filters` | 逗號分隔：`target`、`foreign`、`english`、`remote`、`hybrid`、`match80` |
 | `sort` | `match`（預設）/ `recent` |
 | `limit`、`cursor` | 分頁 |
 
@@ -593,12 +688,16 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
   "items": [
     {
       "id": "…", "source": "catalog",
-      "company_name": "Northwind Labs", "logo_text": "N", "logo_url": null,
+      "company_name": "Northwind Labs", "logo_text": "N",
       "title": "Senior Frontend Engineer",
+      "category": { "code": "frontend", "label": "前端工程" }, "seniority": "senior",
       "city": "台北市", "location_text": "台北市信義區",
-      "employment_type": "全職", "work_mode": "hybrid", "work_mode_note": "混合辦公",
+      "employment_type": "全職", "work_mode": "hybrid", "is_foreign": false, "work_language": "zh",
       "salary_text": "月薪 75,000 – 95,000",
       "tags": ["React", "TypeScript", "設計系統"],
+      "source_site": "104", "source_site_label": "104 人力銀行",
+      "source_url": "https://www.104.com.tw/job/…",
+      "last_verified_at": "2026-10-08T02:00:00Z",
       "match_score": 92, "target_id": null,
       "posted_at": "2026-10-06T00:00:00Z"
     }
@@ -607,13 +706,16 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 }
 ```
 
+- 只回傳 `review_status = published` 且 `status = active` 的職缺。
 - `match_score` 依主要履歷計算；沒有履歷時為 `null`，前端顯示「上傳履歷看契合度」。
 - `target_id` 不為 `null` 表示已是目標職缺。
 - 使用者有填 `preferences.desired_roles / desired_locations` 時，預設排序會把符合的職缺排前面。
 
 ### `GET /jobs/{id}`
 
-列表欄位，加上 `about`、`duties`、`requirements`。職缺詳情視窗的「練習這個職缺／題組／面試建議」三個按鈕都會先呼叫 `POST /targets`（已是目標職缺則直接使用）。
+列表欄位，加上 `summary`（Ava 寫的摘要）、`duties`、`requirements`（重點條列，Ava 改寫，不是原文）。前端顯示「資料來源：104 人力銀行・2 天前確認仍在招募・內容為 Ava 整理的摘要」與「**前往原始職缺頁**」按鈕（新分頁開啟 `source_url`）。
+
+職缺詳情的「練習這個職缺／面試題庫／面試建議」會先呼叫 `POST /targets`（已是目標職缺則直接使用）。因為職缺庫只有摘要，加入目標職缺時前端提示：「到原始職缺頁複製完整內容貼上，題目會更準」（選填，貼上後以 `PATCH /targets/{id}` 更新職缺內容）。
 
 ---
 
@@ -635,9 +737,11 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
   "language": "zh",
   "target_id": "…",
   "job": { "id": "…", "company_name": "Northwind Labs", "title": "Senior Frontend Engineer" },
-  "progress": { "current_main_no": 2, "total_main": 5, "answered": 1, "skipped": 0 },
+  "progress": { "current_main_no": 2, "total_main": 5, "answered": 1, "skipped": 0,
+                "followup_no": 0, "followup_total": 2 },
   "current_question": {
     "id": "…", "kind": "main", "order_no": 2, "followup_no": 0,
+    "followup_mode": "fixed", "followup_target": 2,
     "category": "技術深度",
     "text": "你在過去專案中如何處理 React 應用的效能問題？請舉一個實際例子。",
     "tts_url": "https://…/q2.mp3",
@@ -660,6 +764,9 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 ```
 
 `cues` 是預先合成的接話短句（依語言與風格，跨場次快取），前端在使用者按停止的**同時**播放一句 `acks`，遮住上傳與追問判斷的等待時間，不需要等 API 回應。`realtime` 模式也會帶 `cues`，作為 Realtime 失敗時的備援。
+
+- `progress.followup_total`：這道主題目預計的追問數（`fixed`、`planned` 為確定值；`adaptive` 為上限）。前端顯示「第 2 題・追問 1／2」。
+- 面試長度（快速 3／標準 5／深入 8）只計算**主題目**；預估時間會把追問算進去。
 
 `status` 與 `phase` 決定前端能做什麼：
 
@@ -787,16 +894,13 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 
 **Headers**：`Idempotency-Key: <uuid>`（必填，前端重試時沿用同一個）
 
-**Body**（`multipart/form-data`）：
+**流程**：按停止 → `POST /uploads`（`purpose = answer_audio`）→ 前端把錄音 `PUT` 到物件儲存 → 呼叫本端點。錄音不經過 API。
 
-| 欄位 | 型別 | 說明 |
-|---|---|---|
-| `audio` | file | `audio/webm;codecs=opus`（Chrome／Firefox）或 `audio/mp4`（Safari），≤ 15 MB |
-| `meta` | JSON 字串 | 見下方 |
+**Body**（JSON）：
 
 ```json
-// meta
-{ "expected_version": 4,
+{ "upload_id": "…",
+  "expected_version": 4,
   "client_started_at": "2026-10-08T07:01:10.120Z",
   "client_ended_at": "2026-10-08T07:03:52.800Z",
   "client_duration_ms": 162680,
@@ -807,11 +911,20 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 
 處理順序：
 
-1. 驗證狀態（`phase = answering` 且 attempt 屬於目前題目）。
-2. 音訊上傳物件儲存 → **快速轉錄**（同步，最快的 STT 模型）。
-3. 交易寫入 attempt（`saved`、`quick_transcript`）、題目 `answered`、排 `transcribe_attempt`（最終轉錄，評分依據）。
-4. 追問 Agent 依快速轉錄判斷（同步，3 秒逾時，逾時視為不追問）。
-5. 決定下一步並推進狀態；`scripted` 的追問同步合成 TTS。
+1. 驗證狀態（`phase = answering` 且 attempt 屬於目前題目），確認 `upload_id` 的物件已存在且大小、類型符合。
+2. **快速轉錄**（同步，最快的 STT 模型；經 OpenAI 用量控管，面試請求優先）。
+3. 交易寫入 attempt（`saved`、`audio_key`、`quick_transcript`）、題目 `answered`、排 `transcribe_attempt`（最終轉錄，評分依據）。
+4. **依追問規則決定下一步**（次數由程式計數，不靠 AI 決定次數）：
+
+```text
+主題目 M 的已問追問數 k = COUNT(session_questions WHERE parent_id = M)
+mode = fixed    且 k < followup_target        → 一定追問；Follow-up Writer 依回答寫內容（逾時改用預先準備的通用追問）
+mode = planned  且 還有沒問的預設追問          → 取下一個預設追問（不呼叫 AI）
+mode = adaptive 且 k < followup_target        → Follow-up Decider 判斷要不要追問（3 秒逾時視為不追問）
+否則                                          → 下一道主題目；沒有下一題就結束
+```
+
+5. 推進狀態；`scripted` 的追問同步合成 TTS。追問以 `session_questions`（`kind = followup`、`parent_id = M`、`followup_no = k + 1`）新增一列。
 
 ```json
 // 200
@@ -821,7 +934,8 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
   "next": {
     "type": "followup",
     "question": {
-      "id": "…", "kind": "followup", "order_no": 2, "followup_no": 1,
+      "id": "…", "kind": "followup", "order_no": 2, "followup_no": 1, "followup_total": 2,
+      "followup_source": "fixed_ai",
       "text": "你剛提到虛擬捲動，為什麼選它而不是分頁？",
       "delivery": "tts",
       "tts_url": "https://…/fu-2-1.mp3",
@@ -841,7 +955,9 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 - `attempt.quick_transcript` 用來把對話中的回答泡泡更新成文字（`scripted` 回答時只顯示波形；`realtime` 回答時已有即時字幕，這裡改成較準確的版本）。
 - 報告與評分一律使用 worker 產生的最終轉錄，不使用快速轉錄或即時字幕。
 
-**錯誤與重試**：網路失敗或 `5xx` 時，前端保留錄音 Blob，以**同一個** `Idempotency-Key` 指數退避重試（1s、2s、4s，最多 5 次），期間顯示「正在上傳你的回答⋯」；仍失敗時顯示「重新上傳」按鈕，**不得前進到下一題，也不得丟掉錄音**。
+`followup_source`：`fixed_ai`（固定次數、Ava 寫）／`planned`（預設追問）／`adaptive_ai`（Ava 判斷）／`fixed_fallback`（Ava 逾時時用的通用追問，次數仍然問滿）。
+
+**錯誤與重試**：上傳到物件儲存或呼叫本端點失敗時，前端保留錄音 Blob，以**同一個** `Idempotency-Key` 指數退避重試（1s、2s、4s，最多 5 次；上傳網址過期就重新取得），期間顯示「正在上傳你的回答⋯」；仍失敗時顯示「重新上傳」按鈕，**不得前進到下一題，也不得丟掉錄音**。
 
 ### 10.10 `POST /interviews/{id}/attempts/{aid}/discard`（重錄）
 
@@ -947,6 +1063,8 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
   "items": [
     {
       "question_id": "…", "order_no": 4, "category": "系統設計", "status": "answered",
+      "followup_mode": "planned",
+      "group": { "score": 69, "main_score": 68, "followup_avg": 70, "weights": { "main": 0.6, "followups": 0.4 } },
       "question_text": "如果要從零建立一套給 5 個產品線共用的元件庫，你會怎麼規劃？",
       "answer": {
         "attempt_id": "…",
@@ -964,7 +1082,11 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
         "better_answer": "我會分四步：第一，訪談 5 個產品線…"
       },
       "followups": [
-        { "question_id": "…", "followup_no": 1, "question_text": "…", "answer": { … }, "evaluation": { … } }
+        { "question_id": "…", "followup_no": 1, "followup_source": "planned",
+          "question_text": "為什麼選 monorepo，而不是讓各產品線各自維護？",
+          "answer": { "attempt_id": "…", "transcript": "…", "has_audio": true },
+          "evaluation": { "status": "done", "score": 66, "strengths": ["…"], "improvements": ["…"], "better_answer": "…" } },
+        { "question_id": "…", "followup_no": 2, "question_text": "上線後你會用什麼指標判斷元件庫成功？", "answer": { … }, "evaluation": { … } }
       ]
     }
   ]
@@ -974,7 +1096,9 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 - `status`：`processing` / `ready` / `failed`。`processing` 時前端顯示「Ava 正在逐題轉錄和評分，通常不到一分鐘。完成後會通知你，可以先去做別的事。」與骨架；已完成的題目可先顯示。
 - `evaluation.status = needs_review` 時，`review_reason` 說明原因（例如「錄音幾乎沒有聲音」），前端提供「重新評分」。
 - `status = skipped` 的題目顯示「已跳過」，沒有 `answer` 與 `evaluation`。
-- 總分 = 已作答主題目分數平均（追問分數併入主題目，權重 30%），由程式計算。
+- **每個子題目（追問）獨立評分、獨立給建議**；評分時會把主題目和前面的追問當作上下文，但分數只看這一題的回答。
+- **整組分數**（`group.score`）= 主題目 × 60% ＋ 追問平均 × 40%（權重可設定，存在 `question_group_scores.weights`）；沒有追問的題目，整組分數就是主題目分數。
+- **總分** = 已作答主題目的整組分數平均，由程式計算，不讓模型算。
 
 ### `GET /interviews/{id}/report/events`（SSE）
 
@@ -1041,7 +1165,29 @@ data: {"overall_score":82}
 
 ### `POST /admin/jobs/import`
 
-需要 `admin` 角色。Body 為職缺陣列（`company_name`、`title`、`location_text`、`about`、`duties`、`requirements`、`tags`、`external_ref`、`posted_at`、`city`、`work_mode`、`is_foreign`、`work_language`），以 `external_ref` upsert。回 `{ "inserted": 10, "updated": 2 }`，並排程計算 embedding。
+需要 `admin` 角色。用於合作夥伴提供的職缺或 ATS 公開職缺 API（例如 Greenhouse、Lever）。Body 為職缺陣列（`company_name`、`title`、`location_text`、`summary`、`duties`、`requirements`、`tags`、`source_site`、`source_url`、`external_ref`、`posted_at`、`city`、`work_mode`、`is_foreign`、`work_language`、`category_code`），以 `(source_site, external_ref)` upsert。回 `{ "inserted": 10, "updated": 2 }`，並排程計算 embedding。
+
+### `GET /admin/jobs/review-queue`
+
+ETL 抓回、但信心不足或驗證失敗的職缺（`review_status = pending_review`）。
+
+```json
+{ "items": [ { "id": "…", "title": "Backend Engineer", "company_name": "…", "source_url": "https://…",
+               "category": { "code": "backend" }, "ai_confidence": 0.58,
+               "review_reasons": ["分類信心低", "公司名稱與網址網域不一致"], "fetched_at": "…" } ],
+  "next_cursor": null }
+```
+
+### `PATCH /admin/jobs/{id}/review`
+
+```json
+{ "review_status": "published", "category_code": "backend", "seniority": "senior", "note": "已確認" }
+// review_status：published / rejected / closed
+```
+
+### `GET /admin/job-ingest-runs`
+
+每次 ETL 的查詢條件、抓回數、通過驗證數、自動上架數、送審數、失效下架數、成本，方便追蹤資料品質。
 
 ---
 
@@ -1051,7 +1197,7 @@ data: {"overall_score":82}
 
 | kind | 佇列 | 觸發 | 結果 |
 |---|---|---|---|
-| `parse_resume` | default | `POST /resumes` | `resumes.parsed_json`、`analysis_json`、`embedding`；接著排 `compute_matches`；第一份履歷時補到目標職缺並排 `generate_prep` |
+| `parse_resume` | default（限制同時數量） | `POST /resumes` | `resumes.parsed_json`、`analysis_json`、`embedding`；接著排 `compute_matches`；第一份履歷時補到目標職缺並排 `generate_prep` |
 | `parse_job` | default | `POST /targets`（貼上 JD） | `job_posts` 欄位、`embedding`；接著排 `generate_questions(initial)` 與 `generate_prep` |
 | `compute_matches` | default | 履歷解析完成、設為主要、職缺匯入 | `job_matches`；清除 `ai:cache:jobs:{resume_id}:*` |
 | `generate_prep` | default | 加入目標職缺（第一次分析）、換履歷、`prep/analyze` | 更新 `interview_preps` 分析欄位；附加 `prep_likely_questions`、`prep_checklist_items`（不刪除） |
@@ -1059,9 +1205,10 @@ data: {"overall_score":82}
 | `generate_questions` | default | 加入目標職缺（`initial`，8 題）、`POST …/questions/generate`、開始面試時題數不足（同步補題） | `question_set_items`；`question_sets.status = ready` |
 | `build_rubric` | default | 使用者新增／修改題目、從建議或報告加入題目 | `question_set_items.rubric` |
 | `synthesize_tts` | **interactive** | `POST /interviews` | 主題目與開場白 TTS（`session_questions.tts_audio_key`）；接話短句缺快取時一併合成；全部完成後場次改為 `ready` |
-| `transcribe_attempt` | **interactive** | `complete` | `answer_attempts.final_transcript`；接著排 `evaluate_attempt` |
-| `evaluate_attempt` | default | 轉錄完成 | `evaluations`；發布 `evaluation_done`；若場次已結束且全部完成，排 `build_report` |
-| `build_report` | default | 最後一題評分完成（持有 `ai:lock:report:{session_id}`） | `interview_reports`；發布 `report_ready` |
+| `transcribe_attempt` | **interactive** | `complete`（主題目與追問都有自己的 attempt） | `answer_attempts.final_transcript`；接著排 `evaluate_attempt` |
+| `evaluate_attempt` | default | 轉錄完成 | `evaluations`（主題目、追問各自一筆）；發布 `evaluation_done`；若場次已結束且全部完成，排 `build_report` |
+| `build_report` | default | 最後一題評分完成（持有 `ai:lock:report:{session_id}`） | `question_group_scores`（每道主題目的整組分數）、`interview_reports`；發布 `report_ready` |
+| `ingest_jobs` | default | 排程（每日，依分類查詢） | 用 OpenAI 網路搜尋取得職缺 → 驗證 → 分類 → 上架或送審；寫 `job_ingest_runs` |
 
 排程工作（arq cron，由 `default` worker 中的一個實例執行）：
 
@@ -1070,5 +1217,8 @@ data: {"overall_score":82}
 | `sweep_outbox` | 每 30 秒 | 重新投遞未投遞或在 Redis 遺失的工作 |
 | `pause_lost_sessions` | 每分鐘 | 心跳中斷 2 分鐘的面試改為 `paused`（不是作廢） |
 | `expire_paused_sessions` | 每 10 分鐘 | 暫停超過 24 小時的面試自動結束；有作答就排 `build_report` |
-| `purge_expired_audio` | 每日 | 刪除超過保留期限的音訊、被重錄丟掉的錄音 |
+| `purge_expired_audio` | 每日 | 刪除超過保留期限的音訊、被重錄丟掉的錄音、沒被使用的上傳物件 |
+| `ingest_jobs` | 每日 | 職缺 ETL（見 [architecture.md §12](architecture.md)） |
+| `verify_jobs` | 每日 | 重新檢查已上架職缺：原始網址失效或刊登超過 30 天就下架 |
+| `audit_job_quality` | 每日 | AI 抽查已上架職缺的分類與內容；異常彙整成**每日一封摘要信**寄給管理員，並放進待審清單 |
 | `maintain_partitions` | 每日 | 建立下個月分區、刪除過期分區、清除 30 天前完成的工作列 |

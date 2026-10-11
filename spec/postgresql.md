@@ -1,6 +1,7 @@
 # AI Interview — PostgreSQL 資料庫規格書
 
-> 版本：v0.1・資料庫：PostgreSQL 16＋`pgvector`、`pg_trgm`、`citext`
+> 版本：v0.4・資料庫：PostgreSQL 16＋`pgvector`、`pg_trgm`、`citext`
+> v0.4 新增：追問規則（`question_set_followups`、整組分數 `question_group_scores`）、直接上傳單據（`upload_tickets`）、職缺分類與 ETL（`job_categories`、`job_ingest_runs`、`job_posts` 來源與審核欄位）
 > 相關文件：[architecture.md](architecture.md)・[api.md](api.md)・[flows.md](flows.md)
 
 ---
@@ -11,7 +12,7 @@
 2. **可編輯的草稿與凍結的紀錄分開**：`question_set_items` 是可編輯的題庫；`session_questions` 是某場面試**實際播放的題目**，建立後不可修改。
 3. **狀態推進用樂觀鎖**：`interview_sessions.state_version` 每次推進 +1，更新時必須帶上預期版本。
 4. **冪等**：回答上傳、背景工作都帶冪等鍵（`idempotency_key`、`dedupe_key`）。API 層的通用冪等快取放 Redis，但**回答上傳**另有資料庫唯一約束兜底。
-5. **列舉值用 `text + CHECK`**，不用 PostgreSQL `ENUM`（新增值不必改型別，Alembic 遷移較單純）。
+5. **列舉值用 `text + CHECK`**，不用 PostgreSQL `ENUM`（新增值不必改型別，遷移較單純）。
 6. **主鍵**：業務表用 `uuid`（`gen_random_uuid()`）；Log 類大表用 `bigint identity`，並按月分區。
 7. **時間**一律 `timestamptz`，儲存 UTC。
 8. **AI 結構化輸出**存 `jsonb`，但**查詢與排序會用到的欄位**（分數、狀態）獨立成一般欄位。
@@ -24,44 +25,65 @@
 
 ## 2. ER 圖
 
-### 2.1 全貌
+### 2.1 全貌（全部資料表）
+
+以「目標職缺」為中心：每個目標職缺一份面試題庫、一份面試建議，以及多場面試；每場面試一份報告。Log 類資料表（`llm_calls`、`voice_events`、`app_events`）刻意不加外鍵，圖中以虛線表示。
 
 ```mermaid
 erDiagram
-    users ||--o{ oauth_identities : links
-    users ||--o{ refresh_tokens : issues
-    users ||--o{ resumes : uploads
-    users ||--o{ job_posts : "creates (pasted JD)"
-    users ||--o{ target_jobs : targets
-    job_posts ||--o{ target_jobs : "targeted by"
-    resumes |o--o{ target_jobs : "default resume"
-    resumes ||--o{ job_matches : scored
-    job_posts ||--o{ job_matches : scored
+    %% 帳號
+    users ||--o{ oauth_identities : "第三方登入"
+    users ||--o{ refresh_tokens : "登入憑證"
+    users ||--o{ upload_tickets : "上傳單據"
 
-    target_jobs ||--|| question_sets : "has one"
-    question_sets ||--o{ question_set_items : contains
-    question_sets ||--o{ question_generations : runs
-    question_generations |o--o{ question_set_items : produced
+    %% 履歷與職缺
+    users ||--o{ resumes : "上傳"
+    users ||--o{ job_posts : "貼上的職缺"
+    job_categories ||--o{ job_categories : "子分類"
+    job_categories ||--o{ job_posts : "分類"
+    job_ingest_runs ||--o{ job_posts : "ETL 抓回"
+    resumes ||--o{ job_matches : "契合度"
+    job_posts ||--o{ job_matches : "契合度"
 
-    target_jobs ||--o{ interview_preps : analyzed
-    resumes ||--o{ interview_preps : input
-    interview_preps ||--o{ prep_likely_questions : contains
-    interview_preps ||--o{ prep_checklist_items : contains
-    interview_preps ||--o{ prep_generations : runs
+    %% 目標職缺（中心）
+    users ||--o{ target_jobs : "目標職缺"
+    job_posts ||--o{ target_jobs : "被設為目標"
+    resumes |o--o{ target_jobs : "預設履歷"
 
-    users ||--o{ interview_sessions : takes
-    target_jobs ||--o{ interview_sessions : "practiced in"
-    resumes |o--o{ interview_sessions : uses
-    interview_sessions ||--o{ session_questions : "snapshots"
-    session_questions |o--o{ session_questions : "follow-ups"
-    question_set_items |o--o{ session_questions : "copied from"
-    session_questions ||--o{ answer_attempts : answered
-    answer_attempts ||--o| evaluations : evaluated
-    interview_sessions ||--o| interview_reports : summarized
+    %% 面試題庫
+    target_jobs ||--|| question_sets : "一份面試題庫"
+    question_sets ||--o{ question_set_items : "主題目（含追問規則）"
+    question_set_items ||--o{ question_set_followups : "預設追問"
+    question_sets ||--o{ question_generations : "AI 出題紀錄"
+    question_generations |o--o{ question_set_items : "產生"
 
-    users ||--o{ llm_calls : incurs
-    interview_sessions ||--o{ voice_events : logs
-    users ||--o{ app_events : emits
+    %% 面試建議
+    target_jobs ||--|| interview_preps : "一份面試建議"
+    resumes |o--o{ interview_preps : "依據的履歷"
+    interview_preps ||--o{ prep_likely_questions : "可能題目"
+    interview_preps ||--o{ prep_checklist_items : "準備清單"
+    interview_preps ||--o{ prep_generations : "分析／再多產生"
+    question_set_items |o--o{ prep_likely_questions : "已加入題庫"
+
+    %% 面試與報告
+    users ||--o{ interview_sessions : "面試"
+    target_jobs ||--o{ interview_sessions : "練習"
+    question_sets |o--o{ interview_sessions : "題目來源"
+    interview_sessions ||--o{ session_questions : "實際問的題目（快照）"
+    session_questions |o--o{ session_questions : "主題目底下的追問"
+    question_set_items |o--o{ session_questions : "複製自主題目"
+    question_set_followups |o--o{ session_questions : "複製自預設追問"
+    session_questions ||--o{ answer_attempts : "作答（重錄多筆）"
+    upload_tickets |o--o| answer_attempts : "錄音上傳"
+    answer_attempts ||--o| evaluations : "逐題評分"
+    session_questions ||--o| question_group_scores : "主題目整組分數"
+    interview_sessions ||--o| interview_reports : "整場報告"
+
+    %% 系統與 Log
+    background_jobs }o..o{ interview_sessions : "背景工作"
+    llm_calls }o..o{ users : "AI 呼叫與成本"
+    voice_events }o..o{ interview_sessions : "語音事件"
+    app_events }o..o{ users : "產品事件"
 ```
 
 ### 2.2 核心：面試與評分（含欄位）
@@ -102,6 +124,10 @@ erDiagram
         text kind "main|followup"
         int order_no
         int followup_no "主題目為 0"
+        text followup_mode "主題目：none|fixed|planned|adaptive"
+        smallint followup_target "主題目：要問幾個追問（adaptive 為上限）"
+        text followup_source "追問：fixed_ai|fixed_fallback|planned|adaptive_ai"
+        uuid source_followup_id FK "預設追問來源"
         text category
         text difficulty
         text text "題目原文（不可修改）"
@@ -162,9 +188,21 @@ erDiagram
         numeric speech_rate
     }
 
+    question_group_scores {
+        uuid main_question_id PK,FK "主題目"
+        uuid session_id FK
+        smallint main_score
+        smallint followup_avg
+        smallint group_score
+        smallint followup_count
+        jsonb weights "main 0.6、followups 0.4"
+    }
+
     interview_sessions ||--o{ session_questions : has
+    session_questions |o--o{ session_questions : "follow-ups"
     session_questions ||--o{ answer_attempts : has
     answer_attempts ||--o| evaluations : has
+    session_questions ||--o| question_group_scores : "group score"
     interview_sessions ||--o| interview_reports : has
 ```
 
@@ -199,6 +237,16 @@ erDiagram
         jsonb rubric
         text source "ai|user|prep|report"
         text source_reason
+        text followup_mode "none|fixed|planned|adaptive"
+        smallint followup_count
+    }
+    question_set_followups {
+        uuid id PK
+        uuid item_id FK
+        int order_no
+        text text
+        jsonb rubric
+        text source "user|ai"
     }
     question_generations {
         uuid id PK
@@ -258,6 +306,7 @@ erDiagram
     interview_preps ||--o{ prep_likely_questions : contains
     interview_preps ||--o{ prep_generations : runs
     question_sets ||--o{ question_set_items : contains
+    question_set_items ||--o{ question_set_followups : "planned follow-ups"
     question_sets ||--o{ question_generations : runs
     question_generations |o--o{ question_set_items : produced
     interview_preps ||--o{ prep_checklist_items : contains
@@ -299,11 +348,42 @@ erDiagram
         text work_mode
         text salary_text
         text_array tags
-        text about
+        text summary "Ava 寫的摘要（不轉貼原文）"
         jsonb duties
         jsonb requirements
-        text raw_text
+        text raw_text "使用者貼上的原文"
+        uuid category_id FK
+        text seniority
+        text source_site "104|cake|linkedin|yourator|ats|…"
+        text source_url "原始職缺頁"
+        timestamptz last_verified_at
+        numeric ai_confidence
+        text review_status "published|pending_review|rejected"
         vector embedding
+    }
+    job_categories {
+        uuid id PK
+        text code UK "backend、frontend、data…"
+        text label
+        uuid parent_id FK
+    }
+    job_ingest_runs {
+        uuid id PK
+        jsonb query "分類、地區、外商…"
+        text status
+        int fetched_count
+        int published_count
+        int review_count
+        int closed_count
+    }
+    upload_tickets {
+        uuid id PK
+        uuid user_id FK
+        text purpose "resume|answer_audio"
+        text object_key
+        bigint max_bytes
+        text status "issued|uploaded|consumed|expired"
+        timestamptz expires_at
     }
     target_jobs {
         uuid id PK
@@ -320,8 +400,11 @@ erDiagram
         text method
     }
     users ||--o{ resumes : uploads
+    users ||--o{ upload_tickets : issues
     users ||--o{ target_jobs : targets
     job_posts ||--o{ target_jobs : "targeted by"
+    job_categories ||--o{ job_posts : classifies
+    job_ingest_runs ||--o{ job_posts : fetched
     resumes ||--o{ job_matches : scored
     job_posts ||--o{ job_matches : scored
 ```
@@ -336,8 +419,11 @@ erDiagram
 | | `oauth_identities` | Google 等第三方登入 | 登入 |
 | | `refresh_tokens` | Refresh token 雜湊、輪替 | — |
 | | （`users.preferences`） | 預設面試長度／風格／語言、求職意向 | 設定 |
+| 上傳 | `upload_tickets` | 直接上傳到物件儲存的單據（履歷、回答錄音），用來驗證檔案 | 上傳前 |
 | 履歷 | `resumes` | 履歷原檔位置、解析結果（經歷、技能、成果）、AI 建議、embedding | 設定・履歷 |
-| 職缺 | `job_posts` | 平台職缺與使用者貼上的職缺 | 職缺 |
+| 職缺 | `job_posts` | 平台職缺（ETL、匯入）與使用者貼上的職缺；平台職缺必有原始網址與審核狀態 | 職缺搜尋 |
+| | `job_categories` | 職能分類（可分層） | 職缺搜尋・篩選 |
+| | `job_ingest_runs` | 每次職缺 ETL 的條件與統計 | 後台・資料管線 |
 | | `target_jobs` | 目標職缺：使用者正在準備的職缺，記住預設履歷 | 側欄・目標職缺 |
 | | `job_matches` | 履歷×職缺契合度快取 | 職缺・契合度 |
 | 準備 | `interview_preps` | 面試建議分析結果（每個目標職缺一份，重新分析時更新） | 面試建議 |
@@ -345,12 +431,14 @@ erDiagram
 | | `prep_checklist_items` | 準備清單與勾選狀態（只附加不刪除） | 面試建議・清單 |
 | | `prep_generations` | 一次分析或「再多產生」的工作與參數 | 面試建議・重新分析／再多產生 |
 | 題組 | `question_sets` | 題組，與目標職缺一對一 | 題庫生成 |
-| | `question_set_items` | 題組中的題目（可編輯、排序） | 題庫生成・題目列 |
+| | `question_set_items` | 題組中的主題目（可編輯、排序），含追問規則 | 題庫生成・題目列 |
+| | `question_set_followups` | 主題目底下的預設追問（追問規則 = planned 時使用） | 題庫生成・預設追問 |
 | | `question_generations` | 一次 AI 生成工作與參數 | 題庫生成・輸入框 |
 | 面試 | `interview_sessions` | 一場面試、狀態機（可暫停、24 小時內繼續） | 新面試、面試進行中 |
 | | `session_questions` | 該場**實際使用**的主題目與追問（快照） | 進度、題目 |
 | | `answer_attempts` | 每次作答：音訊、即時與最終逐字稿（重錄會產生新的一筆） | 逐字稿 |
-| 評分 | `evaluations` | 逐題評分與建議 | 報告・逐題回顧 |
+| 評分 | `evaluations` | 逐題評分與建議（主題目、追問各自一筆） | 報告・逐題回顧 |
+| | `question_group_scores` | 每道主題目的整組分數（主題目＋追問） | 報告・整組分數 |
 | | `interview_reports` | 整場報告 | 面試報告 |
 | 系統 | `background_jobs` | 背景工作 outbox 與執行紀錄（實際佇列在 Redis／arq） | — |
 | Log | `llm_calls` | AI 呼叫與成本（月分區） | — |
@@ -422,9 +510,25 @@ CREATE INDEX ix_refresh_tokens_user ON refresh_tokens(user_id) WHERE revoked_at 
 -- 名稱在 users.display_name，偏好與求職意向在 users.preferences。
 ```
 
-### 4.3 履歷
+### 4.3 上傳單據與履歷
 
 ```sql
+-- 直接上傳：API 只發「上傳單據」與預簽名網址，檔案不經過 API
+CREATE TABLE upload_tickets (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purpose       text NOT NULL CHECK (purpose IN ('resume','answer_audio')),
+  object_key    text NOT NULL UNIQUE,         -- users/{uid}/uploads/{id}
+  content_type  text NOT NULL,
+  max_bytes     bigint NOT NULL,
+  attempt_id    uuid,                         -- purpose = answer_audio 時對應的作答（FK 於 §4.7 補上）
+  status        text NOT NULL DEFAULT 'issued' CHECK (status IN ('issued','uploaded','consumed','expired')),
+  expires_at    timestamptz NOT NULL,         -- 網址 5 分鐘有效；單據 1 小時內沒使用就清除物件
+  consumed_at   timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_upload_tickets_cleanup ON upload_tickets(expires_at) WHERE status IN ('issued','uploaded');
+
 CREATE TABLE resumes (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -452,6 +556,32 @@ CREATE UNIQUE INDEX uq_resumes_primary ON resumes(user_id) WHERE is_primary AND 
 ### 4.4 職缺
 
 ```sql
+-- 職能分類（可分層，例如 engineering > backend）；ETL 與篩選都用這張表
+CREATE TABLE job_categories (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  code        text NOT NULL UNIQUE,             -- backend、frontend、data、pm、design…
+  label       text NOT NULL,                    -- 後端工程
+  parent_id   uuid REFERENCES job_categories(id),
+  sort_order  int NOT NULL DEFAULT 0,
+  is_active   boolean NOT NULL DEFAULT true
+);
+
+-- 每次職缺 ETL 的查詢條件與結果統計
+CREATE TABLE job_ingest_runs (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  query            jsonb NOT NULL,              -- {category:"backend", region:"台北市", foreign:true, language:"en"}
+  status           text NOT NULL DEFAULT 'running' CHECK (status IN ('running','succeeded','failed')),
+  fetched_count    int NOT NULL DEFAULT 0,      -- 搜尋抓回
+  valid_count      int NOT NULL DEFAULT 0,      -- 通過程式驗證
+  published_count  int NOT NULL DEFAULT 0,      -- 自動上架
+  review_count     int NOT NULL DEFAULT 0,      -- 送審
+  closed_count     int NOT NULL DEFAULT 0,      -- 定期檢查下架
+  cost_usd         numeric(10,4),
+  error            text,
+  started_at       timestamptz NOT NULL DEFAULT now(),
+  finished_at      timestamptz
+);
+
 CREATE TABLE job_posts (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source           text NOT NULL CHECK (source IN ('catalog','user')),
@@ -470,9 +600,22 @@ CREATE TABLE job_posts (
   salary_max       int,
   salary_period    text CHECK (salary_period IN ('month','year')),
   tags             text[] NOT NULL DEFAULT '{}',
-  about            text,
-  duties           jsonb NOT NULL DEFAULT '[]',
+  about            text,                     -- 使用者貼上職缺時的「關於」
+  summary          text,                     -- 平台職缺：Ava 寫的 2–3 句摘要（不轉貼原文）
+  duties           jsonb NOT NULL DEFAULT '[]',   -- 平台職缺為 Ava 改寫的重點條列
   requirements     jsonb NOT NULL DEFAULT '[]',
+  category_id      uuid REFERENCES job_categories(id),
+  seniority        text CHECK (seniority IN ('junior','mid','senior','lead')),
+  source_site      text,                     -- 104、cake、linkedin、yourator、greenhouse、lever、company…
+  source_url       text,                     -- 原始職缺頁（詳情的「前往原始職缺頁」）
+  source_url_norm  text,                     -- 正規化網址（去除追蹤參數），用來去重
+  ingest_run_id    uuid REFERENCES job_ingest_runs(id) ON DELETE SET NULL,
+  fetched_at       timestamptz,
+  last_verified_at timestamptz,              -- 最近一次確認原始網址仍有效
+  ai_confidence    numeric(3,2),             -- 分類與內容的信心分數 0–1
+  review_status    text NOT NULL DEFAULT 'published'
+                   CHECK (review_status IN ('published','pending_review','rejected')),
+  review_reasons   jsonb NOT NULL DEFAULT '[]',   -- ["分類信心低","公司名稱與網域不一致"]
   work_language    text,                     -- zh / en
   is_foreign       boolean NOT NULL DEFAULT false,
   raw_text         text,                     -- 使用者貼上的原始 JD
@@ -485,8 +628,14 @@ CREATE TABLE job_posts (
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now(),
   deleted_at       timestamptz,
-  CHECK ((source = 'user') = (owner_user_id IS NOT NULL))
+  CHECK ((source = 'user') = (owner_user_id IS NOT NULL)),
+  CHECK (source <> 'catalog' OR source_url IS NOT NULL)    -- 平台職缺一定要有原始職缺頁
 );
+CREATE UNIQUE INDEX uq_job_posts_source ON job_posts(source_site, external_ref) WHERE external_ref IS NOT NULL;
+CREATE UNIQUE INDEX uq_job_posts_url    ON job_posts(source_url_norm) WHERE source_url_norm IS NOT NULL AND deleted_at IS NULL;
+CREATE INDEX ix_job_posts_review   ON job_posts(review_status, fetched_at) WHERE review_status = 'pending_review';
+CREATE INDEX ix_job_posts_verify   ON job_posts(last_verified_at) WHERE source = 'catalog' AND status = 'active';
+CREATE INDEX ix_job_posts_category ON job_posts(category_id, seniority) WHERE status = 'active' AND review_status = 'published';
 CREATE INDEX ix_job_posts_catalog ON job_posts(status, posted_at DESC) WHERE source = 'catalog' AND deleted_at IS NULL;
 CREATE INDEX ix_job_posts_owner   ON job_posts(owner_user_id, created_at DESC) WHERE source = 'user' AND deleted_at IS NULL;
 CREATE INDEX ix_job_posts_city    ON job_posts(city);
@@ -636,14 +785,31 @@ CREATE TABLE question_set_items (
   rubric           jsonb,                    -- 評分規準，使用者自訂題目時由 AI 補
   source           text NOT NULL CHECK (source IN ('ai','user','prep','report')),
   source_reason    text,                     -- 為何針對此職缺／履歷出這題
+  followup_mode    text NOT NULL DEFAULT 'adaptive'
+                   CHECK (followup_mode IN ('none','fixed','planned','adaptive')),
+  followup_count   smallint NOT NULL DEFAULT 1,   -- fixed：固定次數（1–3）；adaptive：上限（1–2）；planned 與 none 不使用
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now(),
-  deleted_at       timestamptz
+  deleted_at       timestamptz,
+  CHECK (followup_mode <> 'fixed'    OR followup_count BETWEEN 1 AND 3),
+  CHECK (followup_mode <> 'adaptive' OR followup_count BETWEEN 1 AND 2)
 );
 -- 排序用可延遲唯一約束，交換順序時同一交易內不會撞號
 ALTER TABLE question_set_items
   ADD CONSTRAINT uq_set_items_order UNIQUE (set_id, order_no) DEFERRABLE INITIALLY DEFERRED;
 CREATE INDEX ix_set_items_text_trgm ON question_set_items USING gin (text gin_trgm_ops);
+
+-- 預設追問（followup_mode = planned 時，依 order_no 依序提問）
+CREATE TABLE question_set_followups (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_id     uuid NOT NULL REFERENCES question_set_items(id) ON DELETE CASCADE,
+  order_no    smallint NOT NULL CHECK (order_no BETWEEN 1 AND 5),
+  text        text NOT NULL CHECK (length(text) BETWEEN 1 AND 200),
+  rubric      jsonb,                         -- worker 補上
+  source      text NOT NULL DEFAULT 'user' CHECK (source IN ('user','ai')),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (item_id, order_no) DEFERRABLE INITIALLY DEFERRED
+);
 
 ALTER TABLE prep_likely_questions
   ADD CONSTRAINT fk_prep_likely_set_item FOREIGN KEY (question_set_item_id) REFERENCES question_set_items(id) ON DELETE SET NULL;
@@ -702,6 +868,11 @@ CREATE TABLE session_questions (
   kind             text NOT NULL CHECK (kind IN ('main','followup')),
   order_no         int  NOT NULL,            -- 主題目順序；追問沿用主題目的 order_no
   followup_no      int  NOT NULL DEFAULT 0,  -- 主題目 0，追問 1、2…
+  followup_mode    text CHECK (followup_mode IN ('none','fixed','planned','adaptive')),  -- 只在主題目：開始面試時的快照
+  followup_target  smallint,                 -- 只在主題目：fixed＝要問的次數；planned＝預設追問數；adaptive＝上限
+  followup_source  text CHECK (followup_source IN ('fixed_ai','fixed_fallback','planned','adaptive_ai')),  -- 只在追問
+  source_followup_id uuid REFERENCES question_set_followups(id) ON DELETE SET NULL,  -- planned 追問的來源
+  planned_followups jsonb,                   -- 只在主題目、planned：開始面試時複製的預設追問快照 [{"id","text"}]（0002）
   category         text NOT NULL,
   difficulty       text NOT NULL,
   text             text NOT NULL,            -- 建立後不可修改
@@ -716,8 +887,12 @@ CREATE TABLE session_questions (
   created_at       timestamptz NOT NULL DEFAULT now(),
   UNIQUE (session_id, order_no, followup_no),
   CHECK ((kind = 'main') = (parent_id IS NULL)),
-  CHECK ((kind = 'main') = (followup_no = 0))
+  CHECK ((kind = 'main') = (followup_no = 0)),
+  CHECK ((kind = 'main') = (followup_mode IS NOT NULL)),
+  CHECK ((kind = 'followup') = (followup_source IS NOT NULL))
 );
+-- 計算「這道主題目已問幾個追問」用
+CREATE INDEX ix_session_questions_parent ON session_questions(parent_id) WHERE parent_id IS NOT NULL;
 
 CREATE TABLE answer_attempts (
   id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -740,10 +915,13 @@ CREATE TABLE answer_attempts (
                        CHECK (transcript_status IN ('pending','done','failed','low_quality')),
   stt_model            text,
   idempotency_key      text UNIQUE,
+  upload_ticket_id     uuid REFERENCES upload_tickets(id) ON DELETE SET NULL,   -- 錄音的上傳單據
   created_at           timestamptz NOT NULL DEFAULT now(),
   updated_at           timestamptz NOT NULL DEFAULT now(),
   UNIQUE (session_question_id, attempt_no)
 );
+ALTER TABLE upload_tickets
+  ADD CONSTRAINT fk_upload_tickets_attempt FOREIGN KEY (attempt_id) REFERENCES answer_attempts(id) ON DELETE CASCADE;
 CREATE UNIQUE INDEX uq_attempts_final ON answer_attempts(session_question_id) WHERE is_final;
 CREATE INDEX ix_attempts_session ON answer_attempts(session_id);
 
@@ -803,6 +981,19 @@ CREATE TABLE interview_reports (
   finished_at       timestamptz
 );
 CREATE INDEX ix_reports_user_trend ON interview_reports(user_id, created_at DESC) WHERE status = 'ready';
+
+-- 每道主題目的整組分數：主題目與每個追問各自在 evaluations 評分，這裡存合併結果
+CREATE TABLE question_group_scores (
+  main_question_id  uuid PRIMARY KEY REFERENCES session_questions(id) ON DELETE CASCADE,  -- kind = main
+  session_id        uuid NOT NULL REFERENCES interview_sessions(id) ON DELETE CASCADE,
+  main_score        smallint,
+  followup_avg      smallint,                 -- 沒有追問時為 NULL
+  followup_count    smallint NOT NULL DEFAULT 0,
+  group_score       smallint NOT NULL CHECK (group_score BETWEEN 0 AND 100),
+  weights           jsonb NOT NULL DEFAULT '{"main":0.6,"followups":0.4}',
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_group_scores_session ON question_group_scores(session_id);
 ```
 
 ### 4.9 背景工作佇列
@@ -967,6 +1158,58 @@ COMMIT;
 
 音訊檔先上傳到物件儲存，**成功後**才進這個交易；交易失敗時物件留著，由每日清理工作刪除沒有被引用的音訊。
 
+### 6.2.1 追問規則：決定下一步（程式計數，不靠 AI 決定次數）
+
+```sql
+-- 目前主題目 M 的追問規則與已問追問數
+SELECT m.followup_mode, m.followup_target,
+       (SELECT count(*) FROM session_questions f WHERE f.parent_id = m.id) AS asked_followups
+  FROM session_questions m
+ WHERE m.id = $main_question_id;
+
+-- planned：取下一個還沒問的預設追問
+SELECT qf.*
+  FROM question_set_followups qf
+ WHERE qf.item_id = $source_item_id
+   AND qf.order_no = $asked_followups + 1;
+
+-- 建立追問（和推進場次在同一交易；UNIQUE (session_id, order_no, followup_no) 防止重送造成重複追問）
+INSERT INTO session_questions (session_id, parent_id, kind, order_no, followup_no, followup_source,
+                               source_followup_id, category, difficulty, text, rubric)
+VALUES ($session_id, $main_question_id, 'followup', $order_no, $asked_followups + 1, $source,
+        $source_followup_id, $category, $difficulty, $text, $rubric);
+```
+
+判斷規則（在應用程式中）：
+
+| `followup_mode` | 條件 | 下一步 |
+|---|---|---|
+| `fixed` | `asked_followups < followup_target` | 一定追問；內容由 Follow-up Writer 寫，逾時改用通用追問（`fixed_fallback`），**次數不變** |
+| `planned` | 還有下一個預設追問 | 照順序追問（不呼叫 AI） |
+| `adaptive` | `asked_followups < followup_target` 且 AI 判斷需要 | 追問（`adaptive_ai`） |
+| 其他 | — | 下一道主題目；跳過主題目時，它的追問一併跳過 |
+
+### 6.2.2 整組分數
+
+```sql
+-- build_report 時，每道主題目算一次：主題目 60%、追問平均 40%（權重可設定）
+INSERT INTO question_group_scores (main_question_id, session_id, main_score, followup_avg, followup_count, group_score)
+SELECT m.id, m.session_id, em.score,
+       round(avg(ef.score))::smallint,
+       count(ef.score),
+       CASE WHEN count(ef.score) = 0 THEN em.score
+            ELSE round(em.score * 0.6 + avg(ef.score) * 0.4)::smallint END
+  FROM session_questions m
+  JOIN answer_attempts am ON am.session_question_id = m.id AND am.is_final
+  JOIN evaluations em     ON em.attempt_id = am.id AND em.status = 'done'
+  LEFT JOIN session_questions f ON f.parent_id = m.id
+  LEFT JOIN answer_attempts af  ON af.session_question_id = f.id AND af.is_final
+  LEFT JOIN evaluations ef      ON ef.attempt_id = af.id AND ef.status = 'done'
+ WHERE m.session_id = $session_id AND m.kind = 'main'
+ GROUP BY m.id, m.session_id, em.score;
+-- 總分 = 這場所有 group_score 的平均（寫入 interview_reports.overall_score）
+```
+
 ### 6.3 工作投遞與 Sweeper
 
 ```sql
@@ -1062,6 +1305,9 @@ RETURNING id, status;   -- status = completed 的排 build_report
 | `refresh_tokens` | 過期後 7 天 | 每日清理 |
 | 暫停中的面試 | 24 小時 | 自動結束；有作答就產生報告（`end_reason = expired`） |
 | 被重錄掉的回答（`discarded`） | 24 小時 | 每日刪除音訊物件與列 |
+| 沒被使用的上傳物件（`upload_tickets` 未 consumed） | 1 小時 | 每日刪除物件、單據改為 `expired` |
+| `job_ingest_runs` | 13 個月 | 每日清理 |
+| 下架的平台職缺（`status = closed`） | 90 天 | 已被設為目標職缺的保留（練習紀錄需要），其餘硬刪除 |
 | 刪除帳號 | 立即 | 硬刪除 `users`（CASCADE）＋刪除 `users/{id}/` 下所有物件；log 中的 `user_id` 設為 NULL |
 | 移出目標職缺 | 保留 | `target_jobs.status = archived`，題組、面試建議、報告都保留，重新加入即恢復 |
 
@@ -1069,7 +1315,8 @@ RETURNING id, status;   -- status = completed 的排 build_report
 
 ## 8. 遷移與維運
 
-- 遷移工具：Alembic；每個遷移可往回復原。新增 NOT NULL 欄位時先加可為 NULL＋回填＋再加約束。
-- 連線池：SQLAlchemy async pool（`pool_size=10`、`max_overflow=10`）；正式環境前面可加 PgBouncer（transaction mode）。跨程序通知走 Redis Pub/Sub，不使用 `LISTEN/NOTIFY`。
+- 遷移：`backend/migrations/NNNN_*.sql` 純 SQL 檔，`python -m app.core.migrate` 依檔名順序執行（每個檔案一個交易，記錄在 `schema_migrations`），同時建立本月起 3 個月的 log 分區。不用 ORM 或 autogenerate。新增 NOT NULL 欄位時先加可為 NULL＋回填＋再加約束。
+- 目前遷移：`0001_init.sql`（本文件 §4 的 DDL）、`0002_session_planned_followups.sql`（`session_questions.planned_followups`）。
+- 連線池：asyncpg pool（每個程序 `min_size=5`、`max_size=20`）；正式環境前面可加 PgBouncer（transaction mode，asyncpg 需設 `statement_cache_size=0`）。所有查詢為手寫參數化 SQL（見 architecture.md §4.2.1）。跨程序通知走 Redis Pub/Sub，不使用 `LISTEN/NOTIFY`。
 - 備份：託管服務每日快照＋PITR 7 天。
-- 本機開發：`docker compose up postgres redis minio`，映像使用 `pgvector/pgvector:pg16`、`redis:7-alpine`。
+- 本機開發：`docker compose up -d`（`db`、`redis`、`minio`），映像使用 `pgvector/pgvector:pg16`、`redis:7-alpine`；啟動方式見 README.md。
