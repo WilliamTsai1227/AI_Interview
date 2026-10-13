@@ -16,7 +16,7 @@ from app.modules.reports import service as reports
 
 router = APIRouter(prefix="/me", tags=["account"])
 PLAN_LIMIT = interviews.PLAN_LIMIT
-DEFAULT_PREFS = {"default_length": "standard", "default_persona": "warm", "default_language": "zh",
+DEFAULT_PREFS = {"default_length": "standard", "default_persona": "warm", "default_language": "zh", "voice_speed": 1.15,
                  "desired_roles": [], "desired_locations": []}
 
 
@@ -24,6 +24,7 @@ class Prefs(BaseModel):
     default_length: Literal["quick", "standard", "deep"] | None = None
     default_persona: Literal["warm", "real", "tough"] | None = None
     default_language: Literal["zh", "en", "mixed"] | None = None
+    voice_speed: Literal[1.0, 1.15, 1.3] | None = None      # Ava 說話速度（前端播放速率）
     desired_roles: list[str] | None = Field(default=None, max_length=10)
     desired_locations: list[str] | None = Field(default=None, max_length=10)
 

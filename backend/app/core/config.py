@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     stt_model_fast: str = "gpt-4o-mini-transcribe"
     stt_model: str = "gpt-4o-transcribe"
     tts_model: str = "gpt-4o-mini-tts"
-    tts_voice: str = "alloy"
+    tts_voice: str = "marin"              # 官方建議最自然的是 marin（女聲）或 cedar（男聲）
     embedding_model: str = "text-embedding-3-small"
     realtime_model: str = "gpt-realtime-2.1"
 

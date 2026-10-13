@@ -153,6 +153,26 @@ async def tts(text: str, *, instructions: str | None = None, priority: str = "in
         raise AIError(str(e)) from e
 
 
+async def tts_stream(text: str, *, instructions: str | None = None, user_id=None, session_id=None):
+    """串流合成 mp3（async generator，邊產生邊回傳 bytes 區塊）。"""
+    model = settings.tts_model
+    t0 = time.monotonic()
+    try:
+        async with limiter.slot(model, "interview"):
+            kw = {"model": model, "voice": settings.tts_voice, "input": text, "response_format": "mp3"}
+            if instructions:
+                kw["instructions"] = instructions
+            async with _openai().audio.speech.with_streaming_response.create(**kw) as resp:
+                async for chunk in resp.iter_bytes(4096):
+                    yield chunk
+        await _log("tts", model, "ok", int((time.monotonic() - t0) * 1000), user_id=user_id, session_id=session_id,
+                   prompt_version="stream")
+    except Exception as e:
+        await _log("tts", model, "error", int((time.monotonic() - t0) * 1000), user_id=user_id,
+                   session_id=session_id, error=repr(e), prompt_version="stream")
+        raise
+
+
 async def embed(text: str, *, user_id=None) -> list[float] | None:
     if not settings.ai_enabled or not text.strip():
         return None

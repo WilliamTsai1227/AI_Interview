@@ -952,6 +952,7 @@ mode = adaptive 且 k < followup_target        → Follow-up Decider 判斷要�
 | `question` | 下一道主題目 | 等接話播完，再播放新題目的 `tts_url` |
 | `completed` | 全部完成 | 播放 `cues.outro`（realtime 可改用 `response.create`），顯示報告卡片（評分中） |
 
+- 追問的 `tts_url`：已合成過（例如預設追問開始時就合成）是物件儲存的預簽名網址；否則是**串流網址** `/api/v1/tts/q/{qid}?exp=&sig=`（短效 HMAC 簽章、15 分鐘），`complete` 不必等合成完成就回應。前端在接話短句播放時就預先開始緩衝，邊收邊播；串流結束後音檔存入物件儲存與快取，之後同一網址會 `302` 到檔案。瀏覽器無法邊收邊播時改下載完整檔再播。
 - `attempt.quick_transcript` 用來把對話中的回答泡泡更新成文字（`scripted` 回答時只顯示波形；`realtime` 回答時已有即時字幕，這裡改成較準確的版本）。
 - 報告與評分一律使用 worker 產生的最終轉錄，不使用快速轉錄或即時字幕。
 

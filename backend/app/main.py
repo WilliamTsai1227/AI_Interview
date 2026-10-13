@@ -23,6 +23,7 @@ from app.modules.reports.router import router as reports
 from app.modules.resumes.router import router as resumes
 from app.modules.targets.router import router as targets
 from app.modules.uploads.router import router as uploads
+from app.modules.voice.router import router as voice
 from app.workers import queue
 
 structlog.configure(processors=[structlog.processors.add_log_level, structlog.processors.TimeStamper(fmt="iso"),
@@ -66,7 +67,7 @@ async def request_context(request: Request, call_next):
     return response
 
 
-for r in (auth, account, uploads, resumes, targets, questions, preps, jobs, interviews, reports, admin):
+for r in (auth, account, uploads, resumes, targets, questions, preps, jobs, interviews, reports, voice, admin):
     app.include_router(r, prefix="/api/v1")
 
 

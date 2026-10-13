@@ -2,7 +2,7 @@
 // 流程：播放題目 → playback-finished → 點麥克風（answers）→ 錄音 → ■（上傳 → complete）→ 依 next 播放追問／下一題／結束。
 import { api, get, post, sse, uploadFile, uuid } from "../api.js";
 import { $, clear, dots, h, icon, replace } from "../dom.js";
-import { play, stopAll } from "../interview/player.js";
+import { play, prepare, setRate, stopAll } from "../interview/player.js";
 import { Recorder, requestMic } from "../interview/recorder.js";
 import { renderSide } from "../shell.js";
 import { fmtClock, LANGS, loadMe, MODES, PERSONAS, S } from "../store.js";
@@ -27,6 +27,7 @@ export async function render(view, sid, ctx) {
   };
   const alive = () => ctx.isCurrent() && !st.left;
   const lang = () => st.s?.language || "zh";
+  setRate(S.me?.preferences?.voice_speed ?? 1.15);
 
   // ---------- 畫面 ----------
   const scrollEnd = () => { const v = $("#view"); v.scrollTop = v.scrollHeight; };
@@ -327,6 +328,7 @@ export async function render(view, sid, ctx) {
 
   async function afterComplete(r) {
     st.s = r.session;
+    if (r.next.type !== "completed") prepare(st.s.current_question);   // 接話還在播，追問語音先開始串流
     if (st.answerEl) st.answerEl.textContent = r.attempt?.quick_transcript || "（已儲存你的回答）";
     st.answerEl = null;
     await st.ackPlaying;
@@ -351,6 +353,7 @@ export async function render(view, sid, ctx) {
     if (!r) return;
     st.s = r.session;
     if (r.next.type !== "completed") {
+      prepare(st.s.current_question);
       const m = aiMsg(null, st.s.cues.skip_ack.text);
       const typing = m.type();
       await play(st.s.cues.skip_ack, lang());

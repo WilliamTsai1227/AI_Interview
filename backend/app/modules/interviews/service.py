@@ -69,12 +69,20 @@ def _elapsed(s) -> int:
     return max(0, int((end - s["started_at"]).total_seconds()) - (s["paused_total_sec"] or 0))
 
 
+def _tts_url(q) -> str | None:
+    if q["tts_audio_key"]:
+        return voice.url(q["tts_audio_key"])
+    if q["tts_status"] == "pending" and q["kind"] == "followup" and settings.ai_enabled:
+        return voice.stream_url(q["id"])          # 追問：邊合成邊播放
+    return None                                    # 開發模式或合成失敗：前端用瀏覽器語音
+
+
 async def _question_out(conn: db.Connection, q, language: str, *, with_tts: bool = True) -> dict:
     main = q if q["kind"] == "main" else await conn.fetchrow("SELECT * FROM session_questions WHERE id = $1", q["parent_id"])
     out = {"id": str(q["id"]), "kind": q["kind"], "order_no": q["order_no"], "followup_no": q["followup_no"],
            "followup_mode": main["followup_mode"], "followup_target": main["followup_target"],
            "followup_source": q["followup_source"], "category": q["category"], "text": q["text"],
-           "tts_status": q["tts_status"], "tts_url": voice.url(q["tts_audio_key"]) if with_tts else None,
+           "tts_status": q["tts_status"], "tts_url": _tts_url(q) if with_tts else None,
            "tts_expires_in": 900, "delivery": "tts", "realtime_instructions": None}
     return out
 
@@ -309,7 +317,7 @@ async def start(user_id: UUID, sid: UUID, expected: int) -> dict:
                            user_id, {"session_id": str(sid)})
         out = await session_out(conn, s)
     await limiter.mark_live(str(sid))
-    return {"session": out, "intro": await voice.speech(voice.intro_text(s["language"], _short(name)), s["language"])}
+    return {"session": out, "intro": await voice.speech(voice.intro_text(s["language"], _short(name)), s["language"], s["persona"])}
 
 
 async def playback_finished(user_id: UUID, sid: UUID, qid: UUID, expected: int, spoken_text: str | None,
@@ -432,7 +440,8 @@ async def _advance(conn: db.Connection, s, main, decision, fu_tts_key: str | Non
                    category, difficulty, text, rubric, tts_audio_key, tts_status)
             VALUES ($1,$2,'followup',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *
             """, s["id"], main["id"], main["order_no"], no, source, UUID(src_id) if src_id else None, main["category"],
-            main["difficulty"], text, main["rubric"], fu_tts_key, "ready" if fu_tts_key else "not_needed")
+            main["difficulty"], text, main["rubric"], fu_tts_key,
+            "ready" if fu_tts_key else "pending" if settings.ai_enabled else "not_needed")
         s2 = await _bump(conn, s["id"], phase="asking", current_question_id=fq["id"], current_attempt_id=None)
         return {"type": "followup", "question": await _question_out(conn, fq, s["language"])}, s2
     nxt = await _next_main(conn, s["id"], main["order_no"])
@@ -467,14 +476,11 @@ async def _finish(conn: db.Connection, s, end_reason: str) -> db.Record:
 
 
 async def _followup_tts(s, decision) -> str | None:
+    """只查快取（例如預設追問已在開始時合成）。沒有快取時不等合成：
+    回應改帶串流網址，前端邊收邊播（voice.stream_question），省下 1～2 秒等待。"""
     if not decision:
         return None
-    try:
-        return await asyncio.wait_for(voice.synthesize(decision[0], s["language"], s["persona"], priority="interview",
-                                                       user_id=s["user_id"], session_id=s["id"]), timeout=8)
-    except Exception as e:
-        log.warning("followup_tts_failed", error=str(e))
-        return None
+    return await voice.cached_key(decision[0], s["language"], s["persona"])
 
 
 async def complete(user_id: UUID, sid: UUID, aid: UUID, body: dict, idem_key: str) -> dict:

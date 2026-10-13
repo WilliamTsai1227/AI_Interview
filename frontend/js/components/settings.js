@@ -32,6 +32,8 @@ function general() {
       select(Object.entries(LANGS), p.default_language, (v) => savePrefs({ default_language: v }))),
     h("div", { class: "srow" }, h("span", null, "預設面試官風格"),
       select(Object.entries(PERSONAS).map(([k, x]) => [k, x.name]), p.default_persona, (v) => savePrefs({ default_persona: v }))),
+    h("div", { class: "srow" }, h("span", null, "Ava 說話速度"),
+      select([["1", "一般"], ["1.15", "稍快（建議）"], ["1.3", "快"]], String(p.voice_speed ?? 1.15), (v) => savePrefs({ voice_speed: Number(v) }))),
     h("div", { class: "srow" }, h("span", null, "回答錄音保留"), h("span", { class: "sv" }, "180 天（逐字稿與評分會保留）")),
   ];
 }
