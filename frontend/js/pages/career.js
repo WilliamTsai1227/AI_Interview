@@ -38,7 +38,8 @@ export async function render(view, _arg, ctx) {
     }, 2000);
   }
 
-  const field = (label, hint, el) => h("label", { class: "cfield" }, h("span", { class: "k" }, label, hint ? h("small", null, hint) : null), el);
+  // 欄位內有按鈕時不能用 <label>：點擊會被轉給第一個按鈕，造成誤觸（例如工作型態無法複選）
+  const field = (label, hint, el) => h(/^(INPUT|TEXTAREA)$/.test(el.tagName) ? "label" : "div", { class: "cfield" }, h("span", { class: "k" }, label, hint ? h("small", null, hint) : null), el);
 
   function profileForm() {
     const f = {
