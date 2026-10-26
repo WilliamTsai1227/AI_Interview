@@ -1,5 +1,6 @@
-// Hash 路由：#new、#chat/{session}、#report[/{session}]、#questions[/{target}]、#prep[/{target}]、#targets[/{target}]、#jobs
+// Hash 路由：#new、#chat/{session}、#report[/{session}]、#questions[/{target}]、#prep[/{target}]、#career、#targets[/{target}]、#jobs
 import { $, clear } from "./dom.js";
+import * as career from "./pages/career.js";
 import * as chat from "./pages/chat.js";
 import * as jobs from "./pages/jobs.js";
 import * as newPage from "./pages/new.js";
@@ -11,7 +12,7 @@ import { closeDrawer, renderSide } from "./shell.js";
 import { S } from "./store.js";
 import { closeMenu, closeModal } from "./ui.js";
 
-const PAGES = { new: newPage, chat, report, questions, prep, targets, jobs };
+const PAGES = { new: newPage, chat, career, report, questions, prep, targets, jobs };
 let cleanup = null;
 let seq = 0;
 

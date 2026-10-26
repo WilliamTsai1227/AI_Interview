@@ -14,6 +14,7 @@ from arq.worker import Worker
 
 from app.core import db, redis, storage
 from app.core.migrate import ensure_partitions
+from app.modules.career import service as career
 from app.modules.interviews import service as interviews
 from app.modules.jobs import service as jobs
 from app.modules.preps import service as preps
@@ -34,6 +35,7 @@ HANDLERS = {
     "build_rubric": questions.handle_build_rubric,
     "generate_prep": preps.handle_analyze,
     "extend_prep": preps.handle_extend,
+    "build_career_plan": career.handle_build,
     "synthesize_tts": interviews.handle_tts,
     "transcribe_attempt": pipeline.handle_transcribe,
     "evaluate_attempt": pipeline.handle_evaluate,

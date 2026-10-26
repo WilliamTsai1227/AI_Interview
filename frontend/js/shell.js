@@ -17,7 +17,7 @@ export function setTheme(t) {
 
 // ---------- 側欄 ----------
 const NAV = [["new", "新面試", "edit"], ["questions", "題庫生成", "book"], ["jobs", "職缺搜尋", "search"],
-  ["targets", "目標職缺", "target"], ["prep", "面試建議", "bulb"], ["report", "面試報告", "report"]];
+  ["targets", "目標職缺", "target"], ["prep", "面試建議", "bulb"], ["career", "職涯規劃", "brief"], ["report", "面試報告", "report"]];
 export const mobile = () => matchMedia("(max-width:768px)").matches;
 export const closeDrawer = () => $("#app").classList.remove("open");
 

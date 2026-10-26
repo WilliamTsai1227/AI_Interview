@@ -439,3 +439,19 @@ audio.hidden-audio{display:none}
 .btn.google svg{width:18px;height:18px}
 .or{display:flex;align-items:center;gap:12px;color:var(--ink-3);font-size:.82rem}
 .or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+
+/* 職涯規劃 */
+.cform h2{margin:26px 0 8px}
+.cfield{display:block;margin-top:14px}
+.cfield .k{display:block;font-size:.88rem;color:var(--ink-2);margin-bottom:6px}
+.cfield .k small{margin-left:8px;color:var(--ink-3)}
+.cgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px}
+.cform .pill.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.cform .pill.on svg{color:inherit}
+ul.gaplist{list-style:none;padding:0}
+ul.gaplist li{padding:8px 0;border-bottom:1px solid var(--line)}
+ul.gaplist li:last-child{border-bottom:0}
+ul.gaplist b{margin-right:8px}
+.cjob{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid var(--line)}
+.cjob .bd{flex:1;min-width:0}
+@media (max-width:768px){.cgrid{grid-template-columns:minmax(0,1fr)}}

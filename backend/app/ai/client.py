@@ -78,7 +78,7 @@ async def _with_retry(fn: Callable[[], Awaitable], *, attempts: int, timeout: fl
 async def structured(*, purpose: str, schema: type[T], system: str, user: str, fake: Callable[[], T],
                      tier: str = "fast", prompt_version: str = "v1", priority: str = "normal",
                      timeout: float | None = None, attempts: int = 2, user_id: UUID | None = None,
-                     session_id: UUID | None = None) -> T:
+                     session_id: UUID | None = None, web_search: bool = False) -> T:
     model = model_for(tier)
     if timeout is None:
         timeout = settings.llm_timeout_reasoning if tier == "reasoning" else settings.llm_timeout_fast
@@ -92,7 +92,8 @@ async def structured(*, purpose: str, schema: type[T], system: str, user: str, f
         async with limiter.slot(model, priority):
             resp = await _with_retry(lambda: _openai().responses.parse(
                 model=model, input=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-                text_format=schema, **_reasoning_kw(model, tier)), attempts=attempts, timeout=timeout)
+                text_format=schema, **({"tools": [{"type": "web_search"}]} if web_search else {}),
+                **_reasoning_kw(model, tier)), attempts=attempts, timeout=timeout)
         out = resp.output_parsed
         if out is None:
             raise AIError("empty structured output")

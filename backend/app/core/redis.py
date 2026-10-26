@@ -41,6 +41,7 @@ LIMITS: dict[str, tuple[int, int]] = {          # action: (次數, 視窗秒數)
     "target_create": (20, 3600),
     "question_gen": (20, 3600),
     "prep_gen": (20, 3600),
+    "career_plan": (5, 3600) if not settings.is_dev else (50, 3600),
     "interview_create": (10, 86400) if not settings.is_dev else (200, 86400),
 }
 _mem: dict[str, tuple[int, float]] = {}

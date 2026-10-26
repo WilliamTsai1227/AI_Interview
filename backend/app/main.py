@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.modules.account.router import router as account
 from app.modules.admin.router import router as admin
 from app.modules.auth.router import router as auth
+from app.modules.career.router import router as career
 from app.modules.interviews.router import router as interviews
 from app.modules.jobs.router import router as jobs
 from app.modules.preps.router import router as preps
@@ -67,7 +68,7 @@ async def request_context(request: Request, call_next):
     return response
 
 
-for r in (auth, account, uploads, resumes, targets, questions, preps, jobs, interviews, reports, voice, admin):
+for r in (auth, account, uploads, resumes, targets, questions, preps, career, jobs, interviews, reports, voice, admin):
     app.include_router(r, prefix="/api/v1")
 
 
