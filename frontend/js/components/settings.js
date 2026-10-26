@@ -115,19 +115,10 @@ function pollParse(id, rerender, n = 0) {
 }
 
 function goal() {
-  const p = prefs();
-  const roles = h("input", { class: "inp", value: (p.desired_roles || []).join("、"), placeholder: "例如：資深前端工程師、UI 工程師", "aria-label": "想找的職位" });
-  const locs = h("input", { class: "inp", value: (p.desired_locations || []).join("、"), placeholder: "例如：台北市、可遠端", "aria-label": "希望地點" });
-  const split = (s) => s.split(/[、,，]/).map((x) => x.trim()).filter(Boolean).slice(0, 10);
   return [
-    h("p", { class: "faint", style: "padding-top:12px" }, "選填。只用來在「職缺搜尋」推薦適合你的職缺。"),
-    h("div", { class: "srow col" }, h("span", null, "想找的職位"), roles),
-    h("div", { class: "srow col" }, h("span", null, "希望地點"), locs),
-    h("div", { class: "row", style: "margin-top:14px;justify-content:flex-end" },
-      h("button", { class: "btn pri sm", type: "button", onclick: async () => {
-        await savePrefs({ desired_roles: split(roles.value), desired_locations: split(locs.value) });
-        toast("已儲存");
-      } }, "儲存")),
+    h("p", { class: "faint", style: "padding-top:12px" }, "求職意向（職務、產業、薪資、地點、工時）、自我介紹、作品集和分析用的履歷，現在都集中在「職涯規劃」填寫，Ava 會依此找職缺並分析你還缺什麼。"),
+    h("div", { class: "row", style: "margin-top:14px" },
+      h("a", { class: "btn pri sm", href: "#career", onclick: () => closeModal() }, icon("brief"), "前往職涯規劃")),
   ];
 }
 
