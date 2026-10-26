@@ -10,6 +10,17 @@ from app.modules.career import service
 router = APIRouter(prefix="/career", tags=["career"])
 
 
+def _links(xs: list[str]) -> list[str]:
+    out = []
+    for x in xs:
+        x = x.strip()[:500]
+        if x and not x.lower().startswith(("http://", "https://")):
+            x = "https://" + x
+        if x:
+            out.append(x)
+    return list(dict.fromkeys(out))[:10]
+
+
 def _clean(xs: list[str]) -> list[str]:
     return list(dict.fromkeys(x.strip() for x in xs if x.strip()))[:10]
 
@@ -17,6 +28,8 @@ def _clean(xs: list[str]) -> list[str]:
 class ProfileIn(BaseModel):
     self_intro: str = Field(default="", max_length=3000)
     experience_note: str = Field(default="", max_length=3000)
+    portfolio_links: list[str] = Field(default_factory=list, max_length=10)
+    resume_id: UUID | None = None
     salary_min: int | None = Field(default=None, ge=0, le=100_000_000)
     salary_period: Literal["month", "year"] = "month"
     industries: list[str] = Field(default_factory=list, max_length=10)
@@ -40,7 +53,7 @@ async def get_profile(user: CurrentUser = Depends(current_user)):
 async def put_profile(body: ProfileIn, user: CurrentUser = Depends(current_user)):
     d = body.model_dump()
     d.update(self_intro=body.self_intro.strip(), experience_note=body.experience_note.strip(), duties_pref=body.duties_pref.strip(),
-             work_hours=body.work_hours.strip(), industries=_clean(body.industries), roles=_clean(body.roles),
+             work_hours=body.work_hours.strip(), portfolio_links=_links(body.portfolio_links), industries=_clean(body.industries), roles=_clean(body.roles),
              locations=_clean(body.locations), work_modes=list(dict.fromkeys(body.work_modes)))
     return await service.put_profile(user.id, d)
 

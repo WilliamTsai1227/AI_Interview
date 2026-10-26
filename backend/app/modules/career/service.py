@@ -15,15 +15,17 @@ from app.workers.queue import enqueue, tx
 log = structlog.get_logger()
 MAX_CATALOG, MAX_WEB = 8, 6
 PRIORITY_RANK = {"high": 0, "medium": 1, "low": 2}
-PROFILE_FIELDS = ("self_intro", "experience_note", "salary_min", "salary_period", "industries", "roles",
-                  "duties_pref", "work_hours", "locations", "work_modes")
+PROFILE_FIELDS = ("self_intro", "experience_note", "portfolio_links", "resume_id", "salary_min", "salary_period",
+                  "industries", "roles", "duties_pref", "work_hours", "locations", "work_modes")
 
 
 def _profile_out(r) -> dict:
     if not r:
-        return {"self_intro": "", "experience_note": "", "salary_min": None, "salary_period": "month", "industries": [],
+        return {"self_intro": "", "experience_note": "", "portfolio_links": [], "resume_id": None, "salary_min": None, "salary_period": "month", "industries": [],
                 "roles": [], "duties_pref": "", "work_hours": "", "locations": [], "work_modes": [], "updated_at": None}
-    return {**{k: r[k] for k in PROFILE_FIELDS}, "updated_at": r["updated_at"]}
+    d = {k: r[k] for k in PROFILE_FIELDS}
+    d["resume_id"] = str(d["resume_id"]) if d["resume_id"] else None
+    return {**d, "updated_at": r["updated_at"]}
 
 
 async def get_profile(user_id: UUID) -> dict:
@@ -33,12 +35,16 @@ async def get_profile(user_id: UUID) -> dict:
 
 async def put_profile(user_id: UUID, data: dict) -> dict:
     async with db.connection() as conn:
+        if data["resume_id"] and not await conn.fetchval(
+                "SELECT 1 FROM resumes WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL", data["resume_id"], user_id):
+            raise not_found("找不到這份履歷")
         r = await conn.fetchrow(
             """
-            INSERT INTO career_profiles (user_id, self_intro, experience_note, salary_min, salary_period, industries,
-                                         roles, duties_pref, work_hours, locations, work_modes)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            INSERT INTO career_profiles (user_id, self_intro, experience_note, portfolio_links, resume_id, salary_min, salary_period,
+                                         industries, roles, duties_pref, work_hours, locations, work_modes)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
             ON CONFLICT (user_id) DO UPDATE SET self_intro = EXCLUDED.self_intro, experience_note = EXCLUDED.experience_note,
+                 portfolio_links = EXCLUDED.portfolio_links, resume_id = EXCLUDED.resume_id,
                  salary_min = EXCLUDED.salary_min, salary_period = EXCLUDED.salary_period, industries = EXCLUDED.industries,
                  roles = EXCLUDED.roles, duties_pref = EXCLUDED.duties_pref, work_hours = EXCLUDED.work_hours,
                  locations = EXCLUDED.locations, work_modes = EXCLUDED.work_modes, updated_at = now()
@@ -60,7 +66,9 @@ async def start(user_id: UUID) -> dict:
             "SELECT id FROM career_plans WHERE user_id = $1 AND status IN ('pending','running')", user_id)
         if running:
             return {"id": str(running), "status": "running"}
-        rid = await conn.fetchval("SELECT id FROM resumes WHERE user_id = $1 AND is_primary AND deleted_at IS NULL", user_id)
+        rid = (await conn.fetchval("SELECT id FROM resumes WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+                                   UUID(p["resume_id"]), user_id) if p["resume_id"] else None) \
+            or await conn.fetchval("SELECT id FROM resumes WHERE user_id = $1 AND is_primary AND deleted_at IS NULL", user_id)
         pid = await conn.fetchval(
             "INSERT INTO career_plans (user_id, resume_id, profile_snapshot) VALUES ($1,$2,$3) RETURNING id",
             user_id, rid, {k: v for k, v in p.items() if k != "updated_at"})

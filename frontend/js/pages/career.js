@@ -1,13 +1,14 @@
 // 職涯規劃：個人檔案（自我介紹、求職意向）→ Ava 搜尋職缺並分析能力差距 → 準備大項目與小項目。
-import { get, patch, post, put } from "../api.js";
+import { get, patch, post, put, uploadFile } from "../api.js";
 import { openJob } from "../components/job.js";
 import { openSettings } from "../components/settings.js";
 import { dots, h, icon, replace, skel } from "../dom.js";
 import { fmtDate, loadResumes, S } from "../store.js";
-import { errorToast, logo, setHead, toast } from "../ui.js";
+import { errorToast, logo, openMenu, setHead, toast } from "../ui.js";
 
 const SEV = { high: "高", medium: "中", low: "低" };
 const MODES = [["onsite", "進辦公室"], ["hybrid", "混合辦公"], ["remote", "完全遠端"]];
+const PARSE = { pending: "等待解析", parsing: "Ava 解析中", parsed: "已解析", failed: "解析失敗" };
 const split = (s) => s.split(/[,，、\n]/).map((x) => x.trim()).filter(Boolean);
 
 export async function render(view, _arg, ctx) {
@@ -51,7 +52,60 @@ export async function render(view, _arg, ctx) {
       hours: h("input", { class: "inp", maxlength: 200, placeholder: "例如：彈性上下班、不常加班", value: profile.work_hours }),
       loc: h("input", { class: "inp", placeholder: "例如：台北市、新北市", value: profile.locations.join("、") }),
       modes: new Set(profile.work_modes),
+      links: profile.portfolio_links.length ? [...profile.portfolio_links] : [""],
+      resumeId: profile.resume_id || (S.resumes || []).find((r) => r.is_primary)?.id || null,
     };
+    const resumeBox = h("div", { class: "cresume" });
+    const linkBox = h("div", { class: "clinks" });
+    const cur = () => (S.resumes || []).find((r) => r.id === f.resumeId);
+    const parsing = () => { const r = cur(); return !!r && (r.parse_status === "pending" || r.parse_status === "parsing"); };
+    let ptimer = null;
+    const pollResumes = () => {
+      clearTimeout(ptimer);
+      if (!parsing()) return;
+      ptimer = setTimeout(async () => {
+        if (!ctx.isCurrent() || !editing) return;
+        await loadResumes().catch(() => {});
+        drawResume();
+        pollResumes();
+      }, 2000);
+    };
+    async function upload(file) {
+      if (!file) return;
+      if (file.size > 10 * 1024 * 1024) { toast("檔案超過 10 MB"); return; }
+      toast(`正在上傳 ${file.name}⋯`);
+      try {
+        const uid = await uploadFile("resume", file, { filename: file.name });
+        const r = await post("/resumes", { upload_id: uid });
+        await loadResumes();
+        f.resumeId = r.id;
+        toast(r.parse_status === "parsed" ? "這份履歷之前上傳過了" : "履歷已上傳，Ava 正在解析");
+        drawResume();
+        pollResumes();
+      } catch (e) { errorToast(e); }
+    }
+    const fileInput = h("input", { type: "file", accept: ".pdf,.doc,.docx", hidden: true, onchange: () => { upload(fileInput.files[0]); fileInput.value = ""; } });
+    function drawResume() {
+      const list = S.resumes || [];
+      const r = cur();
+      replace(resumeBox,
+        list.length ? h("button", { class: "picker", type: "button", onclick: (e) => openMenu(e.currentTarget,
+          [{ title: "用哪份履歷分析" }, ...list.map((x) => ({ label: `${x.filename}${x.is_primary ? "（主要）" : ""}`, v: x.id, checked: f.resumeId === x.id }))],
+          (v) => { f.resumeId = v; drawResume(); pollResumes(); }) }, icon("file"), h("b", null, r?.filename || "選擇履歷"), icon("chev"))
+          : h("span", { class: "faint" }, "還沒有上傳履歷"),
+        h("button", { class: "btn out sm", type: "button", onclick: () => fileInput.click() }, icon("upload"), list.length ? "上傳新履歷" : "上傳履歷"),
+        fileInput,
+        r ? h("span", { class: "faint" }, PARSE[r.parse_status] || "") : null);
+    }
+    const drawLinks = () => replace(linkBox,
+      f.links.map((u, i) => h("div", { class: "row", style: "flex-wrap:nowrap;margin-bottom:8px" },
+        h("input", { class: "inp", type: "url", placeholder: "https://github.com/你的帳號/專案", value: u, "aria-label": `作品連結 ${i + 1}`,
+          oninput: (e) => { f.links[i] = e.target.value; } }),
+        h("button", { class: "ib", type: "button", "aria-label": "移除連結", onclick: () => { f.links.splice(i, 1); if (!f.links.length) f.links.push(""); drawLinks(); } }, icon("x")))),
+      f.links.length < 10 ? h("button", { class: "linkb", type: "button", onclick: () => { f.links.push(""); drawLinks(); setTimeout(() => linkBox.querySelectorAll("input")[f.links.length - 1]?.focus()); } }, icon("plus", 14), "新增連結") : null);
+    drawResume();
+    drawLinks();
+    pollResumes();
     const periodSeg = h("div", { class: "seg" });
     const drawPeriod = () => replace(periodSeg, [["month", "月薪"], ["year", "年薪"]].map(([k, n]) =>
       h("button", { type: "button", class: f.period === k ? "on" : "", onclick: () => { f.period = k; drawPeriod(); } }, n)));
@@ -67,7 +121,8 @@ export async function render(view, _arg, ctx) {
       saving = true;
       try {
         profile = await put("/career/profile", {
-          self_intro: f.intro.value, experience_note: f.exp.value, salary_min: f.salary.value ? Number(f.salary.value) : null,
+          self_intro: f.intro.value, experience_note: f.exp.value, portfolio_links: f.links.map((x) => x.trim()).filter(Boolean),
+          resume_id: f.resumeId, salary_min: f.salary.value ? Number(f.salary.value) : null,
           salary_period: f.period, industries: split(f.ind.value), roles: split(f.roles.value), duties_pref: f.duties.value,
           work_hours: f.hours.value, locations: split(f.loc.value), work_modes: [...f.modes],
         });
@@ -83,7 +138,9 @@ export async function render(view, _arg, ctx) {
 
     return h("div", { class: "cform" },
       h("h2", null, "關於你"),
+      field("履歷", "用哪一份履歷來分析", resumeBox),
       field("自我介紹", "", f.intro), field("經歷補充", "選填", f.exp),
+      field("作品集", "GitHub、個人網站、Behance 等，一行一個連結", linkBox),
       h("h2", null, "想找什麼樣的工作"),
       field("想做的職務", "", f.roles), field("產業", "", f.ind), field("希望的工作內容", "", f.duties),
       h("div", { class: "cgrid" },
@@ -91,8 +148,9 @@ export async function render(view, _arg, ctx) {
         field("工時偏好", "", f.hours)),
       field("地點", "", f.loc), field("工作型態", "可複選，不選＝不限", modeRow),
       h("div", { class: "row", style: "margin-top:22px" },
-        h("button", { class: "btn pri", type: "button", disabled: saving, onclick: () => save(true) }, icon("search"), "儲存並開始分析"),
+        h("button", { class: "btn pri", type: "button", disabled: saving || parsing(), title: parsing() ? "等履歷解析完成" : "", onclick: () => save(true) }, icon("search"), "儲存並開始分析"),
         h("button", { class: "btn out", type: "button", disabled: saving, onclick: () => save(false) }, "只儲存"),
+        parsing() ? h("span", { class: "faint" }, "履歷解析完成後才能開始分析") : null,
         plan ? h("button", { class: "linkb", type: "button", onclick: () => { editing = false; draw(); } }, "取消") : null));
   }
 
@@ -103,7 +161,10 @@ export async function render(view, _arg, ctx) {
       p.locations?.length ? p.locations.join("、") : null, p.work_hours || null].filter(Boolean);
     return h("div", { class: "basis" }, h("div", { class: "basis-h" }, icon("user"), "這次分析依據你的個人檔案"),
       h("div", { class: "su-row" }, h("div", { class: "v" }, bits.length ? bits.join("・") : "尚未填寫求職意向")),
-      h("div", { class: "su-row" }, h("span", { class: "k" }, "履歷"), h("div", { class: "v" }, plan.has_resume ? "已使用主要履歷"
+      h("div", { class: "su-row" }, h("span", { class: "k" }, "作品集"), h("div", { class: "v" }, (p.portfolio_links || []).length
+        ? p.portfolio_links.map((u) => h("a", { class: "linkb", href: u, target: "_blank", rel: "noopener noreferrer" }, u.replace(/^https?:\/\//, "").slice(0, 48)))
+        : h("span", { class: "faint" }, "沒有提供作品集連結"))),
+      h("div", { class: "su-row" }, h("span", { class: "k" }, "履歷"), h("div", { class: "v" }, plan.has_resume ? "已使用你選的履歷"
         : [h("button", { class: "btn out sm", type: "button", onclick: () => openSettings("resume", { onChanged: loadResumes }) }, icon("upload"), "上傳履歷"),
           h("span", { class: "hint" }, "有履歷才能精準比對你缺什麼")])),
       h("div", { class: "basis-f" }, h("span", { class: "faint" }, `分析時間：${fmtDate(plan.created_at)}`),

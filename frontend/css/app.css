@@ -455,3 +455,5 @@ ul.gaplist b{margin-right:8px}
 .cjob{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid var(--line)}
 .cjob .bd{flex:1;min-width:0}
 @media (max-width:768px){.cgrid{grid-template-columns:minmax(0,1fr)}}
+.cresume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.clinks .inp{flex:1}

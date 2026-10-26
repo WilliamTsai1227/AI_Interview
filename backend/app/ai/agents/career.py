@@ -31,6 +31,7 @@ class SearchOut(BaseModel):
 SEARCH_SYSTEM = """你是求職顧問，使用網路搜尋找出真實、目前仍在招募的職缺。
 - 依使用者的求職意向（薪水、產業、職務、工時、地點、工作型態）與履歷背景搜尋，優先台灣的職缺網站（104、CakeResume、Yourator、LinkedIn、公司官網）。
 - 只回傳搜尋結果中真的看到的職缺；source_url 必須是真實網址，不確定就不要列，寧缺勿濫。
+- 作品集連結（GitHub、個人網站等）可以打開看，用來判斷使用者的實際能力與適合的職缺。
 - 摘要與條列用自己的話改寫，不要整段貼原文。最多 {n} 筆，繁體中文。"""
 
 
@@ -45,7 +46,8 @@ def profile_text(profile: dict) -> str:
              f"地點：{'、'.join(profile.get('locations') or []) or '不限'}",
              f"工作型態：{'、'.join(profile.get('work_modes') or []) or '不限'}",
              f"自我介紹：{profile.get('self_intro') or '未填'}",
-             f"經歷補充：{profile.get('experience_note') or '未填'}"]
+             f"經歷補充：{profile.get('experience_note') or '未填'}",
+             f"作品集連結：{'、'.join(profile.get('portfolio_links') or []) or '未填'}"]
     return "\n".join(lines)
 
 
@@ -93,6 +95,7 @@ PLAN_SYSTEM = """你是資深職涯教練。根據使用者的履歷、自我介
 - gaps：跨職缺反覆出現的能力缺口 3–6 個，severity 依出現頻率與重要性。只根據履歷與自我介紹中明確的資訊判斷，不要捏造使用者的經歷。
 - job_fits：每個候選職缺一筆，index 對應清單編號。
 - areas：3–6 個準備大項目（例如技術深度、作品集、面試表達、產業知識），每個底下 3–6 個可執行的小項目，並有優先順序。
+- 作品集連結若有提供，把它當作能力證據；沒有作品集或作品集不足時，在 areas 加入「建立作品集」相關小項目。
 - 若沒有履歷，gaps 與 areas 以職缺共同要求與自我介紹為主，並建議先上傳履歷。"""
 
 
