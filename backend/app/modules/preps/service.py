@@ -166,6 +166,7 @@ async def _context(conn: db.Connection, prep) -> tuple[dict, dict | None, db.Rec
     j = await conn.fetchrow("SELECT * FROM job_posts WHERE id = $1", prep["job_post_id"])
     r = await conn.fetchrow("SELECT * FROM resumes WHERE id = $1 AND deleted_at IS NULL", t["resume_id"]) if t["resume_id"] else None
     job = {k: j[k] for k in ("company_name", "title", "about", "summary", "duties", "requirements", "salary_text")}
+    job["description"] = (j["raw_text"] or "")[:4000]      # 職缺原文：只給 AI 分析用
     job["tags"] = list(j["tags"] or [])
     return job, resumes.snapshot(r), j, r
 

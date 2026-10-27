@@ -67,7 +67,7 @@ def _fake_analyze(job: dict, resume: dict | None, existing_q: list[str], existin
 
 async def analyze(*, job: dict, resume: dict | None, existing_questions: list[str], existing_checklist: list[str],
                   user_id=None) -> AnalyzeOut:
-    user = json.dumps({"職缺": {k: job.get(k) for k in ("company_name", "title", "about", "duties", "requirements", "tags", "salary_text")},
+    user = json.dumps({"職缺": {k: job.get(k) for k in ("company_name", "title", "about", "summary", "duties", "requirements", "tags", "salary_text", "description")},
                        "履歷": resume or "（沒有履歷）", "既有可能題目": existing_questions,
                        "既有準備清單": existing_checklist}, ensure_ascii=False)
     out = await client.structured(purpose="prep", schema=AnalyzeOut, system=ANALYZE_SYSTEM, user=user,

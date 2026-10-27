@@ -1,0 +1,64 @@
+# AWS SAM：職缺爬蟲 Lambda（每日爬取＋每日檢查）
+# 部署：./build.sh && sam deploy --guided
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: AI Interview job crawler (company career pages, schema.org JobPosting)
+
+Parameters:
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    Description: postgresql://user:password@host:5432/ai_interview（建議改用 Secrets Manager）
+  OpenAIApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: 選填；有填才會用 AI 寫職缺摘要
+  CrawlerUserAgent:
+    Type: String
+    Default: "AIInterviewJobBot/0.1 (+https://your-domain/bot; contact: you@your-domain)"
+  SubnetIds:
+    Type: CommaDelimitedList
+    Description: 與 RDS 同一個 VPC 的私有子網路（需能連到 RDS 與網際網路，例如透過 NAT Gateway）
+  SecurityGroupIds:
+    Type: CommaDelimitedList
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [arm64]
+    MemorySize: 512
+    Timeout: 900
+    CodeUri: build/
+    VpcConfig:
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds: !Ref SecurityGroupIds
+    Environment:
+      Variables:
+        DATABASE_URL: !Ref DatabaseUrl
+        DATABASE_SSL: "true"
+        OPENAI_API_KEY: !Ref OpenAIApiKey
+        CRAWLER_USER_AGENT: !Ref CrawlerUserAgent
+        CRAWLER_DELAY_SEC: "2"
+
+Resources:
+  JobCrawlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handler.lambda_handler
+      ReservedConcurrentExecutions: 1          # 同時只跑一個，避免對同一網站並行請求
+      Events:
+        DailyCrawl:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 18 * * ? *)       # 每天台灣時間 02:00
+            Input: '{"mode": "crawl"}'
+        DailyVerify:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 20 * * ? *)       # 每天台灣時間 04:00
+            Input: '{"mode": "verify", "limit": 300}'
+
+Outputs:
+  FunctionName:
+    Value: !Ref JobCrawlerFunction

@@ -18,7 +18,7 @@ from app.modules.auth import google
 def client(monkeypatch):
     monkeypatch.setattr(settings, "google_client_id", "test-client.apps.googleusercontent.com")
     monkeypatch.setattr(settings, "google_client_secret", "test-secret")
-    with TestClient(app, base_url="http://localhost:8000") as c:
+    with TestClient(app, base_url="http://localhost:8009") as c:
         yield c
 
 
@@ -48,7 +48,7 @@ def test_start_redirect(client):
     q = {k: v[0] for k, v in parse_qs(u.query).items()}
     assert u.netloc == "accounts.google.com"
     assert q["client_id"] == settings.google_client_id
-    assert q["redirect_uri"] == "http://localhost:8000/api/v1/auth/google/callback"
+    assert q["redirect_uri"] == "http://localhost:8009/api/v1/auth/google/callback"
     assert q["code_challenge_method"] == "S256" and len(q["code_challenge"]) == 43
     assert q["scope"] == "openid email profile"
     sc = r.headers["set-cookie"].lower()

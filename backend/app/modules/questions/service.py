@@ -91,6 +91,7 @@ async def _job_and_resume(conn: db.Connection, set_row) -> tuple[dict, dict | No
     j = await conn.fetchrow("SELECT * FROM job_posts WHERE id = $1", set_row["job_post_id"])
     r = await conn.fetchrow("SELECT * FROM resumes WHERE id = $1", set_row["resume_id"]) if set_row["resume_id"] else None
     job = {k: j[k] for k in ("company_name", "title", "about", "summary", "duties", "requirements")}
+    job["description"] = (j["raw_text"] or "")[:4000]      # 職缺原文：只給 AI 出題用
     job["tags"] = list(j["tags"] or [])
     return job, resumes.snapshot(r)
 

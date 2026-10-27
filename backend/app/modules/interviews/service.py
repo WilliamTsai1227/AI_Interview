@@ -191,7 +191,7 @@ async def create(user_id: UUID, target_id: UUID, resume_id: UUID | None, resume_
         r = await resumes.owned(conn, user_id, rid) if rid else None
     job_snap = {"job_post_id": str(job["id"]), "company_name": job["company_name"], "title": job["title"],
                 "about": job["about"] or job["summary"], "duties": job["duties"] or [], "requirements": job["requirements"] or [],
-                "tags": list(job["tags"] or [])}
+                "tags": list(job["tags"] or []), "description": (job["raw_text"] or "")[:4000]}
     resume_snap = resumes.snapshot(r)
     # 題組不夠：自動補題並寫回題組（不讓使用者卡在「題數不足」）
     fill: list[dict] = []

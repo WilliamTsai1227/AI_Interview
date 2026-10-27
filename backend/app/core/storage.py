@@ -79,7 +79,7 @@ async def ensure_bucket() -> None:
         # 允許瀏覽器直接 PUT／GET（預簽名網址）
         try:
             _s3.put_bucket_cors(Bucket=B, CORSConfiguration={"CORSRules": [{
-                "AllowedOrigins": [settings.base_url, "http://localhost:8000", "http://127.0.0.1:8000"],
+                "AllowedOrigins": [settings.base_url, "http://localhost:8009", "http://127.0.0.1:8009"],
                 "AllowedMethods": ["PUT", "GET", "HEAD"], "AllowedHeaders": ["*"], "MaxAgeSeconds": 3000}]})
         except ClientError:
             pass  # MinIO 預設允許所有來源

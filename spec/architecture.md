@@ -865,4 +865,6 @@ class Speech:
 | 5. 定期檢查 | 每日 cron | 重新確認 `source_url`：404／已關閉 → `closed`；刊登超過 30 天未再出現 → `closed` |
 | 6. AI 稽核 | 每日 cron | Job Auditor 抽樣檢查前一天上架的職缺，產生摘要 email 寄給管理者 |
 
+**實作狀態（v0.4）**：先實作「公司官網 schema.org JobPosting」來源，程式在 `data/job_crawlers/`（AWS Lambda＋EventBridge 每日排程；遵守 robots.txt、限速、遇到機器人驗證即停止不繞過；寫入 `job_posts`，`source_site = company`）。104 與 CakeResume 的職缺頁有機器人驗證且條款限制自動擷取，需取得官方授權或合作 API 才接入；OpenAI 網路搜尋來源尚未實作。
+
 每次執行記錄在 `job_ingest_runs`（抓回、通過、上架、送審、下架數量與成本）。ETL 使用 limiter 的最低優先順序，不影響面試。

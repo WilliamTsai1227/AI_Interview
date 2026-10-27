@@ -15,7 +15,7 @@
 docker compose up -d --build
 ```
 
-打開 <http://localhost:8000>，示範帳號 `demo@example.com` / `demo1234`。
+打開 <http://localhost:8009>，示範帳號 `demo@example.com` / `demo1234`。
 
 - 會啟動 `db`、`redis`、`minio`、`migrate`（建表＋範例資料，跑完就結束）、`api`（同時提供前端）、`worker`。
 - 要用 OpenAI 或 Google 登入：`cp backend/.env.example backend/.env` 後填金鑰，再 `docker compose up -d` 重新套用。沒有 `.env` 也能跑（開發模式）。
@@ -41,17 +41,17 @@ cp .env.example .env            # 要用真的 AI 就填 OPENAI_API_KEY
 .venv/bin/python -m app.seed --admin demo@example.com
 
 # 4. 啟動 API（同時提供前端）與 worker（兩個終端機）
-.venv/bin/uvicorn app.main:app --port 8000 --reload
+.venv/bin/uvicorn app.main:app --port 8009 --reload
 .venv/bin/python -m app.workers.main
 ```
 
-打開 <http://localhost:8000>。API 文件在 <http://localhost:8000/api/v1/docs>。
+打開 <http://localhost:8009>。API 文件在 <http://localhost:8009/api/v1/docs>。
 
 ### Google 登入（選用）
 
 1. Google Cloud Console → API 和服務 → OAuth 同意畫面：設定應用程式名稱、支援 Email；測試階段把自己的帳號加進「測試使用者」。
 2. 憑證 → 建立憑證 → OAuth 用戶端 ID → 應用程式類型「網頁應用程式」。
-3. 已授權的重新導向 URI 填 `http://localhost:8000/api/v1/auth/google/callback`（正式環境改成你的網域，並設定 `BASE_URL`、`COOKIE_SECURE=true`）。
+3. 已授權的重新導向 URI 填 `http://localhost:8009/api/v1/auth/google/callback`（正式環境改成你的網域，並設定 `BASE_URL`、`COOKIE_SECURE=true`）。
 4. 把用戶端 ID 與密鑰填進 `backend/.env` 的 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`，重啟 API。登入頁就會出現「使用 Google 繼續」。
 
 ### 開發模式（沒有 OpenAI 金鑰）
@@ -80,10 +80,13 @@ backend/
 frontend/
   index.html、css/app.css
   js/                dom.js（DOM 建構）、api.js、router.js、pages/、components/、interview/（錄音與播放）
+data/job_crawlers/   職缺爬蟲（AWS Lambda）：公司官網 schema.org JobPosting → job_posts
+data/scheduler/      在本機手動或定時執行爬蟲（讀資料夾內 .env）
 spec/                規格書與 UI 原型
 ```
 
 ## 尚未實作
 
 - Realtime 語音（P3）：`realtime/connect` 目前固定回 `503 REALTIME_UNAVAILABLE`，前端自動使用標準語音。
-- 職缺 ETL（網路搜尋＋審核流程的排程工作）、方案付費。
+- 職缺：已有公司官網爬蟲（[data/job_crawlers](data/job_crawlers/)），公司清單需自行填寫；104／CakeResume 需官方授權才能接。契合度計算（`compute_matches`）尚未實作。
+- 方案付費。

@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     env: str = "dev"
-    base_url: str = "http://localhost:8000"
+    base_url: str = "http://localhost:8009"
     frontend_dir: str = "../frontend"
 
     database_url: str = "postgresql://ai:ai@localhost:5434/ai_interview"

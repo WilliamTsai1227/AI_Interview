@@ -1,0 +1,4 @@
+build/
+job_crawler.zip
+.venv/
+__pycache__/

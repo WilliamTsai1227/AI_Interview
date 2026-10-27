@@ -457,3 +457,6 @@ ul.gaplist b{margin-right:8px}
 @media (max-width:768px){.cgrid{grid-template-columns:minmax(0,1fr)}}
 .cresume{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .clinks .inp{flex:1}
+details.raw-jd{margin-top:28px;border-top:1px solid var(--line)}
+details.raw-jd summary svg:first-child{transform:none;color:var(--ink-2)}
+.raw-text{white-space:pre-wrap;word-break:break-word;background:var(--code);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:.9rem;line-height:1.75;max-height:460px;overflow:auto}

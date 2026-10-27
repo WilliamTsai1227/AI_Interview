@@ -102,7 +102,7 @@ def _fake_plan(job: dict, resume: dict | None, categories: list[str], difficulty
 async def plan_questions(*, job: dict, resume: dict | None, categories: list[str], difficulty: str, count: int,
                          note: str, existing: list[str], language: str = "zh", user_id=None) -> list[dict]:
     user = json.dumps({
-        "職缺": {k: job.get(k) for k in ("company_name", "title", "about", "duties", "requirements", "tags")},
+        "職缺": {k: job.get(k) for k in ("company_name", "title", "about", "summary", "duties", "requirements", "tags", "description")},
         "履歷": resume or "（沒有履歷，只依職缺出題）",
         "題目類型": categories or "由你依職缺決定，盡量涵蓋不同類型",
         "難度": difficulty, "題數": count, "使用者需求": note or "（無）", "語言": language,
