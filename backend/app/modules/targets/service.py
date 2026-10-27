@@ -45,7 +45,9 @@ def target_out(r, detail: bool = False) -> dict:
            "source_url": r["source_url"], "last_verified_at": r["last_verified_at"], "updated_at": r["job_updated_at"]}
     if detail:
         job.update({"about": r["about"], "summary": r["summary"], "duties": r["duties"] or [],
-                    "requirements": r["requirements"] or [], "raw_text": r["raw_text"]})
+                    "requirements": r["requirements"] or [],
+                    # 平台職缺的原文只給 AI 用，不回傳給前端；使用者自己貼的才回傳
+                    "raw_text": r["raw_text"] if r["source"] == "user" else None})
     set_status = r["set_status"] or "preparing"
     if r["gen_running"] and set_status == "ready" and not r["item_count"]:
         set_status = "preparing"

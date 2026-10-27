@@ -1,0 +1,18 @@
+{
+  "_說明": "要爬的公司官網徵才頁。只會讀取網頁上公開給搜尋引擎的 schema.org JobPosting 結構化資料，並遵守 robots.txt。enabled=false 的不會執行。",
+  "_欄位": {
+    "name": "代號（英數，唯一），Lambda 事件可用 companies 指定",
+    "company_name": "顯示名稱（結構化資料沒有公司名稱時使用）",
+    "careers_url": "徵才首頁（https）",
+    "sitemaps": "選填：額外的 sitemap 網址；robots.txt 宣告的 sitemap 會自動讀",
+    "enabled": "true／false"
+  },
+  "companies": [
+    {
+      "name": "example-company",
+      "company_name": "範例公司",
+      "careers_url": "https://careers.example.com/",
+      "enabled": false
+    }
+  ]
+}

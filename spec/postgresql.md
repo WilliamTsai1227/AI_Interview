@@ -618,7 +618,7 @@ CREATE TABLE job_posts (
   review_reasons   jsonb NOT NULL DEFAULT '[]',   -- ["分類信心低","公司名稱與網域不一致"]
   work_language    text,                     -- zh / en
   is_foreign       boolean NOT NULL DEFAULT false,
-  raw_text         text,                     -- 使用者貼上的原始 JD
+  raw_text         text,                     -- 職缺原文：使用者貼上的 JD；平台職缺為爬蟲取得的描述（只給 AI 出題與分析用，API 不回傳平台職缺的原文）
   parse_status     text NOT NULL DEFAULT 'parsed'
                    CHECK (parse_status IN ('pending','parsing','parsed','failed')),
   search_text      text NOT NULL DEFAULT '', -- 職稱+公司+標籤，應用程式維護
@@ -1316,7 +1316,7 @@ RETURNING id, status;   -- status = completed 的排 build_report
 ## 8. 遷移與維運
 
 - 遷移：`backend/migrations/NNNN_*.sql` 純 SQL 檔，`python -m app.core.migrate` 依檔名順序執行（每個檔案一個交易，記錄在 `schema_migrations`），同時建立本月起 3 個月的 log 分區。不用 ORM 或 autogenerate。新增 NOT NULL 欄位時先加可為 NULL＋回填＋再加約束。
-- 目前遷移：`0001_init.sql`（本文件 §4 的 DDL）、`0002_session_planned_followups.sql`（`session_questions.planned_followups`）。
+- 目前遷移：`0001_init.sql`（本文件 §4 的 DDL）、`0002_session_planned_followups.sql`（`session_questions.planned_followups`）、`0005_ingest_run_details.sql`（`job_ingest_runs.details`：爬蟲每次執行的明細）。
 - 連線池：asyncpg pool（每個程序 `min_size=5`、`max_size=20`）；正式環境前面可加 PgBouncer（transaction mode，asyncpg 需設 `statement_cache_size=0`）。所有查詢為手寫參數化 SQL（見 architecture.md §4.2.1）。跨程序通知走 Redis Pub/Sub，不使用 `LISTEN/NOTIFY`。
 - 備份：託管服務每日快照＋PITR 7 天。
 - 本機開發：`docker compose up -d`（`db`、`redis`、`minio`），映像使用 `pgvector/pgvector:pg16`、`redis:7-alpine`；啟動方式見 README.md。

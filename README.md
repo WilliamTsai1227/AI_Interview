@@ -80,10 +80,13 @@ backend/
 frontend/
   index.html、css/app.css
   js/                dom.js（DOM 建構）、api.js、router.js、pages/、components/、interview/（錄音與播放）
+data/job_crawlers/   職缺爬蟲（AWS Lambda）：公司官網 schema.org JobPosting → job_posts
+data/scheduler/      在本機手動或定時執行爬蟲（讀資料夾內 .env）
 spec/                規格書與 UI 原型
 ```
 
 ## 尚未實作
 
 - Realtime 語音（P3）：`realtime/connect` 目前固定回 `503 REALTIME_UNAVAILABLE`，前端自動使用標準語音。
-- 職缺 ETL（網路搜尋＋審核流程的排程工作）、方案付費。
+- 職缺：已有公司官網爬蟲（[data/job_crawlers](data/job_crawlers/)），公司清單需自行填寫；104／CakeResume 需官方授權才能接。契合度計算（`compute_matches`）尚未實作。
+- 方案付費。
