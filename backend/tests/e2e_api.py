@@ -9,7 +9,7 @@ import uuid
 
 import httpx
 
-BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000") + "/api/v1"
+BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8009") + "/api/v1"
 WEBM = b"\x1a\x45\xdf\xa3" + b"\x00" * 2000   # 只需要通過 magic bytes 檢查
 
 

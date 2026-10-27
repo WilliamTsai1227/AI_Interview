@@ -1,4 +1,4 @@
-# 一行全部跑起來：docker compose up -d --build → http://localhost:8000
+# 一行全部跑起來：docker compose up -d --build → http://localhost:8009
 #   db / redis / minio：基礎設施
 #   migrate：建立資料表（＋範例資料），跑完就結束
 #   api：FastAPI，同時提供前端
@@ -23,7 +23,7 @@ x-app: &app
     S3_ACCESS_KEY: minioadmin
     S3_SECRET_KEY: minioadmin
     S3_BUCKET: ai-interview
-    BASE_URL: http://localhost:8000
+    BASE_URL: http://localhost:8009
     FRONTEND_DIR: /frontend
   restart: unless-stopped
 
@@ -75,13 +75,13 @@ services:
 
   api:
     <<: *app
-    ports: ["8000:8000"]
+    ports: ["8009:8009"]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       minio: { condition: service_started }
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8009/api/v1/health', timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 6

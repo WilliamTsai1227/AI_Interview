@@ -15,7 +15,7 @@
 docker compose up -d --build
 ```
 
-打開 <http://localhost:8000>，示範帳號 `demo@example.com` / `demo1234`。
+打開 <http://localhost:8009>，示範帳號 `demo@example.com` / `demo1234`。
 
 - 會啟動 `db`、`redis`、`minio`、`migrate`（建表＋範例資料，跑完就結束）、`api`（同時提供前端）、`worker`。
 - 要用 OpenAI 或 Google 登入：`cp backend/.env.example backend/.env` 後填金鑰，再 `docker compose up -d` 重新套用。沒有 `.env` 也能跑（開發模式）。
@@ -41,17 +41,17 @@ cp .env.example .env            # 要用真的 AI 就填 OPENAI_API_KEY
 .venv/bin/python -m app.seed --admin demo@example.com
 
 # 4. 啟動 API（同時提供前端）與 worker（兩個終端機）
-.venv/bin/uvicorn app.main:app --port 8000 --reload
+.venv/bin/uvicorn app.main:app --port 8009 --reload
 .venv/bin/python -m app.workers.main
 ```
 
-打開 <http://localhost:8000>。API 文件在 <http://localhost:8000/api/v1/docs>。
+打開 <http://localhost:8009>。API 文件在 <http://localhost:8009/api/v1/docs>。
 
 ### Google 登入（選用）
 
 1. Google Cloud Console → API 和服務 → OAuth 同意畫面：設定應用程式名稱、支援 Email；測試階段把自己的帳號加進「測試使用者」。
 2. 憑證 → 建立憑證 → OAuth 用戶端 ID → 應用程式類型「網頁應用程式」。
-3. 已授權的重新導向 URI 填 `http://localhost:8000/api/v1/auth/google/callback`（正式環境改成你的網域，並設定 `BASE_URL`、`COOKIE_SECURE=true`）。
+3. 已授權的重新導向 URI 填 `http://localhost:8009/api/v1/auth/google/callback`（正式環境改成你的網域，並設定 `BASE_URL`、`COOKIE_SECURE=true`）。
 4. 把用戶端 ID 與密鑰填進 `backend/.env` 的 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`，重啟 API。登入頁就會出現「使用 Google 繼續」。
 
 ### 開發模式（沒有 OpenAI 金鑰）

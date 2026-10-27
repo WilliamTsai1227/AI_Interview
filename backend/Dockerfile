@@ -16,5 +16,5 @@ ENV FRONTEND_DIR=/frontend
 RUN useradd --create-home --uid 1000 app
 USER app
 
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+EXPOSE 8009
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8009", "--proxy-headers"]
