@@ -44,6 +44,15 @@ async function detail(view, tid, ctx) {
   if (!ctx.isCurrent()) return;
   pickTarget(tid);
   const j = t.job;
+  // 使用者自己貼的職缺：可以展開看當初貼上的原文（平台職缺的原文只給 AI 用，API 不會回傳）
+  const raw = j.source === "user" && j.raw_text ? h("details", { class: "acc raw-jd", id: "rawJd" },
+    h("summary", null, icon("file"), h("span", { class: "t" }, "你貼上的原始職缺內容"),
+      h("span", { class: "faint" }, `${j.raw_text.length} 字`), icon("chev")),
+    h("div", { class: "bd" }, h("div", { class: "raw-text" }, j.raw_text),
+      h("div", { class: "row", style: "margin-top:10px" },
+        h("button", { class: "btn out sm", type: "button", onclick: () => { navigator.clipboard?.writeText(j.raw_text); toast("已複製原始內容"); } },
+          icon("copy"), "複製全文")))) : null;
+  const showRaw = () => { raw.open = true; raw.scrollIntoView({ behavior: "smooth", block: "start" }); };
   const chev = () => icon("right", 16, { style: "color:var(--ink-3)" });
   const progressRow = (k, href, main, hint) => h("a", { class: "su-row", href, style: "display:flex" },
     h("span", { class: "k" }, k), h("div", { class: "v" }, h("span", null, main), hint ? h("span", { class: "hint" }, hint) : null), chev());
@@ -55,7 +64,9 @@ async function detail(view, tid, ctx) {
       h("div", { class: "row", style: "justify-content:center;margin-top:12px" },
         t.match_score != null ? h("span", { class: "tagx" }, `${t.match_score}% 契合`) : null,
         j.source !== "user" ? h("span", { class: "tagx" }, jobType(j)) : null, j.salary_text ? h("span", { class: "tagx" }, j.salary_text) : null),
-      sourceLine(j),
+      raw ? h("div", { class: "faint", style: "margin-top:10px" }, "這是你貼上的職缺內容・",
+        h("button", { class: "linkb", type: "button", style: "display:inline-flex;text-decoration:underline", onclick: showRaw }, "查看原文"))
+        : sourceLine(j),
       h("div", { class: "row", style: "justify-content:center;margin-top:20px" },
         h("a", { class: "btn pri", href: "#new" }, icon("mic"), "練習這個職缺"),
         h("a", { class: "btn out", href: `#questions/${tid}` }, icon("book"), "面試題庫"),
@@ -74,6 +85,7 @@ async function detail(view, tid, ctx) {
       h("div", null, h("div", { class: "sub-h" }, "工作內容"), h("ul", null, (j.duties || []).map((d) => h("li", null, d)))),
       h("div", null, h("div", { class: "sub-h" }, "條件要求"), h("ul", null, (j.requirements || []).map((d) => h("li", null, d))))),
     j.tags.length ? h("div", { class: "row", style: "margin-top:16px" }, j.tags.map((x) => h("span", { class: "tagx" }, x))) : null,
+    raw,
     h("div", { style: "text-align:center;margin-top:36px" }, h("button", { class: "linkb", type: "button", onclick: async () => {
       const ok = await confirmBox({ title: "移出目標職缺？", text: "面試題庫、面試建議和報告都會保留，之後重新加入就能找回。", ok: "移出" });
       if (!ok) return;
