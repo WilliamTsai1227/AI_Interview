@@ -172,13 +172,13 @@ export async function render(view, _arg, ctx) {
         h("div", { class: "row" },
           h("button", { class: "btn out sm", type: "button", onclick: () => { editing = true; draw(); } }, icon("pencil"), "編輯檔案"),
           h("button", { class: "btn pri sm", type: "button", disabled: plan.status === "running" || plan.status === "pending",
-            onclick: async () => { try { await post("/career/plans"); ({ plan } = await get("/career/plans/latest")); draw(); watch(); } catch (e) { errorToast(e); } } },
-          icon("redo"), "重新分析"))));
+            onclick: rerun }, icon("redo"), "重新分析"))));
   }
 
   function planView() {
     const pct = plan.progress.total ? Math.round(plan.progress.done / plan.progress.total * 100) : 0;
     return [
+      searchAlert(plan.search),
       h("div", { class: "big" }, h("b", { class: "num" }, `${plan.readiness_score ?? "–"}%`), h("span", null, "整體準備度")),
       plan.summary ? h("p", { class: "muted", style: "margin-top:14px" }, plan.summary) : null,
       h("div", { class: "grid2" },
@@ -205,13 +205,17 @@ export async function render(view, _arg, ctx) {
       }),
 
       h("div", { class: "sec-row" }, h("h2", null, "適合你的職缺"),
-        h("span", { class: "faint" }, plan.web_search_used ? "平台職缺＋網路搜尋" : "平台職缺")),
+        h("span", { class: "faint" }, plan.search?.status === "ok" ? "平台職缺＋網路搜尋" : "只有平台職缺（沒有網路搜尋結果）")),
+      searchNote(plan.search),
       plan.jobs.length ? plan.jobs.map((j) => h("div", { class: "cjob" },
         logo((j.company_name || "?").slice(0, 1).toUpperCase()),
         h("div", { class: "bd" },
           h("div", { class: "row", style: "gap:8px" }, h("b", null, j.title),
             j.match_score != null ? h("span", { class: "tagx" }, `${j.match_score}% 契合`) : null,
-            j.found_by === "web" ? h("span", { class: "tagx" }, "網路搜尋") : null),
+            j.found_by === "web" ? h("span", { class: "tagx" }, "網路搜尋") : null,
+            j.source_site === "demo" ? h("span", { class: "tagx", title: "開發用的虛構職缺，不是真的徵才" }, "範例資料（虛構）") : null,
+            j.url_check === "ok" ? h("span", { class: "tagx" }, "網址已確認")
+              : j.url_check === "unverified" ? h("span", { class: "tagx", title: "這個網站會阻擋自動檢查，網址格式正確，請點開確認" }, "網址無法自動確認") : null),
           h("div", { class: "muted" }, [j.company_name, j.city, j.salary_text].filter(Boolean).join("・")),
           j.reason ? h("div", { class: "muted" }, j.reason) : null,
           j.gaps.length ? h("div", { class: "row", style: "margin-top:6px" }, j.gaps.map((g) => h("span", { class: "tagx" }, `補強：${g}`))) : null,
@@ -222,6 +226,31 @@ export async function render(view, _arg, ctx) {
     ];
   }
 
+  /** 網路搜尋沒有成功時，放在分析結果最上方的醒目提示；成功時回傳 null。 */
+  function searchAlert(s) {
+    if (s?.status === "ok") return null;
+    const retry = s?.retries ? `（已重新搜尋 ${s.retries} 次）` : "";
+    const [title, why] = !s?.status ? ["這份分析沒有網路搜尋", "這是舊版的分析，當時沒有搜尋網路職缺。"]
+      : s.status === "skipped" ? ["這次沒有網路搜尋", s.error || "網路搜尋沒有執行。"]
+        : [`網路搜尋失敗${retry}`, `${s.error || "原因不明"}。`];
+    return h("div", { class: "err-box", role: "alert", style: "margin:20px 0 6px" },
+      h("div", { class: "t" }, h("b", null, title),
+        h("div", { class: "muted" }, `${why}下面「適合你的職缺」只有平台資料庫裡的職缺，不是這次在 104、CakeResume 上找到的。`)),
+      h("button", { class: "btn out sm", type: "button", onclick: rerun }, icon("redo"), "重新分析"));
+  }
+
+  /** 網路搜尋成功時的結果說明：找到幾筆、移除幾筆無效網址、重新搜尋幾次。 */
+  function searchNote(s) {
+    if (s?.status !== "ok") return null;
+    const retry = s.retries ? `（已重新搜尋 ${s.retries} 次）` : "";
+    const dropped = s.dropped ? `，${s.dropped} 筆網址打不開已移除` : "";
+    return h("p", { class: "faint" }, `網路搜尋找到 ${s.found} 筆台灣職缺${dropped}${retry}。`);
+  }
+
+  async function rerun() {
+    try { await post("/career/plans"); ({ plan } = await get("/career/plans/latest")); draw(); watch(); } catch (e) { errorToast(e); }
+  }
+
   function draw() {
     if (!ctx.isCurrent()) return;
     const intro = h("p", { class: "muted", style: "margin-top:6px" },
@@ -229,9 +258,13 @@ export async function render(view, _arg, ctx) {
     if (editing || !plan) { replace(wrap, h("h1", null, "職涯規劃"), intro, profileForm()); return; }
     const busy = plan.status === "pending" || plan.status === "running";
     replace(wrap, h("h1", null, "職涯規劃"), intro, profileSummary(),
-      busy ? [h("div", { class: "center-cta" }, dots(), h("p", { class: "muted" }, "Ava 正在搜尋職缺並分析你的履歷，通常需要 1–2 分鐘。")), skel(3)]
+      busy ? [h("div", { class: "center-cta" }, dots(), h("p", { class: "muted" },
+        plan.search?.status === "running" && plan.search.attempts > 1
+          ? `第一次網路搜尋失敗，正在重新搜尋（第 ${plan.search.attempts} 次）⋯`
+          : plan.search?.status === "running" ? "Ava 正在網路搜尋台灣的職缺（優先 104、CakeResume），並檢查每個網址⋯"
+            : "Ava 正在搜尋職缺並分析你的履歷，通常需要 1–3 分鐘。")), skel(3)]
         : plan.status === "failed" ? h("div", { class: "err-box", style: "margin-top:20px" }, h("span", { class: "t" }, "Ava 這次沒有分析成功。"),
-          h("button", { class: "btn out sm", type: "button", onclick: async () => { try { await post("/career/plans"); ({ plan } = await get("/career/plans/latest")); draw(); watch(); } catch (e) { errorToast(e); } } }, "再試一次"))
+          h("button", { class: "btn out sm", type: "button", onclick: rerun }, "再試一次"))
           : planView());
   }
 

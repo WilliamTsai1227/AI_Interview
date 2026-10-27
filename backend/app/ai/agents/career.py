@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.ai import client
 
-PV_SEARCH = "career_search_v1"
+PV_SEARCH = "career_search_v2"
 PV_PLAN = "career_plan_v1"
 
 
@@ -28,11 +28,15 @@ class SearchOut(BaseModel):
     jobs: list[FoundJob]
 
 
-SEARCH_SYSTEM = """你是求職顧問，使用網路搜尋找出真實、目前仍在招募的職缺。
-- 依使用者的求職意向（薪水、產業、職務、工時、地點、工作型態）與履歷背景搜尋，優先台灣的職缺網站（104、CakeResume、Yourator、LinkedIn、公司官網）。
-- 只回傳搜尋結果中真的看到的職缺；source_url 必須是真實網址，不確定就不要列，寧缺勿濫。
+SEARCH_SYSTEM = """你是台灣的求職顧問，一定要使用網路搜尋，找出「台灣」真實、目前仍在招募的職缺，不可以憑記憶回答。
+- 搜尋範圍：工作地點在台灣（或可在台灣遠端）的職缺。
+- 來源優先順序：先搜 104 人力銀行（www.104.com.tw），再搜 CakeResume（www.cake.me），不夠再用 Yourator、LinkedIn、公司官網。
+  搜尋時可以用 site:104.com.tw、site:cake.me 加上職務關鍵字。
+- source_url 必須是「單一職缺的詳情頁」網址，例如 https://www.104.com.tw/job/xxxxx 或 https://www.cake.me/companies/xxx/jobs/yyy；
+  不要給搜尋結果頁、公司列表頁或首頁。只回傳搜尋結果中真的看到的職缺，不確定就不要列，寧缺勿濫。
+- 依使用者的求職意向（薪水、產業、職務、工時、地點、工作型態）與履歷背景挑選；source_site 填 104、cake、yourator、linkedin 或 company。
 - 作品集連結（GitHub、個人網站等）可以打開看，用來判斷使用者的實際能力與適合的職缺。
-- 摘要與條列用自己的話改寫，不要整段貼原文。最多 {n} 筆，繁體中文。"""
+- 摘要與條列用自己的話改寫，不要整段貼原文。盡量找到 {n} 筆，繁體中文。"""
 
 
 def profile_text(profile: dict) -> str:
@@ -51,13 +55,13 @@ def profile_text(profile: dict) -> str:
     return "\n".join(lines)
 
 
-async def search_jobs(*, profile: dict, resume: dict | None, count: int = 6, user_id=None) -> list[FoundJob]:
+async def search_jobs(*, profile: dict, resume: dict | None, count: int = 10, user_id=None) -> list[FoundJob]:
     """開發模式（沒有金鑰）無法上網，回傳空清單，只用平台職缺。"""
     user = f"【求職意向】\n{profile_text(profile)}\n\n【履歷】\n{json.dumps(resume, ensure_ascii=False)[:6000] if resume else '尚未上傳'}"
     out = await client.structured(
         purpose="career_search", schema=SearchOut, system=SEARCH_SYSTEM.format(n=count), user=user,
-        fake=lambda: SearchOut(jobs=[]), tier="fast", prompt_version=PV_SEARCH, user_id=user_id,
-        timeout=120, attempts=1, web_search=True)
+        fake=lambda: SearchOut(jobs=[]), tier="search", prompt_version=PV_SEARCH, user_id=user_id,
+        attempts=1, web_search=True)
     return out.jobs[:count]
 
 

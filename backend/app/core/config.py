@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     llm_effort_reasoning: str = "low"
     llm_effort_fast: str = "minimal"
     llm_timeout_reasoning: float = 150
+    # 網路搜尋（職涯規劃找職缺）：官方建議用較強的模型並提高推理強度；minimal 不支援 web_search
+    llm_model_search: str = "gpt-5.5"
+    llm_effort_search: str = "medium"
+    llm_timeout_search: float = 240
     llm_timeout_fast: float = 60
     stt_model_fast: str = "gpt-4o-mini-transcribe"
     stt_model: str = "gpt-4o-transcribe"

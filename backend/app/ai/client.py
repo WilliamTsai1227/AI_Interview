@@ -32,11 +32,18 @@ def _openai():
 
 
 def model_for(tier: str) -> str:
-    return settings.llm_model_reasoning if tier == "reasoning" else settings.llm_model_fast
+    return {"reasoning": settings.llm_model_reasoning, "search": settings.llm_model_search}.get(tier, settings.llm_model_fast)
+
+
+# 網路搜尋一律限定台灣（Responses API web_search 的 user_location）
+WEB_SEARCH_TW = {"type": "web_search",
+                 "user_location": {"type": "approximate", "country": "TW", "city": "Taipei", "timezone": "Asia/Taipei"}}
 
 
 def _reasoning_kw(model: str, tier: str) -> dict:
-    effort = settings.llm_effort_reasoning if tier == "reasoning" else settings.llm_effort_fast
+    effort = {"reasoning": settings.llm_effort_reasoning, "search": settings.llm_effort_search}.get(tier, settings.llm_effort_fast)
+    if tier == "search" and effort == "minimal":
+        effort = "low"                          # web_search 不支援 minimal
     if effort and (model.startswith("gpt-5") or model.startswith("o")):
         return {"reasoning": {"effort": effort}}
     return {}
@@ -81,7 +88,7 @@ async def structured(*, purpose: str, schema: type[T], system: str, user: str, f
                      session_id: UUID | None = None, web_search: bool = False) -> T:
     model = model_for(tier)
     if timeout is None:
-        timeout = settings.llm_timeout_reasoning if tier == "reasoning" else settings.llm_timeout_fast
+        timeout = {"reasoning": settings.llm_timeout_reasoning, "search": settings.llm_timeout_search}.get(tier, settings.llm_timeout_fast)
     t0 = time.monotonic()
     if not settings.ai_enabled:
         out = fake()
@@ -92,8 +99,12 @@ async def structured(*, purpose: str, schema: type[T], system: str, user: str, f
         async with limiter.slot(model, priority):
             resp = await _with_retry(lambda: _openai().responses.parse(
                 model=model, input=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-                text_format=schema, **({"tools": [{"type": "web_search"}]} if web_search else {}),
+                text_format=schema,
+                # 網路搜尋：限定台灣，且強制一定要搜（不能沒搜就直接回答）
+                **({"tools": [WEB_SEARCH_TW], "tool_choice": "required"} if web_search else {}),
                 **_reasoning_kw(model, tier)), attempts=attempts, timeout=timeout)
+        if web_search and not any(getattr(o, "type", "") == "web_search_call" for o in (resp.output or [])):
+            raise AIError("模型沒有執行網路搜尋")
         out = resp.output_parsed
         if out is None:
             raise AIError("empty structured output")

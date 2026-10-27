@@ -8,12 +8,14 @@ from app.ai.agents import career as ca
 from app.core import db, redis
 from app.core.config import settings
 from app.core.errors import AppError, not_found
+from app.modules.career import urlcheck
 from app.modules.jobs import service as jobs
 from app.modules.resumes import service as resumes
 from app.workers.queue import enqueue, tx
 
 log = structlog.get_logger()
-MAX_CATALOG, MAX_WEB = 8, 6
+MAX_CATALOG, MAX_WEB = 8, 10
+SEARCH_TRIES = 2          # 失敗（或檢查後沒有有效職缺）自動重新搜尋一次
 PRIORITY_RANK = {"high": 0, "medium": 1, "low": 2}
 PROFILE_FIELDS = ("self_intro", "experience_note", "portfolio_links", "resume_id", "salary_min", "salary_period",
                   "industries", "roles", "duties_pref", "work_hours", "locations", "work_modes")
@@ -92,11 +94,13 @@ async def _plan_out(conn: db.Connection, p) -> dict:
         "id": str(p["id"]), "status": p["status"], "created_at": p["created_at"], "finished_at": p["finished_at"],
         "summary": p["summary"], "readiness_score": p["readiness_score"], "strengths": list(p["strengths"] or []),
         "gaps": p["gaps"] or [], "has_resume": p["resume_id"] is not None, "web_search_used": p["web_search_used"],
+        "search": {"status": p["search_status"], "attempts": p["search_attempts"], "retries": max(0, p["search_attempts"] - 1),
+                   "error": p["search_error"], "found": p["web_found"], "dropped": p["web_dropped"]},
         "error": p["error"], "profile": p["profile_snapshot"],
         "jobs": [{"id": str(r["job_post_id"]), "found_by": r["found_by"], "company_name": r["company_name"], "title": r["title"],
                   "city": r["city"], "salary_text": r["salary_text"], "source_url": r["source_url"],
                   "source_site": r["source_site"], "work_mode": r["work_mode"], "match_score": r["match_score"],
-                  "reason": r["reason"], "gaps": list(r["gaps"] or []),
+                  "reason": r["reason"], "gaps": list(r["gaps"] or []), "url_check": r["url_check"],
                   "target_id": str(r["target_id"]) if r["target_id"] else None} for r in jobs_rs],
         "areas": [{"id": str(a["id"]), "title": a["title"], "why": a["why"], "priority": a["priority"],
                    "tasks": by_area.get(a["id"], [])} for a in areas],
@@ -185,6 +189,43 @@ def _job_dict(r) -> dict:
             "requirements": list(r["requirements"] or []), "tags": list(r["tags"] or [])}
 
 
+async def _search_web(pid: UUID, profile: dict, resume: dict | None, uid: UUID):
+    """網路搜尋（強制搜尋、限定台灣）＋網址檢查；失敗或檢查後沒有有效職缺就重新搜尋一次。
+    回傳（有效職缺, {網址: ok|unverified}, 搜尋紀錄）。搜尋失敗不影響整份分析，只用平台職缺。"""
+    search = {"status": "skipped", "attempts": 0, "error": None, "found": 0, "dropped": 0}
+    if not settings.ai_enabled:
+        search["error"] = "開發模式（沒有 OpenAI 金鑰）不會網路搜尋"
+        return [], {}, search
+    for attempt in range(1, SEARCH_TRIES + 1):
+        search["attempts"] = attempt
+        async with db.connection() as conn:       # 讓前端在搜尋中就能顯示「第幾次搜尋」
+            await conn.execute("UPDATE career_plans SET search_status = 'running', search_attempts = $2 WHERE id = $1", pid, attempt)
+        try:
+            found = await ca.search_jobs(profile=profile, resume=resume, count=MAX_WEB, user_id=uid)
+            checks = await urlcheck.check_urls([f.source_url for f in found])
+            valid = [f for f in found if checks.get(f.source_url)][:MAX_WEB]
+            search.update(found=len(found), dropped=len(found) - len(valid))
+            if valid:
+                search.update(status="ok", error=None)
+                return valid, checks, search
+            search.update(status="failed", error="搜尋到的職缺網址都無法開啟" if found else "沒有找到符合條件的職缺")
+        except Exception as e:
+            search.update(status="failed", error=_search_error(e))
+            log.warning("career_search_failed", plan_id=str(pid), attempt=attempt, error=repr(e))
+    return [], {}, search
+
+
+def _search_error(e: Exception) -> str:
+    msg = str(e)
+    if "沒有執行網路搜尋" in msg:
+        return "模型沒有執行網路搜尋"
+    if "Timeout" in type(e).__name__ or "timeout" in msg.lower():
+        return "網路搜尋逾時"
+    if "model" in msg.lower() and ("not found" in msg.lower() or "does not exist" in msg.lower()):
+        return "搜尋模型不存在或沒有權限（請檢查 LLM_MODEL_SEARCH）"
+    return "網路搜尋失敗：" + msg[:120]
+
+
 async def handle_build(payload: dict) -> None:
     pid = UUID(payload["plan_id"])
     async with db.connection() as conn:
@@ -196,15 +237,11 @@ async def handle_build(payload: dict) -> None:
         resume = resumes.snapshot(r)
         catalog = await _catalog_candidates(conn, profile)
     uid = p["user_id"]
-    web: list[ca.FoundJob] = []
-    if settings.ai_enabled:
-        try:
-            web = await ca.search_jobs(profile=profile, resume=resume, count=MAX_WEB, user_id=uid)
-        except Exception as e:      # 網路搜尋失敗不影響整份分析，只用平台職缺
-            log.warning("career_search_failed", plan_id=str(pid), error=repr(e))
+    web, checks, search = await _search_web(pid, profile, resume, uid)
     try:
         async with db.transaction() as conn:
             cands: list[tuple[UUID, str, dict]] = [(c["id"], "catalog", _job_dict(c)) for c in catalog]
+            url_checks: dict = {}
             seen = {c[0] for c in cands}
             for f in web:
                 jid = await _save_web_job(conn, uid, f)
@@ -212,6 +249,7 @@ async def handle_build(payload: dict) -> None:
                     seen.add(jid)
                     cands.append((jid, "web", {"company_name": f.company_name, "title": f.title, "salary_text": f.salary_text,
                                               "city": f.city, "requirements": f.requirements, "tags": f.tags}))
+                    url_checks[jid] = checks.get(f.source_url)
         out = await ca.build_plan(profile=profile, resume=resume, jobs=[c[2] for c in cands], user_id=uid)
     except Exception as e:
         async with db.connection() as conn:
@@ -221,16 +259,19 @@ async def handle_build(payload: dict) -> None:
     async with db.transaction() as conn:
         await conn.execute(
             """UPDATE career_plans SET status = 'ready', summary = $2, readiness_score = $3, strengths = $4, gaps = $5,
-                      web_search_used = $6, prompt_version = $7, error = NULL, finished_at = now() WHERE id = $1""",
+                      web_search_used = $6, prompt_version = $7, error = NULL, finished_at = now(),
+                      search_status = $8, search_attempts = $9, search_error = $10, web_found = $11, web_dropped = $12
+                WHERE id = $1""",
             pid, out.summary[:300], max(0, min(100, out.readiness_score)), [s[:80] for s in out.strengths[:5]],
             [{"skill": g.skill[:40], "severity": g.severity if g.severity in PRIORITY_RANK else "medium", "detail": g.detail[:160]}
-             for g in out.gaps[:8]], bool(web), ca.PV_PLAN)
+             for g in out.gaps[:8]], bool(web), ca.PV_PLAN, search["status"], search["attempts"], search["error"],
+            search["found"], search["dropped"])
         for i, (jid, found_by, _) in enumerate(cands):
             f = fits.get(i)
             await conn.execute(
-                "INSERT INTO career_plan_jobs (plan_id, job_post_id, found_by, match_score, reason, gaps) VALUES ($1,$2,$3,$4,$5,$6)",
+                "INSERT INTO career_plan_jobs (plan_id, job_post_id, found_by, match_score, reason, gaps, url_check) VALUES ($1,$2,$3,$4,$5,$6,$7)",
                 pid, jid, found_by, max(0, min(100, f.score)) if f else None, f.reason[:160] if f else None,
-                [g[:60] for g in f.gaps[:3]] if f else [])
+                [g[:60] for g in f.gaps[:3]] if f else [], url_checks.get(jid))
         for n, a in enumerate(sorted(out.areas[:6], key=lambda x: PRIORITY_RANK.get(x.priority, 1))):
             aid = await conn.fetchval(
                 "INSERT INTO career_plan_areas (plan_id, title, why, priority, sort_order) VALUES ($1,$2,$3,$4,$5) RETURNING id",
