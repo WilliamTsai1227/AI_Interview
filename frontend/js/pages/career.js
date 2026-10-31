@@ -1,5 +1,6 @@
-// 職涯規劃：個人檔案（自我介紹、求職意向）→ Ava 搜尋職缺並分析能力差距 → 準備大項目與小項目。
+// 職涯規劃：個人檔案（自我介紹、求職意向）＋履歷 → 比對使用者的目標職缺、分析能力差距 → 準備大項目與小項目。
 import { get, patch, post, put, uploadFile } from "../api.js";
+import { openJd } from "../components/jd.js";
 import { openJob } from "../components/job.js";
 import { openSettings } from "../components/settings.js";
 import { dots, h, icon, replace, skel } from "../dom.js";
@@ -178,7 +179,6 @@ export async function render(view, _arg, ctx) {
   function planView() {
     const pct = plan.progress.total ? Math.round(plan.progress.done / plan.progress.total * 100) : 0;
     return [
-      searchAlert(plan.search),
       h("div", { class: "big" }, h("b", { class: "num" }, `${plan.readiness_score ?? "–"}%`), h("span", null, "整體準備度")),
       plan.summary ? h("p", { class: "muted", style: "margin-top:14px" }, plan.summary) : null,
       h("div", { class: "grid2" },
@@ -204,47 +204,26 @@ export async function render(view, _arg, ctx) {
               } }), h("span", null, t.text)))));
       }),
 
-      h("div", { class: "sec-row" }, h("h2", null, "適合你的職缺"),
-        h("span", { class: "faint" }, plan.search?.status === "ok" ? "平台職缺＋網路搜尋" : "只有平台職缺（沒有網路搜尋結果）")),
-      searchNote(plan.search),
+      h("div", { class: "sec-row" }, h("h2", null, "你的目標職缺"),
+        h("span", { class: "faint" }, plan.jobs.length ? "缺口依這些職缺分析" : "沒有目標職缺，依個人檔案分析")),
       plan.jobs.length ? plan.jobs.map((j) => h("div", { class: "cjob" },
         logo((j.company_name || "?").slice(0, 1).toUpperCase()),
         h("div", { class: "bd" },
           h("div", { class: "row", style: "gap:8px" }, h("b", null, j.title),
-            j.match_score != null ? h("span", { class: "tagx" }, `${j.match_score}% 契合`) : null,
-            j.found_by === "web" ? h("span", { class: "tagx" }, "網路搜尋") : null,
-            j.source_site === "demo" ? h("span", { class: "tagx", title: "開發用的虛構職缺，不是真的徵才" }, "範例資料（虛構）") : null,
-            j.url_check === "ok" ? h("span", { class: "tagx" }, "網址已確認")
-              : j.url_check === "unverified" ? h("span", { class: "tagx", title: "這個網站會阻擋自動檢查，網址格式正確，請點開確認" }, "網址無法自動確認") : null),
+            j.match_score != null ? h("span", { class: "tagx" }, `${j.match_score}% 契合`) : null),
           h("div", { class: "muted" }, [j.company_name, j.city, j.salary_text].filter(Boolean).join("・")),
           j.reason ? h("div", { class: "muted" }, j.reason) : null,
           j.gaps.length ? h("div", { class: "row", style: "margin-top:6px" }, j.gaps.map((g) => h("span", { class: "tagx" }, `補強：${g}`))) : null,
           h("div", { class: "row", style: "margin-top:8px" },
-            h("button", { class: "btn out sm", type: "button", onclick: () => openJob(j.id) }, "查看職缺"),
+            j.target_id ? h("a", { class: "btn out sm", href: `#targets/${j.target_id}` }, "查看目標職缺")
+              : h("button", { class: "btn out sm", type: "button", onclick: () => openJob(j.id) }, "查看職缺"),
             j.source_url ? h("a", { class: "linkb", href: j.source_url, target: "_blank", rel: "noopener noreferrer" }, "原始職缺頁 ↗") : null))))
-        : h("p", { class: "faint" }, "這次沒有找到符合條件的職缺，放寬一點薪資或地點再試一次。"),
+        : h("div", { class: "err-box", style: "margin-top:4px" },
+          h("div", { class: "t" }, h("b", null, "還沒有目標職缺"),
+            h("div", { class: "muted" }, "這次的缺口是依你的個人檔案和履歷推估的。加入想應徵的職缺後再按「重新分析」，Ava 會比對職缺的實際要求，缺口會更準。")),
+          h("button", { class: "btn out sm", type: "button", onclick: () => openJd({ after: () => toast("已加入目標職缺，按「重新分析」就會比對這個職缺") }) },
+            icon("plus"), "貼上職缺內容")),
     ];
-  }
-
-  /** 網路搜尋沒有成功時，放在分析結果最上方的醒目提示；成功時回傳 null。 */
-  function searchAlert(s) {
-    if (s?.status === "ok") return null;
-    const retry = s?.retries ? `（已重新搜尋 ${s.retries} 次）` : "";
-    const [title, why] = !s?.status ? ["這份分析沒有網路搜尋", "這是舊版的分析，當時沒有搜尋網路職缺。"]
-      : s.status === "skipped" ? ["這次沒有網路搜尋", s.error || "網路搜尋沒有執行。"]
-        : [`網路搜尋失敗${retry}`, `${s.error || "原因不明"}。`];
-    return h("div", { class: "err-box", role: "alert", style: "margin:20px 0 6px" },
-      h("div", { class: "t" }, h("b", null, title),
-        h("div", { class: "muted" }, `${why}下面「適合你的職缺」只有平台資料庫裡的職缺，不是這次在 104、CakeResume 上找到的。`)),
-      h("button", { class: "btn out sm", type: "button", onclick: rerun }, icon("redo"), "重新分析"));
-  }
-
-  /** 網路搜尋成功時的結果說明：找到幾筆、移除幾筆無效網址、重新搜尋幾次。 */
-  function searchNote(s) {
-    if (s?.status !== "ok") return null;
-    const retry = s.retries ? `（已重新搜尋 ${s.retries} 次）` : "";
-    const dropped = s.dropped ? `，${s.dropped} 筆網址打不開已移除` : "";
-    return h("p", { class: "faint" }, `網路搜尋找到 ${s.found} 筆台灣職缺${dropped}${retry}。`);
   }
 
   async function rerun() {
@@ -254,15 +233,12 @@ export async function render(view, _arg, ctx) {
   function draw() {
     if (!ctx.isCurrent()) return;
     const intro = h("p", { class: "muted", style: "margin-top:6px" },
-      "告訴 Ava 你是誰、想找什麼工作。Ava 會替你找職缺，分析你還缺什麼，並排出完整的準備計畫。");
+      "告訴 Ava 你是誰、想找什麼工作。Ava 會比對你的目標職缺，分析你還缺什麼，並排出完整的準備計畫。");
     if (editing || !plan) { replace(wrap, h("h1", null, "職涯規劃"), intro, profileForm()); return; }
     const busy = plan.status === "pending" || plan.status === "running";
     replace(wrap, h("h1", null, "職涯規劃"), intro, profileSummary(),
       busy ? [h("div", { class: "center-cta" }, dots(), h("p", { class: "muted" },
-        plan.search?.status === "running" && plan.search.attempts > 1
-          ? `第一次網路搜尋失敗，正在重新搜尋（第 ${plan.search.attempts} 次）⋯`
-          : plan.search?.status === "running" ? "Ava 正在網路搜尋台灣的職缺（優先 104、CakeResume），並檢查每個網址⋯"
-            : "Ava 正在搜尋職缺並分析你的履歷，通常需要 1–3 分鐘。")), skel(3)]
+        "Ava 正在比對你的目標職缺和履歷，通常需要 1 分鐘左右。")), skel(3)]
         : plan.status === "failed" ? h("div", { class: "err-box", style: "margin-top:20px" }, h("span", { class: "t" }, "Ava 這次沒有分析成功。"),
           h("button", { class: "btn out sm", type: "button", onclick: rerun }, "再試一次"))
           : planView());
