@@ -5,7 +5,7 @@ import { jobType, sourceButton, sourceLine } from "../components/job.js";
 import { dots, h, icon, replace } from "../dom.js";
 import { renderSide } from "../shell.js";
 import { fmtDate, loadMe, loadTargets, pickTarget, S } from "../store.js";
-import { confirmBox, errorToast, logo, openMenu, setHead, toast } from "../ui.js";
+import { closeModal, confirmBox, errorToast, logo, openMenu, openModal, setHead, toast } from "../ui.js";
 
 export async function render(view, tid, ctx) {
   return tid ? detail(view, tid, ctx) : list(view, ctx);
@@ -86,6 +86,30 @@ async function detail(view, tid, ctx) {
     } catch (e) { errorToast(e); }
   }
 
+  /** 新增／修改職缺網址：只存連結，不會重新出題。 */
+  function editLink() {
+    const inp = h("input", { class: "inp", type: "url", maxlength: 1000, "aria-label": "職缺網址",
+      placeholder: "https://www.104.com.tw/job/…", value: t.job.source_url || "" });
+    const err = h("div", { class: "form-err", style: "margin-top:8px" });
+    const save = async (v) => {
+      if (v && !/^https?:\/\/\S+$/i.test(v)) { err.textContent = "職缺網址要以 http:// 或 https:// 開頭"; return; }
+      try {
+        t = await patch(`/targets/${tid}`, { source_url: v });
+        closeModal(); draw();
+        toast(v ? "已儲存職缺網址" : "已移除職缺網址");
+      } catch (e) { err.textContent = e.message; }
+    };
+    openModal({ title: t.job.source_url ? "修改職缺網址" : "加上職缺網址", cls: "sm", body: [
+      h("p", { class: "muted", style: "margin-bottom:12px" }, "貼上這個職缺在 104、CakeResume 或公司官網的網址，之後可以從這裡直接打開。只會儲存連結，不會重新出題。"),
+      inp, err,
+      h("div", { class: "row", style: "justify-content:flex-end;margin-top:14px" },
+        t.job.source_url ? h("button", { class: "btn ghost", type: "button", style: "margin-right:auto", onclick: () => save("") }, "移除網址") : null,
+        h("button", { class: "btn ghost", type: "button", onclick: closeModal }, "取消"),
+        h("button", { class: "btn pri", type: "button", onclick: () => save(inp.value.trim()) }, "儲存")),
+    ] });
+    inp.focus();
+  }
+
   /** 原文已修改、還沒重新出題時的提示。 */
   const outdatedNote = () => t.jd_outdated ? h("div", { class: "err-box", role: "status", style: "margin-top:20px" },
     h("div", { class: "t" }, h("b", null, "原始職缺內容已修改"),
@@ -133,7 +157,10 @@ async function detail(view, tid, ctx) {
           t.match_score != null ? h("span", { class: "tagx" }, `${t.match_score}% 契合`) : null,
           j.source !== "user" ? h("span", { class: "tagx" }, jobType(j)) : null, j.salary_text ? h("span", { class: "tagx" }, j.salary_text) : null),
         raw ? h("div", { class: "faint", style: "margin-top:10px" }, "這是你貼上的職缺內容・",
-          h("button", { class: "linkb", type: "button", style: "display:inline-flex;text-decoration:underline", onclick: showRaw }, "查看或編輯原文"))
+          h("button", { class: "linkb", type: "button", style: "display:inline-flex;text-decoration:underline", onclick: showRaw }, "查看或編輯原文"),
+          "・",
+          h("button", { class: "linkb", type: "button", style: "display:inline-flex;text-decoration:underline", onclick: editLink },
+            j.source_url ? "修改職缺網址" : "加上職缺網址"))
           : sourceLine(j),
         h("div", { class: "row", style: "justify-content:center;margin-top:20px" },
           h("a", { class: "btn pri", href: "#new" }, icon("mic"), "練習這個職缺"),

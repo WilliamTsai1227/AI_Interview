@@ -123,7 +123,8 @@ async def after_job_ready(conn: db.Connection, target_id: UUID, replace: bool = 
         await _start_initial(conn, t["user_id"], t["set_id"], t["prep_id"], t["resume_id"], replace)
 
 
-async def create(user_id: UUID, raw_text: str | None, job_post_id: UUID | None, resume_id: UUID | None) -> tuple[int, dict]:
+async def create(user_id: UUID, raw_text: str | None, job_post_id: UUID | None, resume_id: UUID | None,
+                 source_url: str | None = None) -> tuple[int, dict]:
     await redis.rate_limit("target_create", str(user_id))
     async with tx() as conn:
         if resume_id:
@@ -152,10 +153,11 @@ async def create(user_id: UUID, raw_text: str | None, job_post_id: UUID | None, 
             p = text.rough_parse_jd(raw)
             jid = await conn.fetchval(
                 """
-                INSERT INTO job_posts (source, owner_user_id, company_name, title, raw_text, parse_status, tags, search_text)
-                VALUES ('user', $1, $2, $3, $4, 'pending', $5, $6) RETURNING id
+                INSERT INTO job_posts (source, owner_user_id, company_name, title, raw_text, parse_status, tags, search_text,
+                                       source_url)
+                VALUES ('user', $1, $2, $3, $4, 'pending', $5, $6, $7) RETURNING id
                 """, user_id, p["company_name"][:120], p["title"][:120], raw[:20000], p["tags"],
-                jobs.search_text(p["company_name"], p["title"], p["tags"]))
+                jobs.search_text(p["company_name"], p["title"], p["tags"]), source_url or None)
             tid = await conn.fetchval(
                 "INSERT INTO target_jobs (user_id, job_post_id, resume_id) VALUES ($1, $2, $3) RETURNING id",
                 user_id, jid, resume_id)
@@ -167,11 +169,16 @@ async def create(user_id: UUID, raw_text: str | None, job_post_id: UUID | None, 
 
 
 async def patch(user_id: UUID, target_id: UUID, resume_id: UUID | None, clear_resume: bool, job: dict | None,
-                raw_text: str | None = None) -> dict:
+                raw_text: str | None = None, source_url: str | None = None) -> dict:
     from app.modules.preps import service as preps
     async with tx() as conn:
         t = await fetch(conn, user_id, target_id, active_only=True)
         changed = False
+        if source_url is not None:
+            if t["source"] != "user":
+                raise AppError(400, "VALIDATION_ERROR", "平台職缺的網址不能修改")
+            # 使用者職缺不填 source_url_norm：那是平台職缺去重用的，不同使用者貼同一個網址不能互相衝突
+            await conn.execute("UPDATE job_posts SET source_url = $2 WHERE id = $1", t["job_post_id"], source_url or None)
         if raw_text is not None:
             if t["source"] != "user":
                 raise AppError(400, "VALIDATION_ERROR", "平台職缺的內容不能修改")
