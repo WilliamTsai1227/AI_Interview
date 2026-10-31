@@ -49,6 +49,8 @@ _mem: dict[str, tuple[int, float]] = {}
 
 
 async def rate_limit(action: str, subject: str) -> None:
+    if not settings.rate_limits_enabled and settings.is_dev:     # 效能測試環境（見 test/performance）
+        return
     limit, window = LIMITS[action]
     now = int(time.time())
     key = f"{P}rl:{action}:{subject}:{now // window}"

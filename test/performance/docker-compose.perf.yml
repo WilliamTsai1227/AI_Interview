@@ -1,0 +1,32 @@
+# 效能測試用的獨立環境：跟開發環境同一份程式，但連接埠、資料庫、檔案儲存都分開，不會動到開發資料。
+#   啟動：docker compose -p ai_perf -f docker-compose.yml -f test/performance/docker-compose.perf.yml up -d --build
+#   （在專案根目錄執行；關掉並刪除資料：把 up -d --build 換成 down -v）
+#
+# 跟開發環境的差別：
+#   - 不設 OpenAI 金鑰 → AI 走本機假資料：測的是 API、資料庫、Redis、背景佇列，不會花錢，也不會被 OpenAI 限流
+#   - 關掉次數限制：所有壓測使用者都從同一台電腦（同一個 IP）發出，否則登入、註冊會先被擋
+#   - 登入憑證 4 小時才過期，長時間測試不會中途失效
+x-perf-env: &perf-env
+  ENV: dev
+  OPENAI_API_KEY: ""
+  GOOGLE_CLIENT_ID: ""
+  GOOGLE_CLIENT_SECRET: ""
+  RATE_LIMITS_ENABLED: "false"
+  ACCESS_TOKEN_MINUTES: "240"
+  BASE_URL: http://localhost:8019
+  S3_PUBLIC_ENDPOINT: http://localhost:9110
+
+services:
+  db:
+    ports: !override ["5444:5432"]
+  redis:
+    ports: !override ["6391:6379"]
+  minio:
+    ports: !override ["9110:9000", "9111:9001"]
+  migrate:
+    environment: *perf-env
+  api:
+    ports: !override ["8019:8009"]
+    environment: *perf-env
+  worker:
+    environment: *perf-env

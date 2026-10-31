@@ -124,6 +124,7 @@ docker compose up -d api worker     # 只用 restart 不會讀到新的 .env
 
 | 變數 | 預設值 | 白話說明 |
 |---|---|---|
+| `RATE_LIMITS_ENABLED` | `true` | 次數限制（登入、註冊、出題、建立面試等的每小時上限）。**只給效能測試環境用**：設 `false` 會關掉所有次數限制，但只有 `ENV=dev` 時才有效，正式環境設了也不會關。見 [test/performance](test/performance/README.md)。 |
 | `FEATURE_JOB_SEARCH` | `false` | 職缺搜尋頁。第一版先關閉：側邊欄、選單、全站搜尋都看不到，搜尋 API 回 404。改成 `true` 並重啟 `api` 就會打開。 |
 
 ### Docker Compose 用的變數（不放在 `backend/.env`）
@@ -262,6 +263,8 @@ cd backend
 .venv/bin/pytest -q                    # Google 登入（假的 Google 回應，不需要真的憑證）
 ```
 
+效能測試（負載、壓力）用 Locust，在獨立的壓測環境跑，見 [test/performance/README.md](test/performance/README.md)。
+
 ## 目錄
 
 ```
@@ -277,6 +280,7 @@ frontend/
 data/job_crawlers/   職缺爬蟲（AWS Lambda）：公司官網 schema.org JobPosting → job_posts
 data/scheduler/      在本機手動或定時執行爬蟲（讀資料夾內 .env）
 spec/                規格書與 UI 原型；features/ 是每個產品功能的說明
+test/performance/    效能測試（Locust）：負載、壓力測試腳本與獨立的壓測環境
 ```
 
 ## 尚未實作

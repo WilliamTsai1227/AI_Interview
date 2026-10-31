@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     audio_max_bytes: int = 15 * 1024 * 1024
     resume_max_pages: int = 10
 
+    # 只給效能測試用：所有壓測使用者都從同一個 IP 發出，次數限制會先擋住測試。只有 ENV=dev 時才有效，正式環境設了也不會關
+    rate_limits_enabled: bool = True
+
     # 功能開關（正式環境第一版先關閉，之後要開把環境變數改成 true 並重啟即可）
     feature_job_search: bool = False      # 職缺搜尋頁；關閉時職缺詳情（職涯規劃、面試建議會用到）照常運作
 
