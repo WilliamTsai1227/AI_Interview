@@ -19,6 +19,7 @@ import secrets
 from urllib.parse import urlencode
 
 import httpx
+import structlog
 from fastapi import Request
 from fastapi.responses import RedirectResponse
 
@@ -28,6 +29,7 @@ from app.core.errors import AppError
 from app.modules.auth import repository as repo
 from app.modules.auth import service
 
+log = structlog.get_logger()
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
@@ -98,7 +100,10 @@ async def callback(request: Request) -> RedirectResponse:
         return _fail("state")
     try:
         info = await _exchange(code, json.loads(raw)["verifier"])
-    except Exception:
+    except Exception as e:
+        # Google 的錯誤內容（例如 invalid_client、redirect_uri_mismatch）不含密鑰，可以記下來方便排查
+        detail = e.response.text[:300] if isinstance(e, httpx.HTTPStatusError) else repr(e)
+        log.warning("google_exchange_failed", error=detail)
         return _fail("failed")
     if not info.get("sub") or not info.get("email"):
         return _fail("failed")
