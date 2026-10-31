@@ -1,6 +1,6 @@
 # 一行全部跑起來：docker compose up -d --build → http://localhost:8009
 #   db / redis / minio：基礎設施
-#   migrate：建立資料表（＋範例資料），跑完就結束
+#   migrate：建立資料表（SEED_DEMO=true 時另建示範帳號），跑完就結束
 #   api：FastAPI，同時提供前端
 #   worker：背景工作（解析、出題、TTS、轉錄、評分、報告、排程）
 # 要用 OpenAI／Google 登入：在 backend/.env 填金鑰（沒有這個檔也能跑，會用開發模式）。
@@ -68,8 +68,8 @@ services:
     restart: "no"
     environment:
       <<: *app-env
-      SEED_DEMO: ${SEED_DEMO:-true}
-    command: ["sh", "-c", "python -m app.core.migrate && if [ \"$${SEED_DEMO:-true}\" = \"true\" ]; then python -m app.seed --admin demo@example.com; fi"]
+      SEED_DEMO: ${SEED_DEMO:-false}     # 示範帳號 demo@example.com（管理員）；只在本機開發時設 true
+    command: ["sh", "-c", "python -m app.core.migrate && if [ \"$${SEED_DEMO:-false}\" = \"true\" ]; then python -m app.seed --admin demo@example.com; fi"]
     depends_on:
       db: { condition: service_healthy }
 
