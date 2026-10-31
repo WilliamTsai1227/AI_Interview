@@ -58,9 +58,13 @@ export async function render(view, _arg, ctx) {
       resumeId: profile.resume_id || (S.resumes || []).find((r) => r.is_primary)?.id || null,
     };
     const resumeBox = h("div", { class: "cresume" });
+    const actions = h("div", { class: "row", style: "margin-top:22px" });
     const linkBox = h("div", { class: "clinks" });
     const cur = () => (S.resumes || []).find((r) => r.id === f.resumeId);
     const parsing = () => { const r = cur(); return !!r && (r.parse_status === "pending" || r.parse_status === "parsing"); };
+    // 履歷必填：沒有選履歷、還在解析、解析失敗都不能開始分析，並說明原因
+    const blocked = () => !cur() ? "先上傳履歷才能開始分析" : parsing() ? "履歷解析完成後才能開始分析"
+      : cur().parse_status === "failed" ? "這份履歷沒有解析成功，請換一份或重新上傳" : "";
     let ptimer = null;
     const pollResumes = () => {
       clearTimeout(ptimer);
@@ -98,6 +102,14 @@ export async function render(view, _arg, ctx) {
         h("button", { class: "btn out sm", type: "button", onclick: () => fileInput.click() }, icon("upload"), list.length ? "上傳新履歷" : "上傳履歷"),
         fileInput,
         r ? h("span", { class: "faint" }, PARSE[r.parse_status] || "") : null);
+      drawActions();      // 履歷狀態變了，「開始分析」能不能按也跟著變
+    }
+    function drawActions() {
+      replace(actions,
+        h("button", { class: "btn pri", type: "button", disabled: saving || !!blocked(), title: blocked(), onclick: () => save(true) }, icon("search"), "儲存並開始分析"),
+        h("button", { class: "btn out", type: "button", disabled: saving, onclick: () => save(false) }, "只儲存"),
+        blocked() ? h("span", { class: "faint" }, blocked()) : null,
+        plan ? h("button", { class: "linkb", type: "button", onclick: () => { editing = false; draw(); } }, "取消") : null);
     }
     const drawLinks = () => replace(linkBox,
       f.links.map((u, i) => h("div", { class: "row", style: "flex-wrap:nowrap;margin-bottom:8px" },
@@ -140,8 +152,8 @@ export async function render(view, _arg, ctx) {
 
     return h("div", { class: "cform" },
       h("h2", null, "關於你"),
-      field("履歷", "用哪一份履歷來分析", resumeBox),
-      field("自我介紹", "", f.intro), field("經歷補充", "選填", f.exp),
+      field("履歷", "必填，用哪一份履歷來分析", resumeBox),
+      field("自我介紹", "選填", f.intro), field("經歷補充", "選填", f.exp),
       field("作品集", "GitHub、個人網站、Behance 等，一行一個連結", linkBox),
       h("h2", null, "想找什麼樣的工作"),
       field("想做的職務", "", f.roles), field("產業", "", f.ind), field("希望的工作內容", "", f.duties),
@@ -149,11 +161,7 @@ export async function render(view, _arg, ctx) {
         field("期望薪資（最低）", "", h("div", { class: "row", style: "flex-wrap:nowrap" }, f.salary, periodSeg)),
         field("工時偏好", "", f.hours)),
       field("地點", "", f.loc), field("工作型態", "可複選，不選＝不限", modeRow),
-      h("div", { class: "row", style: "margin-top:22px" },
-        h("button", { class: "btn pri", type: "button", disabled: saving || parsing(), title: parsing() ? "等履歷解析完成" : "", onclick: () => save(true) }, icon("search"), "儲存並開始分析"),
-        h("button", { class: "btn out", type: "button", disabled: saving, onclick: () => save(false) }, "只儲存"),
-        parsing() ? h("span", { class: "faint" }, "履歷解析完成後才能開始分析") : null,
-        plan ? h("button", { class: "linkb", type: "button", onclick: () => { editing = false; draw(); } }, "取消") : null));
+      actions);
   }
 
   function profileSummary() {

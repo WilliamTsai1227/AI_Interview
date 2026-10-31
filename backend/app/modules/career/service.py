@@ -57,16 +57,21 @@ async def start(user_id: UUID) -> dict:
     async with tx() as conn:
         prof = await conn.fetchrow("SELECT * FROM career_profiles WHERE user_id = $1", user_id)
         p = _profile_out(prof)
-        if not (p["self_intro"].strip() or p["roles"] or p["industries"] or p["duties_pref"].strip()):
-            raise AppError(400, "VALIDATION_ERROR", "請先填寫自我介紹或求職意向（想做的職務、產業或工作內容）",
-                           {"fields": {"profile": "empty"}})
         running = await conn.fetchval(
             "SELECT id FROM career_plans WHERE user_id = $1 AND status IN ('pending','running')", user_id)
         if running:
             return {"id": str(running), "status": "running"}
-        rid = (await conn.fetchval("SELECT id FROM resumes WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+        # 履歷必填（自我介紹選填）：沒有履歷就無法判斷使用者會什麼，缺口分析沒有意義
+        res = (await conn.fetchrow("SELECT id, parse_status FROM resumes WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
                                    UUID(p["resume_id"]), user_id) if p["resume_id"] else None) \
-            or await conn.fetchval("SELECT id FROM resumes WHERE user_id = $1 AND is_primary AND deleted_at IS NULL", user_id)
+            or await conn.fetchrow("SELECT id, parse_status FROM resumes WHERE user_id = $1 AND is_primary AND deleted_at IS NULL", user_id)
+        if not res:
+            raise AppError(400, "VALIDATION_ERROR", "請先上傳履歷", {"fields": {"resume_id": "required"}})
+        if res["parse_status"] in ("pending", "parsing"):
+            raise AppError(409, "RESOURCE_NOT_READY", "履歷還在解析，完成後再開始分析")
+        if res["parse_status"] != "parsed":
+            raise AppError(400, "VALIDATION_ERROR", "這份履歷沒有解析成功，請換一份或重新上傳", {"fields": {"resume_id": "unparsed"}})
+        rid = res["id"]
         pid = await conn.fetchval(
             "INSERT INTO career_plans (user_id, resume_id, profile_snapshot) VALUES ($1,$2,$3) RETURNING id",
             user_id, rid, {k: v for k, v in p.items() if k != "updated_at"})
