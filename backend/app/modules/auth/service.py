@@ -52,10 +52,11 @@ async def register(email: str, password: str, display_name: str, request: Reques
     await redis.rate_limit("register", _client_ip(request) or "unknown")
     if len(password) < 8:
         raise AppError(400, "VALIDATION_ERROR", "密碼至少要 8 碼", {"fields": {"password": "至少 8 碼"}})
+    pw_hash = await hash_password(password)       # 在交易外算，不佔資料庫連線
     async with db.transaction() as conn:
         if await repo.get_user_by_email(conn, email):
             raise AppError(409, "EMAIL_TAKEN", "這個 Email 已經註冊過，直接登入就好（若之前用 Google 登入，請按「使用 Google 繼續」）")
-        user = await repo.insert_user(conn, email, hash_password(password), display_name.strip() or email.split("@")[0])
+        user = await repo.insert_user(conn, email, pw_hash, display_name.strip() or email.split("@")[0])
         access = await _issue(conn, user, request, response)
         await _event(conn, "auth.register", user["id"], request)
     return {"access_token": access, "user": user_out(user)}
@@ -66,13 +67,15 @@ async def login(email: str, password: str, request: Request, response: Response)
     eh = sha256(email.lower())
     if await redis.login_fail_count(eh) >= 5:
         raise AppError(429, "RATE_LIMITED", "登入失敗太多次，請 15 分鐘後再試", headers={"Retry-After": "900"})
-    async with db.transaction() as conn:
+    async with db.connection() as conn:
         user = await repo.get_user_by_email(conn, email)
-        if user and user["status"] == "active" and not user["password_hash"]:
-            raise AppError(401, "USE_GOOGLE", "這個帳號是用 Google 登入的，請按「使用 Google 繼續」")
-        if not user or user["status"] != "active" or not verify_password(user["password_hash"], password):
-            await redis.login_failed(eh)
-            raise AppError(401, "INVALID_CREDENTIALS", "Email 或密碼不正確")
+    if user and user["status"] == "active" and not user["password_hash"]:
+        raise AppError(401, "USE_GOOGLE", "這個帳號是用 Google 登入的，請按「使用 Google 繼續」")
+    # 驗證密碼在交易外做：約 50 ms 的 CPU 計算期間不佔資料庫連線
+    if not user or user["status"] != "active" or not await verify_password(user["password_hash"], password):
+        await redis.login_failed(eh)
+        raise AppError(401, "INVALID_CREDENTIALS", "Email 或密碼不正確")
+    async with db.transaction() as conn:
         await repo.touch_login(conn, user["id"])
         access = await _issue(conn, user, request, response)
         await _event(conn, "auth.login", user["id"], request)

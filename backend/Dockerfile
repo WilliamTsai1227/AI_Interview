@@ -17,4 +17,5 @@ RUN useradd --create-home --uid 1000 app
 USER app
 
 EXPOSE 8009
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8009", "--proxy-headers"]
+# 閒置連線保留 75 秒：要比前面的負載平衡器長（例如 AWS ALB 預設 60 秒），否則連線剛好被關掉時會出現偶發的 502
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8009", "--proxy-headers", "--timeout-keep-alive", "75"]

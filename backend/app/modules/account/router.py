@@ -96,7 +96,7 @@ async def delete_me(body: Confirm, user: CurrentUser = Depends(current_user)):
     async with db.connection() as conn:
         u = await conn.fetchrow("SELECT * FROM users WHERE id = $1", user.id)
     if u["password_hash"]:
-        if not verify_password(u["password_hash"], body.password or ""):
+        if not await verify_password(u["password_hash"], body.password or ""):
             raise AppError(400, "VALIDATION_ERROR", "密碼不正確", {"fields": {"password": "密碼不正確"}})
     elif body.confirm != "DELETE":
         raise AppError(400, "VALIDATION_ERROR", "請確認要刪除")

@@ -1,4 +1,5 @@
 """密碼雜湊（argon2）、Access JWT、Refresh Token（DB 存 SHA-256）、目前使用者。"""
+import asyncio
 import datetime as dt
 import hashlib
 import secrets
@@ -16,13 +17,19 @@ from app.core.errors import AppError
 _ph = PasswordHasher()
 
 
-def hash_password(pw: str) -> str:
-    return _ph.hash(pw)
+# argon2 刻意很吃 CPU（每次約 50 ms）。放到執行緒算，才不會卡住事件迴圈裡的其他請求；
+# argon2 的 C 程式計算時會釋放 GIL，多個登入可以真的平行。（壓力測試發現：直接算時登入尖峰會把所有 API 拖到 400 ms）
+async def hash_password(pw: str) -> str:
+    return await asyncio.to_thread(_ph.hash, pw)
 
 
-def verify_password(hashed: str | None, pw: str) -> bool:
+async def verify_password(hashed: str | None, pw: str) -> bool:
     if not hashed:
         return False
+    return await asyncio.to_thread(_verify, hashed, pw)
+
+
+def _verify(hashed: str, pw: str) -> bool:
     try:
         return _ph.verify(hashed, pw)
     except VerifyMismatchError:

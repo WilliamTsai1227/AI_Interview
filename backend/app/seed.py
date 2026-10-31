@@ -16,7 +16,7 @@ async def seed(admin_email: str | None) -> None:
     async with db.transaction() as conn:
         await conn.execute(
             """INSERT INTO users (email, password_hash, display_name) VALUES ('demo@example.com', $1, '陳品妤')
-               ON CONFLICT (email) DO NOTHING""", hash_password("demo1234"))
+               ON CONFLICT (email) DO NOTHING""", await hash_password("demo1234"))
         if admin_email:
             await conn.execute("UPDATE users SET role = 'admin' WHERE email = $1", admin_email)
     await db.close_pool()
