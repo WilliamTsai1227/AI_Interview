@@ -1,6 +1,7 @@
 """統一錯誤格式（api.md §1.3）：{"error": {code, message, details, request_id}}。"""
 from typing import Any
 
+import asyncpg
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -42,6 +43,12 @@ def install(app: FastAPI) -> None:
     async def _validation(request: Request, exc: RequestValidationError):
         fields = {".".join(str(p) for p in e["loc"][1:]) or "body": e["msg"] for e in exc.errors()}
         return JSONResponse(_body(request, "VALIDATION_ERROR", "有欄位格式不正確", {"fields": fields}), status_code=400)
+
+    @app.exception_handler(asyncpg.CharacterNotInRepertoireError)
+    @app.exception_handler(asyncpg.UntranslatableCharacterError)
+    async def _bad_chars(request: Request, exc: Exception):
+        # 例如內容含有 \u0000：PostgreSQL 的 text 不收，回 400 而不是 500
+        return JSONResponse(_body(request, "VALIDATION_ERROR", "內容含有無法儲存的特殊字元"), status_code=400)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(request: Request, exc: StarletteHTTPException):

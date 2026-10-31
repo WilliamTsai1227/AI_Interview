@@ -47,8 +47,8 @@ class EndIn(Versioned):
 
 
 class HeartbeatIn(BaseModel):
-    phase: str | None = None
-    rtc_state: str | None = None
+    phase: str | None = Field(default=None, max_length=40)
+    rtc_state: str | None = Field(default=None, max_length=40)
     events: list[dict] = Field(default_factory=list, max_length=50)
 
 

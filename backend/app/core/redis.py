@@ -36,6 +36,7 @@ async def close() -> None:
 # ---------- 限流（固定視窗） ----------
 LIMITS: dict[str, tuple[int, int]] = {          # action: (次數, 視窗秒數)
     "register": (10, 3600),
+    "login": (30, 900) if not settings.is_dev else (300, 900),             # 每個 IP：擋換不同 Email 撞密碼（同一個 Email 另有失敗 5 次鎖 15 分鐘）
     "resume_upload": (20, 86400),
     "upload": (60, 3600),
     "target_create": (20, 3600),

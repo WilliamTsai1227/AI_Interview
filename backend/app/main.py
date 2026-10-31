@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core import db, errors, redis, storage
 from app.core.config import settings
+from app.core.http_guard import HttpGuard
 from app.modules.account.router import router as account
 from app.modules.admin.router import router as admin
 from app.modules.auth.router import router as auth
@@ -52,6 +53,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AI Interview API", version="0.4", lifespan=lifespan, docs_url="/api/v1/docs",
               openapi_url="/api/v1/openapi.json", redoc_url=None)
 errors.install(app)
+app.add_middleware(HttpGuard)      # 請求大小上限＋安全標頭（最外層）
 
 
 @app.middleware("http")

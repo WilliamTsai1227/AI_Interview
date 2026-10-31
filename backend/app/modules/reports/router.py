@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core import redis
 from app.core.security import CurrentUser, current_user
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/interviews", tags=["reports"])
 
 
 class AddToSetIn(BaseModel):
-    session_question_ids: list[UUID] | None = None
+    session_question_ids: list[UUID] | None = Field(default=None, max_length=50)
 
 
 @router.get("")

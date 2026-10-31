@@ -638,6 +638,8 @@ async def heartbeat(user_id: UUID, sid: UUID, events: list[dict]) -> None:
             "UPDATE interview_sessions SET last_heartbeat_at = now() WHERE id = $1 AND user_id = $2 AND status = 'in_progress' RETURNING id",
             sid, user_id)
         for e in events[:20]:
+            if len(json.dumps(e, default=str)) > 2000:
+                continue
             await conn.execute("INSERT INTO voice_events (session_id, source, event_type, payload) VALUES ($1, 'client', $2, $3)",
                                sid, str(e.get("type", "unknown"))[:40], e)
     if ok:

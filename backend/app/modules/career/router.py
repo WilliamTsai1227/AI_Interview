@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
 from app.core.security import CurrentUser, current_user
+from app.core.types import Link, Tag
 from app.modules.career import service
 
 router = APIRouter(prefix="/career", tags=["career"])
@@ -28,15 +29,15 @@ def _clean(xs: list[str]) -> list[str]:
 class ProfileIn(BaseModel):
     self_intro: str = Field(default="", max_length=3000)
     experience_note: str = Field(default="", max_length=3000)
-    portfolio_links: list[str] = Field(default_factory=list, max_length=10)
+    portfolio_links: list[Link] = Field(default_factory=list, max_length=10)
     resume_id: UUID | None = None
     salary_min: int | None = Field(default=None, ge=0, le=100_000_000)
     salary_period: Literal["month", "year"] = "month"
-    industries: list[str] = Field(default_factory=list, max_length=10)
-    roles: list[str] = Field(default_factory=list, max_length=10)
+    industries: list[Tag] = Field(default_factory=list, max_length=10)
+    roles: list[Tag] = Field(default_factory=list, max_length=10)
     duties_pref: str = Field(default="", max_length=1000)
     work_hours: str = Field(default="", max_length=200)
-    locations: list[str] = Field(default_factory=list, max_length=10)
+    locations: list[Tag] = Field(default_factory=list, max_length=10)
     work_modes: list[Literal["onsite", "hybrid", "remote"]] = Field(default_factory=list, max_length=3)
 
 

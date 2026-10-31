@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
 from app.core.security import CurrentUser, current_user
+from app.core.types import Line, Tag
 from app.modules.questions import service
 
 router = APIRouter(tags=["questions"])
@@ -13,7 +14,7 @@ Mode = Literal["none", "fixed", "planned", "adaptive"]
 
 class GenerateIn(BaseModel):
     note: str = Field(default="", max_length=300)
-    categories: list[str] = Field(default_factory=list, max_length=6)
+    categories: list[Tag] = Field(default_factory=list, max_length=6)
     difficulty: Literal["basic", "medium", "advanced"] = "medium"
     count: int = Field(default=5, ge=3, le=10)
 
@@ -21,7 +22,7 @@ class GenerateIn(BaseModel):
 class FollowupIn(BaseModel):
     mode: Mode
     count: int | None = None
-    planned: list[str] | None = None
+    planned: list[Line] | None = Field(default=None, max_length=10)
 
 
 class ItemIn(BaseModel):
@@ -38,7 +39,7 @@ class ItemPatch(BaseModel):
 
 
 class OrderIn(BaseModel):
-    item_ids: list[UUID]
+    item_ids: list[UUID] = Field(max_length=500)
 
 
 @router.get("/targets/{target_id}/questions")

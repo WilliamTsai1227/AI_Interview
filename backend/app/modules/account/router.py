@@ -6,6 +6,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
+from app.core.types import Tag
+
 from app.core import db, storage
 from app.core.errors import AppError
 from app.core.security import CurrentUser, current_user, verify_password
@@ -25,8 +27,8 @@ class Prefs(BaseModel):
     default_persona: Literal["warm", "real", "tough"] | None = None
     default_language: Literal["zh", "en", "mixed"] | None = None
     voice_speed: Literal[1.0, 1.15, 1.3] | None = None      # Ava 說話速度（前端播放速率）
-    desired_roles: list[str] | None = Field(default=None, max_length=10)
-    desired_locations: list[str] | None = Field(default=None, max_length=10)
+    desired_roles: list[Tag] | None = Field(default=None, max_length=10)
+    desired_locations: list[Tag] | None = Field(default=None, max_length=10)
 
 
 class MePatch(BaseModel):

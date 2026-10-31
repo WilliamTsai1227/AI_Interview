@@ -30,7 +30,7 @@ class CheckIn(BaseModel):
 
 
 class AddToSetIn(BaseModel):
-    ids: list[UUID] | None = None
+    ids: list[UUID] | None = Field(default=None, max_length=50)
 
 
 @router.get("/targets/{target_id}/prep")

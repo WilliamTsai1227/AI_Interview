@@ -62,6 +62,7 @@ async def register(email: str, password: str, display_name: str, request: Reques
 
 
 async def login(email: str, password: str, request: Request, response: Response) -> dict:
+    await redis.rate_limit("login", _client_ip(request) or "unknown")
     eh = sha256(email.lower())
     if await redis.login_fail_count(eh) >= 5:
         raise AppError(429, "RATE_LIMITED", "登入失敗太多次，請 15 分鐘後再試", headers={"Retry-After": "900"})

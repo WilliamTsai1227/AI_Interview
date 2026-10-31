@@ -207,6 +207,7 @@ async def patch(user_id: UUID, target_id: UUID, resume_id: UUID | None, clear_re
                                    jobs.search_text(j["company_name"], j["title"], list(j["tags"] or [])))
                 changed = True
         if changed and t["prep_id"]:
+            await redis.rate_limit("prep_gen", str(user_id))     # 這裡會觸發 AI 重新分析，算進面試建議的次數
             running = await conn.fetchval(
                 "SELECT 1 FROM prep_generations WHERE prep_id = $1 AND status IN ('pending','running')", t["prep_id"])
             if not running:

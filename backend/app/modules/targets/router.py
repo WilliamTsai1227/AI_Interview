@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.security import CurrentUser, current_user
+from app.core.types import Line
 from app.modules.targets import service
 
 router = APIRouter(prefix="/targets", tags=["targets"])
@@ -44,8 +45,8 @@ class JobFix(BaseModel):
     location_text: str | None = Field(default=None, max_length=120)
     salary_text: str | None = Field(default=None, max_length=120)
     about: str | None = Field(default=None, max_length=2000)
-    duties: list[str] | None = None
-    requirements: list[str] | None = None
+    duties: list[Line] | None = Field(default=None, max_length=20)
+    requirements: list[Line] | None = Field(default=None, max_length=20)
 
 
 class TargetPatch(BaseModel):
