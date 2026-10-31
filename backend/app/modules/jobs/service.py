@@ -96,7 +96,7 @@ def search_text(company: str, title: str, tags: list[str]) -> str:
 
 
 async def handle_parse_job(payload: dict) -> None:
-    """使用者貼上的職缺 → 結構化欄位 → 排出題與面試建議。"""
+    """使用者貼上的職缺 → 結構化欄位 → 排出題與面試建議（replace：使用者按了重新出題，換掉 Ava 出的舊題目）。"""
     jid, target_id = UUID(payload["job_post_id"]), UUID(payload["target_id"])
     async with db.connection() as conn:
         j = await conn.fetchrow("UPDATE job_posts SET parse_status = 'parsing' WHERE id = $1 RETURNING *", jid)
@@ -125,7 +125,7 @@ async def handle_parse_job(payload: dict) -> None:
             out.seniority if out.seniority in ("junior", "mid", "senior", "lead") else "",
             cat, search_text(out.company_name, out.title, out.tags), emb)
         from app.modules.targets import service as targets
-        await targets.after_job_ready(conn, target_id)
+        await targets.after_job_ready(conn, target_id, replace=bool(payload.get("replace")))
 
 
 def days_ago(ts: dt.datetime | None) -> str | None:

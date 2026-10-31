@@ -131,8 +131,10 @@ async def handle_generate(payload: dict) -> None:
             "SELECT qs.*, t.job_post_id, t.resume_id FROM question_sets qs JOIN target_jobs t ON t.id = qs.target_job_id WHERE qs.id = $1",
             g["set_id"])
         job, resume = await _job_and_resume(conn, s)
+        # replace_ai：重新出題會換掉 Ava 出的舊題目，只需要避開使用者自己加的題目
         existing = [r["text"] for r in await conn.fetch(
-            "SELECT text FROM question_set_items WHERE set_id = $1 AND deleted_at IS NULL", s["id"])]
+            "SELECT text FROM question_set_items WHERE set_id = $1 AND deleted_at IS NULL AND (source <> 'ai' OR NOT $2)",
+            s["id"], bool(g["params"].get("replace_ai")))]
         lang = (await conn.fetchval("SELECT preferences->>'default_language' FROM users WHERE id = $1", g["user_id"])) or "zh"
     p = g["params"]
     async with redis.lock(f"qgen:{s['id']}", 120):
@@ -149,11 +151,36 @@ async def handle_generate(payload: dict) -> None:
             log.warning("question_generation_failed", generation_id=str(gid), error=str(e))
             return      # AI 呼叫已重試過；標記失敗讓使用者在畫面上再試，不讓背景工作空轉
         async with tx() as conn:
+            if p.get("replace_ai"):
+                await _drop_ai_items(conn, s["id"])     # 新題目出好才換掉，出題失敗時舊題目還在
             await append_items(conn, s["id"], items, source="ai", generation_id=gid)
             await conn.execute(
                 "UPDATE question_generations SET status = 'succeeded', created_item_count = $2, finished_at = now() WHERE id = $1",
                 gid, len(items))
             await conn.execute("UPDATE question_sets SET status = 'ready' WHERE id = $1", s["id"])
+
+
+async def _drop_ai_items(conn: db.Connection, set_id: UUID) -> None:
+    """軟刪除 Ava 出的題目（使用者自己加的、報告與建議加入的保留），其餘題目重新編號。"""
+    ids = [r["id"] for r in await conn.fetch(
+        "SELECT id FROM question_set_items WHERE set_id = $1 AND deleted_at IS NULL AND source = 'ai'", set_id)]
+    if not ids:
+        return
+    await conn.execute(
+        """UPDATE question_set_items i SET deleted_at = now(), order_no = x.low - x.rn FROM (
+             SELECT id, row_number() OVER (ORDER BY order_no) AS rn,
+                    (SELECT LEAST(COALESCE(min(order_no), 0), 0) FROM question_set_items WHERE set_id = $1) AS low
+               FROM question_set_items WHERE id = ANY($2)) x
+            WHERE i.id = x.id""", set_id, ids)
+    await conn.execute("DELETE FROM question_set_followups WHERE item_id = ANY($1)", ids)
+    await conn.execute("UPDATE prep_likely_questions SET question_set_item_id = NULL WHERE question_set_item_id = ANY($1)", ids)
+    await conn.execute(
+        """
+        UPDATE question_set_items i SET order_no = x.rn FROM (
+          SELECT id, row_number() OVER (ORDER BY order_no) AS rn FROM question_set_items
+           WHERE set_id = $1 AND deleted_at IS NULL) x
+         WHERE i.id = x.id
+        """, set_id)
 
 
 async def _owned_item(conn: db.Connection, user_id: UUID, target_id: UUID, item_id: UUID) -> db.Record:

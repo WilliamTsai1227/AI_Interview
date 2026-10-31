@@ -35,6 +35,7 @@ class TargetPatch(BaseModel):
     resume_id: UUID | None = None
     clear_resume: bool = False
     job: JobFix | None = None
+    raw_text: str | None = Field(default=None, max_length=20000)     # 只存文字，不會重新出題
 
 
 @router.get("")
@@ -57,7 +58,12 @@ async def get(target_id: UUID, user: CurrentUser = Depends(current_user)):
 @router.patch("/{target_id}")
 async def patch(target_id: UUID, body: TargetPatch, user: CurrentUser = Depends(current_user)):
     return await service.patch(user.id, target_id, body.resume_id, body.clear_resume,
-                               body.job.model_dump() if body.job else None)
+                               body.job.model_dump() if body.job else None, body.raw_text)
+
+
+@router.post("/{target_id}/regenerate", status_code=202)
+async def regenerate(target_id: UUID, user: CurrentUser = Depends(current_user)):
+    return await service.regenerate(user.id, target_id)
 
 
 @router.delete("/{target_id}", status_code=204)

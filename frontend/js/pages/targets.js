@@ -1,5 +1,5 @@
-// 目標職缺：列表 → 詳情（準備進度：題庫、建議、報告；職缺內容；移出）。
-import { del, get } from "../api.js";
+// 目標職缺：列表 → 詳情（準備進度：題庫、建議、報告；職缺內容；編輯原文與重新出題；移出）。
+import { del, get, patch, post } from "../api.js";
 import { addTargetMenuItems, onAddTargetPick, openJd } from "../components/jd.js";
 import { jobType, sourceButton, sourceLine } from "../components/job.js";
 import { dots, h, icon, replace } from "../dom.js";
@@ -36,65 +36,139 @@ async function detail(view, tid, ctx) {
   setHead("target", "目標職缺");
   const wrap = h("div", { class: "wrap doc" }, h("div", { class: "center-load" }, dots()));
   view.append(wrap);
-  let t;
+  let t, editing = false, saving = false, draft = "", timer = null, rawOpen = false;
   try { t = await get(`/targets/${tid}`); } catch {
     if (ctx.isCurrent()) replace(wrap, h("h1", null, "找不到這個目標職缺"), h("a", { class: "linkb", href: "#targets" }, "回到目標職缺"));
     return;
   }
   if (!ctx.isCurrent()) return;
   pickTarget(tid);
-  const j = t.job;
-  // 使用者自己貼的職缺：可以展開看當初貼上的原文（平台職缺的原文只給 AI 用，API 不會回傳）
-  const raw = j.source === "user" && j.raw_text ? h("details", { class: "acc raw-jd", id: "rawJd" },
-    h("summary", null, icon("file"), h("span", { class: "t" }, "你貼上的原始職缺內容"),
-      h("span", { class: "faint" }, `${j.raw_text.length} 字`), icon("chev")),
-    h("div", { class: "bd" }, h("div", { class: "raw-text" }, j.raw_text),
-      h("div", { class: "row", style: "margin-top:10px" },
-        h("button", { class: "btn out sm", type: "button", onclick: () => { navigator.clipboard?.writeText(j.raw_text); toast("已複製原始內容"); } },
-          icon("copy"), "複製全文")))) : null;
-  const showRaw = () => { raw.open = true; raw.scrollIntoView({ behavior: "smooth", block: "start" }); };
-  const chev = () => icon("right", 16, { style: "color:var(--ink-3)" });
-  const progressRow = (k, href, main, hint) => h("a", { class: "su-row", href, style: "display:flex" },
-    h("span", { class: "k" }, k), h("div", { class: "v" }, h("span", null, main), hint ? h("span", { class: "hint" }, hint) : null), chev());
-  replace(wrap,
-    h("a", { class: "linkb", href: "#targets", style: "margin:0 0 18px -6px" }, icon("left", 14), "所有目標職缺"),
-    h("div", { style: "text-align:center;margin-top:8px" }, logo(j.company_name.slice(0, 1).toUpperCase(), 72),
-      h("h1", { style: "font-size:1.6rem;margin-top:14px" }, j.title),
-      h("div", { class: "muted", style: "margin-top:2px" }, [j.company_name, j.location_text].filter(Boolean).join("・")),
-      h("div", { class: "row", style: "justify-content:center;margin-top:12px" },
-        t.match_score != null ? h("span", { class: "tagx" }, `${t.match_score}% 契合`) : null,
-        j.source !== "user" ? h("span", { class: "tagx" }, jobType(j)) : null, j.salary_text ? h("span", { class: "tagx" }, j.salary_text) : null),
-      raw ? h("div", { class: "faint", style: "margin-top:10px" }, "這是你貼上的職缺內容・",
-        h("button", { class: "linkb", type: "button", style: "display:inline-flex;text-decoration:underline", onclick: showRaw }, "查看原文"))
-        : sourceLine(j),
-      h("div", { class: "row", style: "justify-content:center;margin-top:20px" },
-        h("a", { class: "btn pri", href: "#new" }, icon("mic"), "練習這個職缺"),
-        h("a", { class: "btn out", href: `#questions/${tid}` }, icon("book"), "面試題庫"),
-        h("a", { class: "btn out", href: `#prep/${tid}` }, icon("bulb"), "面試建議"),
-        sourceButton(j))),
-    h("div", { class: "basis", style: "margin-top:28px" },
-      h("div", { class: "basis-h" }, icon("target"), "準備進度"),
-      progressRow("題庫", `#questions/${tid}`, t.question_set.status === "preparing" ? "Ava 出題中⋯" : `${t.question_set.item_count} 題`, "模擬面試會照順序提問"),
-      progressRow("建議", `#prep/${tid}`, t.prep.status === "ready" ? `${t.prep.likely_count} 個可能題目・清單完成 ${t.prep.checklist_done}/${t.prep.checklist_total}` : "Ava 正在分析⋯"),
-      progressRow("報告", t.last_report ? `#report/${t.last_report.session_id}` : "#new",
-        t.last_report ? `最近 ${t.last_report.overall_score} 分（${fmtDate(t.last_report.ended_at)}）` : "還沒練習過")),
-    h("h2", null, "關於這個職缺"),
-    j.parse_status !== "parsed" && j.source === "user" ? h("p", { class: "muted" }, j.parse_status === "failed" ? "Ava 沒有解析成功，題目會依你貼上的原文出。" : "Ava 正在整理職缺內容⋯")
-      : h("p", { class: "muted" }, j.summary || j.about || ""),
-    h("div", { class: "grid2" },
-      h("div", null, h("div", { class: "sub-h" }, "工作內容"), h("ul", null, (j.duties || []).map((d) => h("li", null, d)))),
-      h("div", null, h("div", { class: "sub-h" }, "條件要求"), h("ul", null, (j.requirements || []).map((d) => h("li", null, d))))),
-    j.tags.length ? h("div", { class: "row", style: "margin-top:16px" }, j.tags.map((x) => h("span", { class: "tagx" }, x))) : null,
-    raw,
-    h("div", { style: "text-align:center;margin-top:36px" }, h("button", { class: "linkb", type: "button", onclick: async () => {
-      const ok = await confirmBox({ title: "移出目標職缺？", text: "面試題庫、面試建議和報告都會保留，之後重新加入就能找回。", ok: "移出" });
-      if (!ok) return;
-      try {
-        await del(`/targets/${tid}`);
-        await Promise.all([loadTargets(), loadMe()]);
-        renderSide();
-        location.hash = "#targets";
-        toast("已移出目標職缺");
-      } catch (e) { errorToast(e); }
-    } }, "移出目標職缺")));
+
+  // 重新出題後：Ava 解析與出題期間每 4 秒更新一次（編輯原文時不打斷）
+  const busy = () => t.question_set.status === "preparing" || (t.job.source === "user" && ["pending", "parsing"].includes(t.job.parse_status));
+  const poll = () => {
+    clearTimeout(timer);
+    if (!busy()) return;
+    timer = setTimeout(async () => {
+      if (!ctx.isCurrent()) return;
+      if (editing) { poll(); return; }
+      try { t = await get(`/targets/${tid}`); draw(); } catch { /* 下一輪再試 */ }
+      poll();
+    }, 4000);
+  };
+
+  async function saveRaw() {
+    const text = draft.trim();
+    if (text.length < 20) { toast("內容太短，至少要有職稱和工作內容"); return; }
+    if (text === t.job.raw_text) { editing = false; draw(); return; }
+    saving = true; draw();
+    try {
+      t = await patch(`/targets/${tid}`, { raw_text: text });
+      editing = false;
+      toast("已儲存原始職缺內容，題庫沒有變動");
+    } catch (e) { errorToast(e); }
+    saving = false; draw();
+  }
+
+  async function regenerate() {
+    const ok = await confirmBox({
+      title: "依新內容重新出題？",
+      text: `Ava 會依目前的原始職缺內容重新整理職缺資訊，重新出 8 題並換掉 Ava 之前出的題目（你自己新增的題目會保留），面試建議也會重新分析。過去的面試報告不受影響。`,
+      ok: "重新出題",
+    });
+    if (!ok) return;
+    try {
+      t = await post(`/targets/${tid}/regenerate`);
+      await loadTargets().catch(() => {});
+      renderSide();
+      toast("Ava 開始依新內容重新出題");
+      draw(); poll();
+    } catch (e) { errorToast(e); }
+  }
+
+  /** 原文已修改、還沒重新出題時的提示。 */
+  const outdatedNote = () => t.jd_outdated ? h("div", { class: "err-box", role: "status", style: "margin-top:20px" },
+    h("div", { class: "t" }, h("b", null, "原始職缺內容已修改"),
+      h("div", { class: "muted" }, "題庫和面試建議還是依照修改前的內容產生的。想讓 Ava 依新內容出題，再按右邊的按鈕。")),
+    h("button", { class: "btn pri sm", type: "button", disabled: busy(), onclick: regenerate }, icon("redo"), "依新內容重新出題")) : null;
+
+  // 使用者自己貼的職缺：可以展開看、編輯當初貼上的原文（平台職缺的原文只給 AI 用，API 不會回傳）
+  function rawSection() {
+    const j = t.job;
+    if (j.source !== "user" || !j.raw_text) return null;
+    const body = editing
+      ? [h("textarea", { class: "inp", rows: 14, maxlength: 20000, style: "min-height:280px", "aria-label": "原始職缺內容",
+            disabled: saving, oninput: (e) => { draft = e.target.value; } }, draft),
+         h("p", { class: "faint", style: "margin-top:6px" }, "儲存只會更新文字，不會重新出題。"),
+         h("div", { class: "row", style: "margin-top:10px" },
+           h("button", { class: "btn pri sm", type: "button", disabled: saving, onclick: saveRaw }, saving ? "儲存中⋯" : "儲存"),
+           h("button", { class: "btn out sm", type: "button", disabled: saving, onclick: () => { editing = false; draw(); } }, "取消"))]
+      : [h("div", { class: "raw-text" }, j.raw_text),
+         h("div", { class: "row", style: "margin-top:10px" },
+           h("button", { class: "btn out sm", type: "button", onclick: () => { editing = true; draft = j.raw_text; draw(); } }, icon("pencil"), "編輯"),
+           h("button", { class: "btn out sm", type: "button", onclick: () => { navigator.clipboard?.writeText(j.raw_text); toast("已複製原始內容"); } },
+             icon("copy"), "複製全文"),
+           h("button", { class: "btn out sm", type: "button", disabled: busy(), title: busy() ? "Ava 正在出題" : "",
+             onclick: regenerate }, icon("redo"), "依新內容重新出題"))];
+    return h("details", { class: "acc raw-jd", id: "rawJd", open: rawOpen || editing, ontoggle: (e) => { rawOpen = e.target.open; } },
+      h("summary", null, icon("file"), h("span", { class: "t" }, "你貼上的原始職缺內容"),
+        h("span", { class: "faint" }, `${j.raw_text.length} 字`), icon("chev")),
+      h("div", { class: "bd" }, body));
+  }
+
+  function draw() {
+    if (!ctx.isCurrent()) return;
+    const j = t.job;
+    const raw = rawSection();
+    const showRaw = () => { raw.open = true; raw.scrollIntoView({ behavior: "smooth", block: "start" }); };
+    const chev = () => icon("right", 16, { style: "color:var(--ink-3)" });
+    const progressRow = (k, href, main, hint) => h("a", { class: "su-row", href, style: "display:flex" },
+      h("span", { class: "k" }, k), h("div", { class: "v" }, h("span", null, main), hint ? h("span", { class: "hint" }, hint) : null), chev());
+    replace(wrap,
+      h("a", { class: "linkb", href: "#targets", style: "margin:0 0 18px -6px" }, icon("left", 14), "所有目標職缺"),
+      h("div", { style: "text-align:center;margin-top:8px" }, logo(j.company_name.slice(0, 1).toUpperCase(), 72),
+        h("h1", { style: "font-size:1.6rem;margin-top:14px" }, j.title),
+        h("div", { class: "muted", style: "margin-top:2px" }, [j.company_name, j.location_text].filter(Boolean).join("・")),
+        h("div", { class: "row", style: "justify-content:center;margin-top:12px" },
+          t.match_score != null ? h("span", { class: "tagx" }, `${t.match_score}% 契合`) : null,
+          j.source !== "user" ? h("span", { class: "tagx" }, jobType(j)) : null, j.salary_text ? h("span", { class: "tagx" }, j.salary_text) : null),
+        raw ? h("div", { class: "faint", style: "margin-top:10px" }, "這是你貼上的職缺內容・",
+          h("button", { class: "linkb", type: "button", style: "display:inline-flex;text-decoration:underline", onclick: showRaw }, "查看或編輯原文"))
+          : sourceLine(j),
+        h("div", { class: "row", style: "justify-content:center;margin-top:20px" },
+          h("a", { class: "btn pri", href: "#new" }, icon("mic"), "練習這個職缺"),
+          h("a", { class: "btn out", href: `#questions/${tid}` }, icon("book"), "面試題庫"),
+          h("a", { class: "btn out", href: `#prep/${tid}` }, icon("bulb"), "面試建議"),
+          sourceButton(j))),
+      outdatedNote(),
+      h("div", { class: "basis", style: "margin-top:28px" },
+        h("div", { class: "basis-h" }, icon("target"), "準備進度"),
+        progressRow("題庫", `#questions/${tid}`, t.question_set.status === "preparing" ? "Ava 出題中⋯" : `${t.question_set.item_count} 題`, "模擬面試會照順序提問"),
+        progressRow("建議", `#prep/${tid}`, t.prep.status === "ready" ? `${t.prep.likely_count} 個可能題目・清單完成 ${t.prep.checklist_done}/${t.prep.checklist_total}` : "Ava 正在分析⋯"),
+        progressRow("報告", t.last_report ? `#report/${t.last_report.session_id}` : "#new",
+          t.last_report ? `最近 ${t.last_report.overall_score} 分（${fmtDate(t.last_report.ended_at)}）` : "還沒練習過")),
+      h("h2", null, "關於這個職缺"),
+      j.parse_status !== "parsed" && j.source === "user" ? h("p", { class: "muted" }, j.parse_status === "failed" ? "Ava 沒有解析成功，題目會依你貼上的原文出。" : "Ava 正在整理職缺內容⋯")
+        : h("p", { class: "muted" }, j.summary || j.about || ""),
+      h("div", { class: "grid2" },
+        h("div", null, h("div", { class: "sub-h" }, "工作內容"), h("ul", null, (j.duties || []).map((d) => h("li", null, d)))),
+        h("div", null, h("div", { class: "sub-h" }, "條件要求"), h("ul", null, (j.requirements || []).map((d) => h("li", null, d))))),
+      j.tags.length ? h("div", { class: "row", style: "margin-top:16px" }, j.tags.map((x) => h("span", { class: "tagx" }, x))) : null,
+      raw,
+      h("div", { style: "text-align:center;margin-top:36px" }, h("button", { class: "linkb", type: "button", onclick: async () => {
+        const ok = await confirmBox({ title: "移出目標職缺？", text: "面試題庫、面試建議和報告都會保留，之後重新加入就能找回。", ok: "移出" });
+        if (!ok) return;
+        try {
+          await del(`/targets/${tid}`);
+          await Promise.all([loadTargets(), loadMe()]);
+          renderSide();
+          location.hash = "#targets";
+          toast("已移出目標職缺");
+        } catch (e) { errorToast(e); }
+      } }, "移出目標職缺")));
+  }
+
+  draw();
+  poll();
+  return () => clearTimeout(timer);
 }

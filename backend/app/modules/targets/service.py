@@ -1,4 +1,8 @@
-"""目標職缺：練習單位。加入時一次完成「建立職缺 → 解析 → 出第一組題目 → 產生面試建議」。"""
+"""目標職缺：練習單位。加入時一次完成「建立職缺 → 解析 → 出第一組題目 → 產生面試建議」。
+
+使用者可以編輯自己貼上的原始職缺內容；存檔只改文字並標記 jd_outdated，不會自動呼叫 AI。
+使用者按「依新內容重新出題」（regenerate）才重新解析職缺、換掉 Ava 出的題目、重新產生面試建議。
+"""
 from uuid import UUID
 
 from app.ai import text
@@ -62,7 +66,7 @@ def target_out(r, detail: bool = False) -> dict:
                  "checklist_total": r["checklist_total"] or 0},
         "last_report": {"session_id": str(r["last_session_id"]), "overall_score": r["last_score"],
                         "ended_at": r["last_ended_at"]} if r["last_session_id"] else None,
-        "last_practiced_at": r["last_practiced_at"], "created_at": r["created_at"],
+        "jd_outdated": r["jd_outdated"], "last_practiced_at": r["last_practiced_at"], "created_at": r["created_at"],
     }
 
 
@@ -97,16 +101,18 @@ async def _create_children(conn: db.Connection, user_id: UUID, target_id: UUID, 
         await _start_initial(conn, user_id, set_id, prep_id, resume_id)
 
 
-async def _start_initial(conn: db.Connection, user_id: UUID, set_id: UUID, prep_id: UUID, resume_id: UUID | None) -> None:
+async def _start_initial(conn: db.Connection, user_id: UUID, set_id: UUID, prep_id: UUID, resume_id: UUID | None,
+                         replace: bool = False) -> None:
     from app.modules.preps import service as preps
     from app.modules.questions import service as questions
     await questions.start_generation(conn, user_id, set_id, {"categories": [], "difficulty": "medium",
-                                                             "count": INITIAL_QUESTIONS, "note": "", "initial": True})
+                                                             "count": INITIAL_QUESTIONS, "note": "", "initial": True,
+                                                             "replace_ai": replace})
     await preps.start_generation(conn, prep_id, "analyze",
                                  {"resume_id": str(resume_id) if resume_id else None, "initial": True}, quiet=True)
 
 
-async def after_job_ready(conn: db.Connection, target_id: UUID) -> None:
+async def after_job_ready(conn: db.Connection, target_id: UUID, replace: bool = False) -> None:
     t = await conn.fetchrow(
         """
         SELECT t.user_id, t.resume_id, qs.id AS set_id, p.id AS prep_id FROM target_jobs t
@@ -114,7 +120,7 @@ async def after_job_ready(conn: db.Connection, target_id: UUID) -> None:
          WHERE t.id = $1
         """, target_id)
     if t:
-        await _start_initial(conn, t["user_id"], t["set_id"], t["prep_id"], t["resume_id"])
+        await _start_initial(conn, t["user_id"], t["set_id"], t["prep_id"], t["resume_id"], replace)
 
 
 async def create(user_id: UUID, raw_text: str | None, job_post_id: UUID | None, resume_id: UUID | None) -> tuple[int, dict]:
@@ -142,9 +148,7 @@ async def create(user_id: UUID, raw_text: str | None, job_post_id: UUID | None, 
                 user_id, job_post_id, resume_id)
             await _create_children(conn, user_id, tid, job_post_id, resume_id, job_ready=True)
         else:
-            raw = (raw_text or "").strip()
-            if len(raw) < 20 or len(raw.splitlines()[0]) < 2:
-                raise AppError(422, "JD_UNREADABLE", "內容太短，至少要有職稱和工作內容")
+            raw = _check_raw(raw_text or "")
             p = text.rough_parse_jd(raw)
             jid = await conn.fetchval(
                 """
@@ -162,11 +166,20 @@ async def create(user_id: UUID, raw_text: str | None, job_post_id: UUID | None, 
     return 202, target_out(r, detail=True)
 
 
-async def patch(user_id: UUID, target_id: UUID, resume_id: UUID | None, clear_resume: bool, job: dict | None) -> dict:
+async def patch(user_id: UUID, target_id: UUID, resume_id: UUID | None, clear_resume: bool, job: dict | None,
+                raw_text: str | None = None) -> dict:
     from app.modules.preps import service as preps
     async with tx() as conn:
         t = await fetch(conn, user_id, target_id, active_only=True)
         changed = False
+        if raw_text is not None:
+            if t["source"] != "user":
+                raise AppError(400, "VALIDATION_ERROR", "平台職缺的內容不能修改")
+            raw = _check_raw(raw_text)
+            if raw != (t["raw_text"] or ""):
+                # 只存文字：不重新解析、不重新出題，等使用者自己按「依新內容重新出題」
+                await conn.execute("UPDATE job_posts SET raw_text = $2, updated_at = now() WHERE id = $1", t["job_post_id"], raw)
+                await conn.execute("UPDATE target_jobs SET jd_outdated = true WHERE id = $1", target_id)
         if resume_id or clear_resume:
             if resume_id:
                 await resumes.owned(conn, user_id, resume_id)
@@ -192,6 +205,34 @@ async def patch(user_id: UUID, target_id: UUID, resume_id: UUID | None, clear_re
             if not running:
                 await preps.start_generation(conn, t["prep_id"], "analyze",
                                              {"resume_id": str(resume_id) if resume_id else None}, quiet=True)
+        r = await fetch(conn, user_id, target_id)
+    return target_out(r, detail=True)
+
+
+def _check_raw(raw_text: str) -> str:
+    raw = raw_text.strip()
+    if len(raw) < 20 or len(raw.splitlines()[0]) < 2:
+        raise AppError(422, "JD_UNREADABLE", "內容太短，至少要有職稱和工作內容")
+    return raw[:20000]
+
+
+async def regenerate(user_id: UUID, target_id: UUID) -> dict:
+    """依目前的原始職缺內容重新解析 → 換掉 Ava 出的題目（使用者自己加的保留）→ 重新產生面試建議。"""
+    await redis.rate_limit("question_gen", str(user_id))
+    async with tx() as conn:
+        t = await fetch(conn, user_id, target_id, active_only=True)
+        if t["source"] != "user":
+            raise AppError(400, "VALIDATION_ERROR", "平台職缺不能重新出題")
+        busy = t["gen_running"] or await conn.fetchval(
+            "SELECT 1 FROM background_jobs WHERE dedupe_key = $1 AND status IN ('queued','running','retrying')",
+            f"parse_job:{t['job_post_id']}")
+        if busy:
+            raise AppError(409, "RESOURCE_NOT_READY", "Ava 正在出題，完成後再試一次")
+        await conn.execute("UPDATE job_posts SET parse_status = 'pending' WHERE id = $1", t["job_post_id"])
+        await conn.execute("UPDATE question_sets SET status = 'preparing' WHERE id = $1", t["set_id"])
+        await conn.execute("UPDATE target_jobs SET jd_outdated = false WHERE id = $1", target_id)
+        await enqueue(conn, "parse_job", {"job_post_id": str(t["job_post_id"]), "target_id": str(target_id), "replace": True},
+                      dedupe_key=f"parse_job:{t['job_post_id']}")
         r = await fetch(conn, user_id, target_id)
     return target_out(r, detail=True)
 
