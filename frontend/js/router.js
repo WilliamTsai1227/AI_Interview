@@ -9,7 +9,7 @@ import * as questions from "./pages/questions.js";
 import * as report from "./pages/report.js";
 import * as targets from "./pages/targets.js";
 import { closeDrawer, renderSide } from "./shell.js";
-import { S } from "./store.js";
+import { feature, S } from "./store.js";
 import { closeMenu, closeModal } from "./ui.js";
 
 const PAGES = { new: newPage, chat, career, report, questions, prep, targets, jobs };
@@ -25,7 +25,10 @@ export function rerender() { return route({ keepScroll: true }); }
 
 export async function route(opts = {}) {
   const [name, arg] = (location.hash || "#new").slice(1).split("/");
-  const next = PAGES[name] ? name : "new";
+  // 職缺搜尋關閉時，直接輸入 #jobs 也導回新面試
+  const off = name === "jobs" && !feature("job_search");
+  if (off) history.replaceState(null, "", "#new");
+  const next = PAGES[name] && !off ? name : "new";
   const my = ++seq;
   if (cleanup) { try { await cleanup({ next }); } catch { /* ignore */ } cleanup = null; }
   if (my !== seq) return;

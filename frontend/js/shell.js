@@ -1,6 +1,6 @@
 // 外框：主題、側欄。給各頁面共用（避免頁面與 main.js 循環匯入）。
 import { $, append, clear, h, icon, replace } from "./dom.js";
-import { S } from "./store.js";
+import { feature, S } from "./store.js";
 
 // ---------- 主題 ----------
 export const isDark = () => (S.theme ? S.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches);
@@ -31,7 +31,7 @@ export function renderSide() {
       h("span", { class: "t" }, `${act.status === "paused" ? "面試暫停中" : "面試進行中"}・第 ${act.current_main_no}/${act.total_main} 題`),
       h("span", { class: "faint" }, "繼續"))]);
   }
-  for (const [id, label, ic] of NAV) {
+  for (const [id, label, ic] of NAV.filter(([id]) => id !== "jobs" || feature("job_search"))) {
     const on = S.route === id || (S.route === "chat" && id === "new");
     list.append(h("a", { class: `nav-i${on ? " on" : ""}`, href: `#${id}`, onclick: closeDrawer }, icon(ic), h("span", { class: "t" }, label)));
   }

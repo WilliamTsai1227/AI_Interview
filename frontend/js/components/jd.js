@@ -3,7 +3,7 @@ import { post } from "../api.js";
 import { h } from "../dom.js";
 import { rerender } from "../router.js";
 import { renderSide } from "../shell.js";
-import { loadMe, loadTargets, pickTarget } from "../store.js";
+import { feature, loadMe, loadTargets, pickTarget } from "../store.js";
 import { closeModal, openModal, toast } from "../ui.js";
 
 export function openJd({ after } = {}) {
@@ -47,7 +47,8 @@ export function openJd({ after } = {}) {
 
 /** 「新增目標職缺」選單：貼上職缺或到職缺搜尋挑選。 */
 export function addTargetMenuItems() {
-  return [{ icon: "plus", label: "貼上職缺內容", v: "jd" }, { icon: "search", label: "到職缺搜尋挑選", v: "jobs" }];
+  return [{ icon: "plus", label: "貼上職缺內容", v: "jd" },
+    ...(feature("job_search") ? [{ icon: "search", label: "到職缺搜尋挑選", v: "jobs" }] : [])];
 }
 export function onAddTargetPick(v) {
   if (v === "jobs") location.hash = "#jobs";

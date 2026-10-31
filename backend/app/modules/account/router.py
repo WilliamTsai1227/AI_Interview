@@ -6,11 +6,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
-from app.core.types import Tag
-
 from app.core import db, storage
+from app.core.config import settings
 from app.core.errors import AppError
 from app.core.security import CurrentUser, current_user, verify_password
+from app.core.types import Tag
 from app.modules.auth import repository as auth_repo
 from app.modules.auth.service import user_out
 from app.modules.interviews import service as interviews
@@ -62,7 +62,8 @@ async def me_out(user_id: UUID) -> dict:
                       "interviews_limit": PLAN_LIMIT.get(u["plan"], 10)},
             "onboarding": {"has_resume": pr is not None, "has_target": has_target, "has_completed_interview": has_done},
             "primary_resume": {"id": str(pr["id"]), "filename": pr["filename"], "parse_status": pr["parse_status"]} if pr else None,
-            "active_interview": active}
+            "active_interview": active,
+            "features": {"job_search": settings.feature_job_search}}
 
 
 @router.get("")

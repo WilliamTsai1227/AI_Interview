@@ -2,6 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
+from app.core.config import settings
+from app.core.errors import not_found
 from app.core.security import CurrentUser, current_user
 from app.modules.jobs import service
 
@@ -13,6 +15,8 @@ async def search(q: str | None = None, city: str | None = None, category: str | 
                  seniority: str | None = None, filters: str | None = None, sort: str = "match",
                  limit: int = Query(20, ge=1, le=50), cursor: str | None = None,
                  user: CurrentUser = Depends(current_user)):
+    if not settings.feature_job_search:
+        raise not_found()       # 功能關閉：只關搜尋，GET /jobs/{id} 的職缺詳情照常
     offset = int(cursor) if cursor and cursor.isdigit() else 0
     return await service.search(user.id, q=(q or "").strip() or None, city=city, category=category,
                                 seniority=seniority, filters=[f for f in (filters or "").split(",") if f],

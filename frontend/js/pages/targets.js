@@ -4,7 +4,7 @@ import { addTargetMenuItems, onAddTargetPick, openJd } from "../components/jd.js
 import { jobType, sourceButton, sourceLine } from "../components/job.js";
 import { dots, h, icon, replace } from "../dom.js";
 import { renderSide } from "../shell.js";
-import { fmtDate, loadMe, loadTargets, pickTarget, S } from "../store.js";
+import { feature, fmtDate, loadMe, loadTargets, pickTarget, S } from "../store.js";
 import { closeModal, confirmBox, errorToast, logo, openMenu, openModal, setHead, toast } from "../ui.js";
 
 export async function render(view, tid, ctx) {
@@ -28,7 +28,7 @@ async function list(view, ctx) {
             t.last_report ? `最近練習 ${fmtDate(t.last_report.ended_at)}・${t.last_report.overall_score} 分` : "還沒練習"].filter(Boolean).join("・"))),
         h("span", { class: "ch" }, icon("right")))),
       tg.length ? h("button", { class: "addrow", type: "button", onclick: (e) => openMenu(e.currentTarget, addTargetMenuItems(), onAddTargetPick) }, icon("plus"), "新增目標職缺")
-        : h("div", { class: "empty-note" }, h("p", null, "還沒有目標職缺。貼上你想應徵的職缺，或到「職缺搜尋」挑一個。"),
+        : h("div", { class: "empty-note" }, h("p", null, feature("job_search") ? "還沒有目標職缺。貼上你想應徵的職缺，或到「職缺搜尋」挑一個。" : "還沒有目標職缺。貼上你想應徵的職缺就能開始準備。"),
           h("button", { class: "btn pri", type: "button", onclick: () => openJd() }, icon("plus"), "貼上職缺內容"))));
 }
 

@@ -29,6 +29,8 @@ export async function loadMe() { S.me = await get("/me"); return S.me; }
 export async function loadTargets() { S.targets = (await get("/targets")).items; return S.targets; }
 export async function loadResumes() { S.resumes = (await get("/resumes")).items; return S.resumes; }
 
+/** 功能開關（後端 FEATURE_* 環境變數，經 /me 回傳）。 */
+export const feature = (name) => !!S.me?.features?.[name];
 export const prefs = () => S.me?.preferences || { default_length: "standard", default_persona: "warm", default_language: "zh" };
 export const shortName = () => {
   const n = (S.me?.user?.display_name || "").trim();

@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     audio_max_bytes: int = 15 * 1024 * 1024
     resume_max_pages: int = 10
 
+    # 功能開關（正式環境第一版先關閉，之後要開把環境變數改成 true 並重啟即可）
+    feature_job_search: bool = False      # 職缺搜尋頁；關閉時職缺詳情（職涯規劃、面試建議會用到）照常運作
+
     @property
     def ai_enabled(self) -> bool:
         return bool(self.openai_api_key)

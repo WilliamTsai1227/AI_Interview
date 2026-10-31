@@ -5,7 +5,7 @@ import { openSettings } from "../components/settings.js";
 import { h, icon, replace, skel } from "../dom.js";
 import { requestMic } from "../interview/recorder.js";
 import { renderSide } from "../shell.js";
-import { DIFF, EST, fuExpected, LANGS, loadMe, loadResumes, loadTargets, MODES, PERSONAS, pickTarget, prefs, S } from "../store.js";
+import { DIFF, EST, feature, fuExpected, LANGS, loadMe, loadResumes, loadTargets, MODES, PERSONAS, pickTarget, prefs, S } from "../store.js";
 import { confirmBox, errorToast, openMenu, seg, setHead, toast } from "../ui.js";
 
 export async function render(view, _arg, ctx) {
@@ -63,7 +63,7 @@ export async function render(view, _arg, ctx) {
         pickTarget(v); S.resumeSel = undefined; st.questions = null; draw(); await loadQuestions(); draw(); schedulePoll();
       }) }, h("b", null, t.job.company_name), h("span", null, t.job.title), icon("chev"))
       : [h("button", { class: "btn pri sm", type: "button", onclick: () => openJd() }, icon("plus"), "貼上職缺內容"),
-        h("a", { class: "linkb", href: "#jobs" }, "或從職缺庫挑選")]));
+        feature("job_search") ? h("a", { class: "linkb", href: "#jobs" }, "或從職缺庫挑選") : null]));
 
     const resumeRow = h("div", { class: "su-row" }, h("span", { class: "k" }, "履歷"), h("div", { class: "v" }, resumes.length
       ? h("button", { class: "picker", type: "button", onclick: (e) => openMenu(e.currentTarget, [

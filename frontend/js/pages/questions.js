@@ -2,7 +2,7 @@
 import { del, get, patch, post, put } from "../api.js";
 import { addTargetMenuItems, onAddTargetPick } from "../components/jd.js";
 import { dots, h, icon, onEnter, replace, skel, trackComposition } from "../dom.js";
-import { CATS, DIFF, fuLabel, loadTargets, pickTarget, S } from "../store.js";
+import { CATS, DIFF, feature, fuLabel, loadTargets, pickTarget, S } from "../store.js";
 import { errorToast, logo, openMenu, setHead, toast } from "../ui.js";
 
 export async function render(view, tid, ctx) {
@@ -23,7 +23,7 @@ async function targetList(view, ctx) {
         h("span", { class: "bd" }, h("b", null, `${t.job.company_name}・${t.job.title}`),
           h("span", { class: "m" }, `${t.question_set.status === "preparing" ? "Ava 出題中⋯" : t.question_set.item_count ? `${t.question_set.item_count} 題` : "還沒有題目"}${t.match_score != null ? `・契合度 ${t.match_score}%` : ""}`)),
         h("span", { class: "ch" }, icon("right")))),
-      tg.length ? null : h("p", { class: "muted", style: "padding:14px 12px" }, "還沒有目標職缺。先從職缺庫加入，或貼上你想應徵的職缺。"),
+      tg.length ? null : h("p", { class: "muted", style: "padding:14px 12px" }, feature("job_search") ? "還沒有目標職缺。先從職缺庫加入，或貼上你想應徵的職缺。" : "還沒有目標職缺。先貼上你想應徵的職缺。"),
       h("button", { class: "addrow", type: "button", onclick: (e) => openMenu(e.currentTarget, addTargetMenuItems(), onAddTargetPick) }, icon("plus"), "新增目標職缺")));
 }
 
