@@ -3,15 +3,25 @@
 比對對象是使用者加入的目標職缺（自己挑的、最可靠）。沒有目標職缺時，只依個人檔案與履歷分析，
 並建議加入目標職缺。不再使用平台職缺或網路搜尋（品質不穩，見 spec/features/career-plan.md）。
 """
+import asyncio
+import json
 from uuid import UUID
+
+import structlog
 
 from app.ai.agents import career as ca
 from app.core import db, redis
+from app.core.config import settings
 from app.core.errors import AppError, not_found
+from app.modules.career import github
 from app.modules.resumes import service as resumes
 from app.workers.queue import enqueue, tx
 
+log = structlog.get_logger()
 MAX_TARGETS = 10
+REPO_CACHE_SEC = 7 * 86400
+LAST_READ_SEC = 30 * 86400   # GitHub 限流時改用最近一次讀到的結果
+READ_LINK_SEC = 200          # 每個連結（下載＋審閱）最多等多久，超過就略過，不拖垮整份分析
 PRIORITY_RANK = {"high": 0, "medium": 1, "low": 2}
 PROFILE_FIELDS = ("self_intro", "experience_note", "portfolio_links", "resume_id", "salary_min", "salary_period",
                   "industries", "roles", "duties_pref", "work_hours", "locations", "work_modes")
@@ -95,7 +105,7 @@ async def _plan_out(conn: db.Connection, p) -> dict:
         "id": str(p["id"]), "status": p["status"], "created_at": p["created_at"], "finished_at": p["finished_at"],
         "summary": p["summary"], "readiness_score": p["readiness_score"], "strengths": list(p["strengths"] or []),
         "gaps": p["gaps"] or [], "has_resume": p["resume_id"] is not None,
-        "error": p["error"], "profile": p["profile_snapshot"],
+        "error": p["error"], "profile": p["profile_snapshot"], "stage": p["stage"], "portfolio": p["portfolio_evidence"] or [],
         "jobs": [{"id": str(r["job_post_id"]), "found_by": r["found_by"], "company_name": r["company_name"], "title": r["title"],
                   "city": r["city"], "salary_text": r["salary_text"], "source_url": r["source_url"],
                   "source_site": r["source_site"], "work_mode": r["work_mode"], "match_score": r["match_score"],
@@ -121,8 +131,10 @@ async def get_plan(user_id: UUID, plan_id: UUID | None) -> dict | None:
 async def list_plans(user_id: UUID) -> list[dict]:
     async with db.connection() as conn:
         rs = await conn.fetch(
-            "SELECT id, status, readiness_score, created_at FROM career_plans WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20", user_id)
-    return [{"id": str(r["id"]), "status": r["status"], "readiness_score": r["readiness_score"], "created_at": r["created_at"]} for r in rs]
+            """SELECT id, status, readiness_score, summary, created_at, jsonb_array_length(gaps) AS gap_count
+                 FROM career_plans WHERE user_id = $1 ORDER BY created_at DESC LIMIT 30""", user_id)
+    return [{"id": str(r["id"]), "status": r["status"], "readiness_score": r["readiness_score"], "summary": r["summary"],
+             "gap_count": r["gap_count"], "created_at": r["created_at"]} for r in rs]
 
 
 async def toggle_task(user_id: UUID, plan_id: UUID, task_id: UUID, checked: bool) -> None:
@@ -149,10 +161,89 @@ def _job_dict(r) -> dict:
             "duties": list(r["duties"] or []), "requirements": list(r["requirements"] or []), "tags": list(r["tags"] or [])}
 
 
+async def _read_link(url: str, user_id: UUID) -> dict:
+    """讀一個作品集連結並審閱。repo 的審閱結果依 commit 快取 7 天：程式碼沒變就不重新花錢分析。"""
+    target = github.parse(url)
+    if not target:
+        return {"url": url, "status": "skipped", "error": "目前只會讀取 GitHub 連結"}
+    owner, repo = target
+    try:
+        if not repo:
+            return {"url": url, "status": "ok", "kind": "profile", "profile": await github.read_profile(owner)}
+        r = await github.read_repo(owner, repo)
+    except github.ReadError as e:
+        if e.rate_limited and repo and (last := await _last_read(owner, repo)):
+            return {**last, "url": url, "stale": True}
+        return {"url": url, "status": "failed", "error": str(e)}
+    except Exception as e:
+        log.warning("portfolio_read_failed", url=url, error=repr(e))
+        return {"url": url, "status": "failed", "error": "連不到 GitHub，請稍後再試"}
+    m = r["meta"]
+    if not r["files"] and not r["readme"]:
+        return {"url": url, "status": "failed", "error": "這個 repo 沒有可以讀的程式碼", "kind": "repo", "repo": m, "files_read": []}
+    key = f"{redis.P}career_repo:{ca.PV_REPO}:{m['full_name'].lower()}:{m['sha']}:{settings.portfolio_repo_chars}"
+    analysis = None
+    try:
+        cached = await redis.client().get(key)
+        analysis = json.loads(cached) if cached else None
+    except Exception:
+        pass
+    if analysis is None:
+        try:
+            analysis = (await ca.analyze_repo(r, user_id=user_id)).model_dump()
+        except Exception as e:
+            return {"url": url, "status": "failed", "error": f"讀到了程式碼，但 Ava 審閱失敗：{str(e)[:80]}", "kind": "repo", "repo": m,
+                    "files_read": [f["path"] for f in r["files"]]}
+        try:
+            await redis.client().set(key, json.dumps(analysis, ensure_ascii=False), ex=REPO_CACHE_SEC)
+        except Exception:
+            pass
+    out = {"url": url, "status": "ok", "kind": "repo", "repo": {**m, "languages": r["languages"]},
+           "files_read": [f["path"] for f in r["files"]], "readme_read": bool(r["readme"]), "commits_read": len(r["commits"]),
+           "analysis": analysis}
+    try:
+        await redis.client().set(_last_key(owner, repo), json.dumps(out, ensure_ascii=False), ex=LAST_READ_SEC)
+    except Exception:
+        pass
+    return out
+
+
+def _last_key(owner: str, repo: str) -> str:
+    return f"{redis.P}career_repo_last:{owner.lower()}/{repo.lower()}"
+
+
+async def _last_read(owner: str, repo: str) -> dict | None:
+    try:
+        v = await redis.client().get(_last_key(owner, repo))
+        return json.loads(v) if v else None
+    except Exception:
+        return None
+
+
+async def read_portfolio(links: list[str], user_id: UUID) -> list[dict]:
+    """同時讀所有連結；GitHub repo 最多深入讀 PORTFOLIO_MAX_REPOS 個，其餘標成略過。"""
+    async def skipped(u: str) -> dict:
+        return {"url": u, "status": "skipped", "error": f"一次最多讀 {settings.portfolio_max_repos} 個 repo"}
+    out, n = [], 0
+    for u in links:
+        t = github.parse(u)
+        n += bool(t and t[1])
+        out.append(skipped(u) if t and t[1] and n > settings.portfolio_max_repos else _bounded(u, user_id))
+    return list(await asyncio.gather(*out))
+
+
+async def _bounded(url: str, user_id: UUID) -> dict:
+    try:
+        return await asyncio.wait_for(_read_link(url, user_id), READ_LINK_SEC)
+    except asyncio.TimeoutError:
+        return {"url": url, "status": "failed", "error": "這個 repo 太大，讀取逾時"}
+
+
 async def handle_build(payload: dict) -> None:
     pid = UUID(payload["plan_id"])
     async with db.connection() as conn:
-        p = await conn.fetchrow("UPDATE career_plans SET status = 'running' WHERE id = $1 AND status IN ('pending','running') RETURNING *", pid)
+        p = await conn.fetchrow(
+            "UPDATE career_plans SET status = 'running', stage = 'portfolio' WHERE id = $1 AND status IN ('pending','running') RETURNING *", pid)
         if not p:
             return
         profile = p["profile_snapshot"]
@@ -161,17 +252,20 @@ async def handle_build(payload: dict) -> None:
         targets = await _target_jobs(conn, p["user_id"])
     uid = p["user_id"]
     cands = [(t["id"], _job_dict(t)) for t in targets]
+    portfolio = await read_portfolio(profile.get("portfolio_links") or [], uid)
+    async with db.connection() as conn:
+        await conn.execute("UPDATE career_plans SET portfolio_evidence = $2, stage = 'plan' WHERE id = $1", pid, portfolio)
     try:
-        out = await ca.build_plan(profile=profile, resume=resume, jobs=[c[1] for c in cands], user_id=uid)
+        out = await ca.build_plan(profile=profile, resume=resume, jobs=[c[1] for c in cands], portfolio=portfolio, user_id=uid)
     except Exception as e:
         async with db.connection() as conn:
-            await conn.execute("UPDATE career_plans SET status = 'failed', error = $2, finished_at = now() WHERE id = $1", pid, str(e)[:300])
+            await conn.execute("UPDATE career_plans SET status = 'failed', stage = NULL, error = $2, finished_at = now() WHERE id = $1", pid, str(e)[:300])
         return
     fits = {f.index: f for f in out.job_fits if 0 <= f.index < len(cands)}
     async with db.transaction() as conn:
         await conn.execute(
             """UPDATE career_plans SET status = 'ready', summary = $2, readiness_score = $3, strengths = $4, gaps = $5,
-                      prompt_version = $6, error = NULL, finished_at = now()
+                      prompt_version = $6, stage = NULL, error = NULL, finished_at = now()
                 WHERE id = $1""",
             pid, out.summary[:300], max(0, min(100, out.readiness_score)), [s[:80] for s in out.strengths[:5]],
             [{"skill": g.skill[:40], "severity": g.severity if g.severity in PRIORITY_RANK else "medium", "detail": g.detail[:160]}

@@ -120,6 +120,16 @@ docker compose up -d api worker     # 只用 restart 不會讀到新的 .env
 | `AUDIO_MAX_BYTES` | `15728640`（15 MB） | 每段回答錄音的大小上限。 |
 | `RESUME_MAX_PAGES` | `10` | PDF 履歷最多讀幾頁，超過的頁數會被忽略。 |
 
+### 職涯規劃：讀取 GitHub 作品集
+
+職涯分析前，後端會用 GitHub API 實際讀取使用者作品集裡的 repo（README、完整目錄、設定檔、主要原始碼、最近 commit），交給 AI 審閱。說明見 [spec/features/career-plan.md](spec/features/career-plan.md)。
+
+| 變數 | 預設值 | 白話說明 |
+|---|---|---|
+| `GITHUB_TOKEN` | 空白 | GitHub 存取權杖。**正式環境一定要設**：沒設時整台伺服器（所有使用者共用同一個 IP）每小時只能呼叫 GitHub API 60 次，每個 repo 要 4 次，大約每小時 5 次分析就用完；設了之後是 5,000 次。用完時會改用該 repo 上次讀到的結果，沒有的話畫面會標「讀取失敗」。建立方式：GitHub → Settings → Developer settings → Fine-grained tokens，權限只要 Public repositories（唯讀）。 |
+| `PORTFOLIO_MAX_REPOS` | `5` | 一次分析最多深入讀幾個 repo，超過的會標「未讀取」。每多一個 repo 就多一次 reasoning 呼叫（約 4 萬 input tokens）。 |
+| `PORTFOLIO_REPO_CHARS` | `120000` | 每個 repo 最多讀多少字的設定檔＋原始碼（README 另計，最多 1.5 萬字）。調高讀得更完整，但更慢更貴；單一檔案最多讀 1 萬字。 |
+
 ### 功能開關
 
 | 變數 | 預設值 | 白話說明 |
@@ -177,7 +187,8 @@ AI 工作的需求不一樣：有的要快（使用者正在等），有的要�
 | 出題 | 加入目標職缺、題庫頁按「生成題目」、按「依新內容重新出題」 | reasoning | `gpt-5` | 否，背景 | 約 40 秒 |
 | 回答評分 | 每題回答完後在背景評分（面試進行中就開始） | reasoning | `gpt-5` | 等報告時 | 約 11 秒／題 |
 | 面試建議分析 | 加入目標職缺、換履歷、按「重新分析」 | reasoning | `gpt-5` | 否，背景 | 約 22 秒 |
-| 職涯規劃分析 | 職涯規劃按「開始分析」 | reasoning | `gpt-5` | 是（畫面會顯示進度） | 約 15 秒 |
+| 作品集 repo 審閱 | 職涯規劃分析前，每個 GitHub repo 一次（同時進行；程式碼沒變時 7 天內沿用結果） | reasoning | `gpt-5` | 是（畫面會顯示進度） | 約 25 秒／repo，每次約 4 萬 input tokens |
+| 職涯規劃分析 | 職涯規劃按「開始分析」 | reasoning | `gpt-5` | 是（畫面會顯示進度） | 約 25 秒（加上讀作品集共約 1 分鐘） |
 
 > 耗時來自資料庫 `llm_calls` 表的實際紀錄（2026 年 10 月，樣本數不多），僅供參考。每次 AI 呼叫的模型、耗時、token 數都會記在這張表。
 

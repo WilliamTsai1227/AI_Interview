@@ -10,18 +10,31 @@ import { errorToast, logo, openMenu, setHead, toast } from "../ui.js";
 const SEV = { high: "高", medium: "中", low: "低" };
 const MODES = [["onsite", "進辦公室"], ["hybrid", "混合辦公"], ["remote", "完全遠端"]];
 const PARSE = { pending: "等待解析", parsing: "Ava 解析中", parsed: "已解析", failed: "解析失敗" };
+const STATUS = { pending: "排隊中", running: "分析中", failed: "沒有分析成功" };
+const busy = (p) => p && (p.status === "pending" || p.status === "running");
 const split = (s) => s.split(/[,，、\n]/).map((x) => x.trim()).filter(Boolean);
 
 export async function render(view, _arg, ctx) {
   setHead("brief", "職涯規劃");
   const wrap = h("div", { class: "wrap doc" }, h("div", { class: "center-load" }, dots()));
   view.append(wrap);
-  let profile, plan, poll = null, editing = false, saving = false;
+  let profile, plan, plans = [], poll = null, editing = false, saving = false;
 
   async function load() {
-    [profile, { plan }] = await Promise.all([get("/career/profile"), get("/career/plans/latest")]);
+    [profile, { plan }, { items: plans }] = await Promise.all([get("/career/profile"), get("/career/plans/latest"), get("/career/plans")]);
     if (!S.resumes) await loadResumes().catch(() => {});
   }
+  const refreshList = async () => { try { ({ items: plans } = await get("/career/plans")); } catch { /* 列表只是輔助，失敗就沿用舊的 */ } };
+  const isLatest = () => !plans.length || plan?.id === plans[0].id;
+
+  // 歷次分析：每次「重新分析」都會保留，點選就切換到那一次的結果（打勾進度各自保存）
+  async function show(id) {
+    try { plan = await get(`/career/plans/${id}`); draw(); scrollTo({ top: 0 }); } catch (e) { errorToast(e); }
+  }
+  const openHistory = (e) => openMenu(e.currentTarget, [{ title: "歷次分析" }, ...plans.map((x, i) => ({
+    label: `${fmtDate(x.created_at)}${i === 0 ? "（最新）" : ""}`,
+    sub: x.status === "ready" ? `準備度 ${x.readiness_score ?? "–"}%・${x.gap_count} 個缺口` : STATUS[x.status],
+    v: x.id, checked: x.id === plan.id }))], show);
   try { await load(); } catch (e) { if (ctx.isCurrent()) replace(wrap, h("h1", null, "暫時無法載入"), h("p", { class: "muted" }, e.message)); return; }
   if (!ctx.isCurrent()) return;
   editing = !plan;
@@ -31,10 +44,12 @@ export async function render(view, _arg, ctx) {
     poll = setTimeout(async () => {
       if (!ctx.isCurrent()) return;
       try {
-        ({ plan } = await get("/career/plans/latest"));
+        const { plan: latest } = await get("/career/plans/latest");
+        if (!plan || plan.id === latest?.id) plan = latest;      // 正在看舊的分析時不打斷，只在背景等最新的完成
+        if (busy(latest)) { draw(); watch(); return; }
+        await refreshList();
         draw();
-        if (plan && (plan.status === "pending" || plan.status === "running")) watch();
-        else if (plan?.status === "ready") toast("分析完成");
+        if (latest?.status === "ready") toast("分析完成");
       } catch { watch(); }
     }, 2000);
   }
@@ -143,6 +158,7 @@ export async function render(view, _arg, ctx) {
         if (thenStart) {
           await post("/career/plans");
           ({ plan } = await get("/career/plans/latest"));
+          await refreshList();
           editing = false;
           draw();
           watch();
@@ -172,16 +188,59 @@ export async function render(view, _arg, ctx) {
     return h("div", { class: "basis" }, h("div", { class: "basis-h" }, icon("user"), "這次分析依據你的個人檔案"),
       h("div", { class: "su-row" }, h("div", { class: "v" }, bits.length ? bits.join("・") : "尚未填寫求職意向")),
       h("div", { class: "su-row" }, h("span", { class: "k" }, "作品集"), h("div", { class: "v" }, (p.portfolio_links || []).length
-        ? p.portfolio_links.map((u) => h("a", { class: "linkb", href: u, target: "_blank", rel: "noopener noreferrer" }, u.replace(/^https?:\/\//, "").slice(0, 48)))
+        ? h("div", { class: "pf-links" }, p.portfolio_links.map(linkStatus))
         : h("span", { class: "faint" }, "沒有提供作品集連結"))),
       h("div", { class: "su-row" }, h("span", { class: "k" }, "履歷"), h("div", { class: "v" }, plan.has_resume ? "已使用你選的履歷"
         : [h("button", { class: "btn out sm", type: "button", onclick: () => openSettings("resume", { onChanged: loadResumes }) }, icon("upload"), "上傳履歷"),
           h("span", { class: "hint" }, "有履歷才能精準比對你缺什麼")])),
       h("div", { class: "basis-f" }, h("span", { class: "faint" }, `分析時間：${fmtDate(plan.created_at)}`),
         h("div", { class: "row" },
+          plans.length > 1 ? h("button", { class: "btn out sm", type: "button", onclick: openHistory }, icon("clock"), `歷次分析（${plans.length}）`) : null,
           h("button", { class: "btn out sm", type: "button", onclick: () => { editing = true; draw(); } }, icon("pencil"), "編輯檔案"),
-          h("button", { class: "btn pri sm", type: "button", disabled: plan.status === "running" || plan.status === "pending",
+          h("button", { class: "btn pri sm", type: "button", disabled: busy(plan) || busy(plans[0]),
             onclick: rerun }, icon("redo"), "重新分析"))));
+  }
+
+  // 每個作品集連結旁標出 Ava 有沒有真的讀到
+  function linkStatus(u) {
+    const e = (plan.portfolio || []).find((x) => x.url === u);
+    const tag = !e ? (plan.status === "ready" ? h("span", { class: "tagx" }, "這次分析沒有讀取") : null)
+      : e.status === "ok" ? h("span", { class: "tagx ok" }, icon("check", 12), e.kind === "profile" ? `已讀取 ${e.profile.repos.length} 個 repo 清單` : `已讀取 ${e.files_read.length} 個檔案`)
+        : h("span", { class: "tagx" }, e.status === "failed" ? "讀取失敗" : "未讀取");
+    return h("div", { class: "pf-link" },
+      h("a", { class: "linkb", href: u, target: "_blank", rel: "noopener noreferrer" }, u.replace(/^https?:\/\//, "").slice(0, 60)), tag,
+      e && e.status !== "ok" && e.error ? h("span", { class: "faint" }, e.error) : null,
+      e?.stale ? h("span", { class: "faint" }, "GitHub 暫時讀不到，沿用上次讀取的結果") : null);
+  }
+
+  // Ava 實際讀了 repo 的哪些內容、看到什麼：讓使用者確認分析有依據
+  function portfolioView() {
+    const repos = (plan.portfolio || []).filter((e) => e.status === "ok" && e.kind === "repo");
+    if (!repos.length) return null;
+    const list = (title, xs, cls = "ticks") => xs?.length ? [h("div", { class: "sub-h" }, title), h("ul", { class: cls }, xs.map((t) => h("li", null, t)))] : null;
+    return [
+      h("div", { class: "sec-row" }, h("h2", null, "Ava 從你的作品集讀到什麼"), h("span", { class: "faint" }, "依實際原始碼判斷，不只看 README")),
+      repos.map((e, i) => {
+        const a = e.analysis, m = e.repo;
+        const total = Object.values(m.languages || {}).reduce((x, y) => x + y, 0) || 1;
+        const langs = Object.entries(m.languages || {}).filter(([, v]) => v / total >= 0.01).sort((x, y) => y[1] - x[1]).slice(0, 5).map(([k, v]) => `${k} ${Math.round(v * 100 / total)}%`);
+        return h("details", { class: "acc", open: i === 0 },
+          h("summary", null, icon("folder"), h("span", { class: "t" }, m.full_name),
+            h("span", { class: "tagx" }, `${e.files_read.length} 個檔案`), icon("chev")),
+          h("div", { class: "bd" },
+            h("p", { class: "muted" }, a.purpose),
+            h("div", { class: "faint", style: "margin-top:6px" }, [langs.join("・"), m.pushed_at ? `最後更新 ${fmtDate(m.pushed_at)}` : null,
+              m.stars ? `★ ${m.stars}` : null, a.maturity].filter(Boolean).join("　")),
+            h("div", { class: "sub-h" }, "架構"), h("p", null, a.architecture),
+            h("div", { class: "sub-h" }, "技術"), h("div", { class: "row", style: "margin-top:6px" }, a.tech_stack.map((t) => h("span", { class: "tagx" }, t))),
+            h("div", { class: "sub-h" }, "證明的能力"),
+            h("ul", { class: "ev" }, a.skills.map((x) => h("li", null, h("b", null, x.skill), h("div", { class: "muted" }, x.evidence)))),
+            list("工程實務", a.practices), list("面試可以講的亮點", a.highlights), list("可以補強", a.weaknesses, "ticks warn"),
+            h("details", { class: "files" },
+              h("summary", null, `Ava 讀了哪些內容（${e.files_read.length} 個檔案${e.readme_read ? "＋README" : ""}${e.commits_read ? `＋最近 ${e.commits_read} 個 commit` : ""}）`),
+              h("ul", null, e.files_read.map((f) => h("li", null, h("a", { title: f, href: `${m.url}/blob/${m.default_branch}/${f}`, target: "_blank", rel: "noopener noreferrer" }, f)))))));
+      }),
+    ];
   }
 
   function planView() {
@@ -194,6 +253,8 @@ export async function render(view, _arg, ctx) {
           : h("p", { class: "faint" }, plan.has_resume ? "目前沒有明顯優勢可列出。" : "上傳履歷後可以看到你的優勢。")),
         h("div", null, h("h2", null, "還缺什麼"), plan.gaps.length ? h("ul", { class: "gaplist" }, plan.gaps.map((g) =>
           h("li", null, h("b", null, g.skill), h("span", { class: "tagx" }, `${SEV[g.severity] || "中"}優先`), h("div", { class: "muted" }, g.detail)))) : h("p", { class: "faint" }, "沒有明顯缺口。"))),
+
+      portfolioView(),
 
       h("div", { class: "sec-row" }, h("h2", null, "準備計畫"),
         h("span", { class: "faint num" }, `完成 ${plan.progress.done}/${plan.progress.total}`)),
@@ -235,7 +296,7 @@ export async function render(view, _arg, ctx) {
   }
 
   async function rerun() {
-    try { await post("/career/plans"); ({ plan } = await get("/career/plans/latest")); draw(); watch(); } catch (e) { errorToast(e); }
+    try { await post("/career/plans"); ({ plan } = await get("/career/plans/latest")); await refreshList(); draw(); watch(); } catch (e) { errorToast(e); }
   }
 
   function draw() {
@@ -243,16 +304,21 @@ export async function render(view, _arg, ctx) {
     const intro = h("p", { class: "muted", style: "margin-top:6px" },
       "告訴 Ava 你是誰、想找什麼工作。Ava 會比對你的目標職缺，分析你還缺什麼，並排出完整的準備計畫。");
     if (editing || !plan) { replace(wrap, h("h1", null, "職涯規劃"), intro, profileForm()); return; }
-    const busy = plan.status === "pending" || plan.status === "running";
-    replace(wrap, h("h1", null, "職涯規劃"), intro, profileSummary(),
-      busy ? [h("div", { class: "center-cta" }, dots(), h("p", { class: "muted" },
-        "Ava 正在比對你的目標職缺和履歷，通常需要 1 分鐘左右。")), skel(3)]
+    const hasRepos = (plan.profile?.portfolio_links || []).some((u) => /github\.com\/[^/]+\/[^/]+/i.test(u));
+    const old = isLatest() ? null : h("div", { class: "hist-bar" }, icon("clock"),
+      h("span", null, `你正在看 ${fmtDate(plan.created_at)} 的分析`),
+      h("button", { class: "linkb", type: "button", onclick: () => show(plans[0].id) }, "回到最新"));
+    replace(wrap, h("h1", null, "職涯規劃"), intro, old, profileSummary(),
+      busy(plan) ? [h("div", { class: "center-cta" }, dots(), h("p", { class: "muted" },
+        plan.stage === "plan" ? "作品集讀完了，Ava 正在比對你的目標職缺和履歷，大約再 1 分鐘。"
+          : hasRepos ? "Ava 正在讀你的 GitHub 作品集原始碼，再比對目標職缺和履歷，通常需要 2–4 分鐘。"
+            : "Ava 正在比對你的目標職缺和履歷，通常需要 1 分鐘左右。")), skel(3)]
         : plan.status === "failed" ? h("div", { class: "err-box", style: "margin-top:20px" }, h("span", { class: "t" }, "Ava 這次沒有分析成功。"),
           h("button", { class: "btn out sm", type: "button", onclick: rerun }, "再試一次"))
           : planView());
   }
 
   draw();
-  if (plan && (plan.status === "pending" || plan.status === "running")) watch();
+  if (busy(plan)) watch();
   return () => clearTimeout(poll);
 }

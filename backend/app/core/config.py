@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     openai_concurrency: int = 32          # 每個模型的同時呼叫上限
     openai_reserved_ratio: float = 0.3    # 保留給面試中呼叫的比例
 
+    # 職涯規劃讀取作品集（GitHub）：沒有 token 時 GitHub API 每個 IP 每小時 60 次，有 token 5000 次
+    github_token: str = ""
+    portfolio_max_repos: int = 5          # 一次分析最多深入讀幾個 repo
+    portfolio_repo_chars: int = 120_000   # 每個 repo 最多讀多少字的設定檔＋原始碼（不含 README）
+
     # 上傳
     resume_max_bytes: int = 10 * 1024 * 1024
     audio_max_bytes: int = 15 * 1024 * 1024

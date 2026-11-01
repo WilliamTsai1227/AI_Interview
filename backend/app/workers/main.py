@@ -126,7 +126,8 @@ def make_worker(name: str, with_cron: bool) -> Worker:
              cron(daily_maintenance, hour={3}, minute={30}, run_at_startup=True)] if with_cron else []
     return Worker(functions=[run_job], cron_jobs=crons, queue_name=queue.QUEUES[name],
                   redis_settings=queue.redis_settings(), on_startup=startup, on_shutdown=shutdown,
-                  max_jobs=8 if name == "interactive" else 6, job_timeout=300, keep_result=60,
+                  max_jobs=8 if name == "interactive" else 6, keep_result=60,
+                  job_timeout=300 if name == "interactive" else 600,      # 職涯規劃要先深入讀作品集，最久約 6 分鐘
                   handle_signals=False)
 
 

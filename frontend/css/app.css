@@ -460,3 +460,24 @@ ul.gaplist b{margin-right:8px}
 details.raw-jd{margin-top:28px;border-top:1px solid var(--line)}
 details.raw-jd summary svg:first-child{transform:none;color:var(--ink-2)}
 .raw-text{white-space:pre-wrap;word-break:break-word;background:var(--code);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:.9rem;line-height:1.75;max-height:460px;overflow:auto}
+
+/* career: portfolio evidence & history */
+.pf-links{display:flex;flex-direction:column;gap:4px;min-width:0}
+.pf-link{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.pf-link .faint{font-size:.8rem}
+.tagx.ok{display:inline-flex;align-items:center;gap:4px}
+.tagx.ok svg{width:12px;height:12px}
+.doc ul.ev{list-style:none;padding:0;margin-top:4px;gap:0}
+ul.ev li{padding:8px 0;border-bottom:1px solid var(--line)}
+ul.ev li:last-child{border-bottom:0}
+details.files{margin-top:16px;font-size:.84rem}
+details.files summary{cursor:pointer;color:var(--ink-2)}
+.doc details.files ul{list-style:none;padding:8px 0 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 20px;line-height:1.5}
+details.files li{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+details.files a{color:var(--ink-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem}
+details.files a:hover{color:var(--ink)}
+details.acc summary > svg:first-child{transform:none}
+.hist-bar{display:flex;align-items:center;gap:8px;margin-top:18px;padding:10px 14px;border-radius:12px;background:var(--code);font-size:.88rem}
+.hist-bar svg{width:15px;height:15px;color:var(--ink-3)}
+.hist-bar .linkb{margin-left:auto}
+@media (max-width:640px){.doc details.files ul{grid-template-columns:minmax(0,1fr)}}
