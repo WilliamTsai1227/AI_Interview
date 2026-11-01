@@ -12,16 +12,90 @@
 
 尖峰測試（瞬間暴增）、耐久測試（跑好幾個小時）之後要加，就在 `profiles/` 新增一個檔案。
 
-## 模擬的使用者
+## 資料夾結構
 
-| 使用者 | 比例 | 做什麼 | 檔案 |
-|---|---|---|---|
-| 瀏覽 | 4 | 登入後在首頁、目標職缺、題庫、面試建議、報告、職涯規劃之間看資料，每個動作停 2–6 秒 | [scenarios/browse.py](scenarios/browse.py) |
-| 面試 | 1 | 完整走一場快速面試（3 題＋追問）：每題上傳錄音到 MinIO，最後等報告產生 | [scenarios/interview.py](scenarios/interview.py) |
+一次壓測要回答三個問題，每個資料夾負責一個：
 
-除了每支 API 的速度，也記錄兩個背景工作的完成時間（統計表裡類型是 `ASYNC`）：
-- `[async] 面試準備好`：建立面試到可以開始。
-- `[async] 報告產生`：面試結束到報告完成。
+| 資料夾 | 回答的問題 | 比喻 |
+|---|---|---|
+| `scenarios/` | 使用者**做什麼**：打哪些 API、照什麼順序 | 劇本 |
+| `profiles/` | **幾個人**、**跑多久**、怎樣算**合格** | 排練表：今天幾個演員上台、演多久 |
+| `lib/` | 上面兩者都會用到的共用工具 | 道具間 |
+
+拆開的好處是劇本只寫一次，可以搭配不同的人數設定：冒煙、負載、壓力、網頁手動，四種測試跑的都是同一份劇本，差別只在人數和時間。以後新增一種測試，例如耐久測試，只要在 `profiles/` 加一個檔，不用重寫劇本。
+
+**`scenarios/`：測試項目（打哪些 API）寫在這裡**
+
+| 檔案 | 內容 |
+|---|---|
+| [browse.py](scenarios/browse.py) | 瀏覽型使用者：登入後在各頁面之間看資料 |
+| [interview.py](scenarios/interview.py) | 面試型使用者：完整走一場面試 |
+
+**`profiles/`：人數、時間、合格標準**
+
+| 檔案 | 內容 |
+|---|---|
+| [_common.py](profiles/_common.py) | 每個 profile 都會引用它。負責把兩種使用者載進來，並在開始前檢查目標環境是假 AI，不是就停止 |
+| [smoke.py](profiles/smoke.py) | 每種使用者各 1 人，跑 1 分鐘，一個錯誤都不能有 |
+| [load.py](profiles/load.py) | 50 人、60 秒內加滿、跑 10 分鐘，並列出合格標準（p95、失敗率） |
+| [stress.py](profiles/stress.py) | 每分鐘加 25 人，加到 300 人，再降回 10 人看能不能恢復 |
+| [ui.py](profiles/ui.py) | 只載入兩種使用者，人數由你在網頁上填 |
+
+**`lib/`：共用工具**
+
+| 檔案 | 內容 |
+|---|---|
+| [config.py](lib/config.py) | 所有設定集中在這：網址、測試帳號密碼、帳號數量、每題講幾秒，都可以用環境變數改 |
+| [accounts.py](lib/accounts.py) | 分配帳號：每個虛擬使用者拿不同的帳號（perf-0000、perf-0001……），避免搶同一個帳號 |
+| [api.py](lib/api.py) | 呼叫 API 的包裝：自動帶登入憑證、憑證過期自動重新登入、狀態碼不對就記一筆失敗；也負責等背景工作完成並記錄花了多久 |
+| [checks.py](lib/checks.py) | 測試結束時對照合格標準，不合格就讓結束碼變成 1 |
+| [steps.py](lib/steps.py) | 壓力測試專用：每 5 秒記一次數據，最後印出每一階的結果和「開始撐不住的人數」 |
+
+**其他檔案**
+
+| 檔案 | 內容 |
+|---|---|
+| [prepare.py](prepare.py) | 測試前跑一次：建 300 個測試帳號，每個帳號貼一個目標職缺並等題目產生 |
+| [docker-compose.perf.yml](docker-compose.perf.yml) | 壓測環境的差異設定 |
+| `requirements.txt` | 要安裝的套件，只有 Locust |
+
+## 模擬的使用者（測試項目）
+
+每個 profile 都會從 `_common.py` 載入 `BrowsingUser` 和 `InterviewUser`。Locust 看到這兩個使用者類別，就會照 4:1 的比例產生虛擬使用者，去跑 `scenarios/` 裡寫好的流程。所以**測試項目寫在 `scenarios/` 的兩個檔案裡**。
+
+**瀏覽型（[browse.py](scenarios/browse.py)）**
+
+每個 `@task(數字)` 是一個動作，數字是被抽中的機率權重，每做完一個動作停 2–6 秒：
+
+| 權重 | 動作 | 打的 API |
+|---|---|---|
+| 一開始 | 登入、拿目標職缺 | `POST /auth/login`、`GET /targets` |
+| 4 | 首頁 | `GET /me`、`GET /targets` |
+| 3 | 目標職缺詳情 | `GET /targets/[id]` |
+| 3 | 題庫 | `GET /targets/[id]/questions` |
+| 2 | 面試建議 | `GET /targets/[id]/prep` |
+| 2 | 報告 | `GET /interviews`、`GET /interviews/[id]/report` |
+| 1 | 職涯規劃 | `GET /career/profile`、`GET /career/plans/latest` |
+
+**面試型（[interview.py](scenarios/interview.py)）**
+
+照順序走完一整場快速面試（3 題＋追問），結束後休息 5–15 秒再開下一場：
+
+1. 建立面試：`POST /interviews`
+2. 每幾秒查一次 `GET /interviews/[id]`，直到面試準備好。這段等待時間記成 `[async] 面試準備好`
+3. 開始：`POST /interviews/[id]/start`
+4. 每一題，含追問：
+   - 題目播完：`.../playback-finished`
+   - 開始回答：`.../answers`
+   - 模擬講話約 5 秒
+   - 申請上傳網址：`POST /uploads`
+   - 把錄音直接傳到 MinIO：`PUT [minio] 錄音檔`
+   - 送出這題：`.../attempts/[id]/complete`
+5. 面試結束後，每幾秒查一次 `GET /interviews/[id]/report`，直到報告完成。這段等待時間記成 `[async] 報告產生`
+
+兩個 `[async]` 項目量的是背景工作的完成時間，不是單一 API 的速度，在統計表裡類型是 `ASYNC`。Locust 網頁的 **Statistics** 分頁和報表裡，每一列就是上面其中一個名稱，可以直接對照。
+
+**沒有測到的：** 上傳履歷、貼新的目標職缺、產生職涯規劃這些「寫入、而且會觸發 AI」的功能。在真實流量裡它們不常發生，而 AI 在壓測環境又是假的，所以先沒放進劇本。要加的話，就是在 `scenarios/` 加一個 `@task` 或一個新的使用者類別。
 
 ## 怎麼跑
 
@@ -60,6 +134,16 @@ locust -f profiles/stress.py --headless --only-summary --html results/stress.htm
 - 想用網頁介面手動調人數、看即時圖表：`locust -f profiles/ui.py`，打開 <http://localhost:8089>，填人數和加人速度後按 START，跑的中途也能按 EDIT 改人數。
   - 不要用 `load.py`、`stress.py` 開網頁介面：它們有寫死的人數曲線，網頁上填的人數會被忽略。
   - 網頁介面不會檢查合格標準，要判定合格與否請用上面的 `--headless` 指令。
+
+網頁介面的欄位（Run time、Profile 在 Advanced options 裡）：
+
+| 欄位 | 意思 | 建議 |
+|---|---|---|
+| Number of users | 最多同時幾個虛擬使用者。不是每秒幾個請求：每個人做完一個動作會停幾秒，實際每秒請求數看右上角 RPS | 5 人以上才會有面試型使用者（瀏覽:面試 = 4:1，例如 50 人約 40 瀏覽、10 面試） |
+| Ramp up | 每秒新增幾個人，直到加滿。例如 50 人、每秒 5 人，約 10 秒加滿 | 1～5。填太大會讓所有人同時登入，測到的主要是登入尖峰 |
+| Host | 要打的網址 | 維持 `http://localhost:8019`（壓測環境），不要改成 8009 |
+| Run time | 跑多久後自動停止，例如 `20s`、`10m`、`1h20m`；從按 START 開始算，包含加人的時間 | 留空就一直跑到按 STOP；想讓每次結果好比較就填固定值 |
+| Profile | 這次測試的標籤文字，會寫進 HTML 報表，方便分辨是哪次測的（例如 `50人-修正前`）。跟本資料夾的 `profiles/` 無關，不影響測試行為 | 可以留空 |
 
 **4. 用完關掉**（在專案根目錄執行）
 
