@@ -7,9 +7,9 @@ from app.core.config import settings
 from app.core.db import Connection, transaction
 from app.core.errors import AppError
 
+# 舊版 Word（.doc）無法解析也無法預覽，不開放上傳；已上傳的舊資料照常保留
 RESUME_TYPES = {
     "application/pdf": "pdf",
-    "application/msword": "doc",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
 }
 AUDIO_TYPES = {"audio/webm": "webm", "audio/mp4": "m4a", "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/wav": "wav"}
@@ -33,7 +33,7 @@ async def create_ticket(user_id: UUID, purpose: str, content_type: str, size_byt
     ct = norm_type(content_type)
     if purpose == "resume":
         if ct not in RESUME_TYPES:
-            raise AppError(415, "UNSUPPORTED_MEDIA_TYPE", "只支援 PDF 或 Word 檔")
+            raise AppError(415, "UNSUPPORTED_MEDIA_TYPE", "只支援 PDF 或 Word（.docx）檔；舊版 .doc 請另存成 .docx 或 PDF")
         max_bytes = settings.resume_max_bytes
     else:
         if ct not in AUDIO_TYPES:

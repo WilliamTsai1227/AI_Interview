@@ -144,6 +144,8 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 | Resumes | POST | `/resumes` | 上傳完成後建立履歷（非同步解析） | 設定・履歷、新面試 |
 | | GET | `/resumes` | 履歷列表 | 新面試・履歷選單 |
 | | GET | `/resumes/{id}` | 解析結果（經歷、技能、亮點） | 設定・履歷 |
+| | GET | `/resumes/{id}/file` | 原始檔（預覽、下載） | 設定・履歷、職涯規劃 |
+| | GET | `/resumes/{id}/preview` | 預覽方式；Word 轉成段落／標題／清單／表格 | 設定・履歷、職涯規劃 |
 | | PATCH | `/resumes/{id}` | 設為主要履歷、改名 | 設定・履歷 |
 | | DELETE | `/resumes/{id}` | 刪除履歷 | 設定・履歷 |
 | Targets | GET | `/targets` | 目標職缺列表（含題數、題組狀態、最近練習） | 目標職缺、側欄、題庫生成、面試建議、新面試・職缺選單 |
@@ -328,6 +330,7 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
   "parse_status": "pending", "is_primary": true, "created_at": "2026-09-28T03:10:00Z" }
 ```
 
+- 只接受 PDF 與 Word（.docx）。舊版 Word（.doc）無法解析也無法預覽，`POST /uploads` 直接回 `415`。
 - `set_primary` 預設：沒有主要履歷時為 `true`。
 - 同一使用者上傳相同檔案（sha256 相同）時，直接回傳既有履歷。
 - 解析的防護：超過 10 頁只解析前 10 頁；掃描檔才使用視覺模型，且限制頁數；單份解析逾時 60 秒；同時解析的數量有上限（見 [architecture.md §9.4](architecture.md)）。上傳成功就先回應，解析完成再通知。
@@ -359,6 +362,26 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 ```
 
 設定頁以唯讀方式顯示 `parsed`（「Ava 從履歷讀到的」），讓使用者確認 Ava 讀對了。
+
+### `GET /resumes/{id}/file`
+
+回傳原始檔（`Content-Type` 為上傳時的格式、`Content-Disposition: inline`、`Cache-Control: private, no-store`）。走 API 而不是預簽名網址，瀏覽器才能帶登入憑證、轉成同網域的 blob 網址：PDF 放進 `<iframe>` 用瀏覽器內建檢視器（CSP 只多放行 `frame-src blob:`），也用同一個 blob 提供「新分頁開啟」與「下載」。
+
+### `GET /resumes/{id}/preview`
+
+```json
+{ "kind": "pdf" }
+// Word：瀏覽器無法顯示，後端轉成簡化版面（文字方塊裡的內容也會讀出來）
+{ "kind": "docx", "blocks": [
+  { "type": "h", "level": 1, "runs": [{ "t": "陳品妤", "b": false, "i": false, "u": false }], "align": "center" },
+  { "type": "p", "level": 0, "runs": [ … ], "align": null },
+  { "type": "li", "level": 0, "runs": [ … ], "align": null },
+  { "type": "table", "rows": [["技能", "React、TypeScript"]] } ] }
+// 舊版 .doc 或 Word 檔讀不了
+{ "kind": "unsupported", "message": "…" }
+```
+
+`level`：1＝文件標題、2 以後＝Heading 1、2⋯。最多 1,500 個區塊。
 
 ### `PATCH /resumes/{id}`
 

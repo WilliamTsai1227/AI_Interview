@@ -1,3 +1,4 @@
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response
@@ -34,6 +35,18 @@ async def list_(user: CurrentUser = Depends(current_user)):
 @router.get("/{resume_id}")
 async def get(resume_id: UUID, user: CurrentUser = Depends(current_user)):
     return await service.get(user.id, resume_id)
+
+
+@router.get("/{resume_id}/file")
+async def file(resume_id: UUID, user: CurrentUser = Depends(current_user)):
+    data, mime, name = await service.file(user.id, resume_id)
+    return Response(data, media_type=mime, headers={
+        "Content-Disposition": f"inline; filename*=UTF-8''{quote(name)}", "Cache-Control": "private, no-store"})
+
+
+@router.get("/{resume_id}/preview")
+async def preview(resume_id: UUID, user: CurrentUser = Depends(current_user)):
+    return await service.preview(user.id, resume_id)
 
 
 @router.patch("/{resume_id}")

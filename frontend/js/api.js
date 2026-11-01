@@ -68,6 +68,19 @@ export async function api(path, { method = "GET", body, headers = {}, idempotenc
   return data;
 }
 
+/** 下載檔案（帶登入憑證）→ Blob；401 時自動 refresh 後重送一次。 */
+export async function getBlob(path, retry = true) {
+  let r;
+  try { r = await fetch(BASE + path, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}, credentials: "same-origin" }); }
+  catch { throw new ApiError(0, { error: { code: "NETWORK", message: "網路連線不穩，請再試一次" } }); }
+  if (r.status === 401 && retry) {
+    try { await doRefresh(); } catch { accessToken = null; onLoggedOut(); throw new ApiError(401, null, r.headers); }
+    return getBlob(path, false);
+  }
+  if (!r.ok) throw new ApiError(r.status, await r.json().catch(() => null), r.headers);
+  return r.blob();
+}
+
 export const get = (p) => api(p);
 export const post = (p, body, opts = {}) => api(p, { method: "POST", body: body ?? {}, ...opts });
 export const patch = (p, body) => api(p, { method: "PATCH", body });

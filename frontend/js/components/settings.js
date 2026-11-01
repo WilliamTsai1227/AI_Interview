@@ -4,6 +4,7 @@ import { h, icon, replace } from "../dom.js";
 import { renderSide, setTheme } from "../shell.js";
 import { fmtSize, LANGS, loadMe, loadResumes, MODES, PERSONAS, prefs, S } from "../store.js";
 import { closeModal, confirmBox, errorToast, openModal, toast } from "../ui.js";
+import { openResumePreview } from "./resumePreview.js";
 
 const TABS = [["general", "一般", "gear"], ["resume", "履歷", "file"], ["goal", "求職意向", "target"], ["account", "帳號", "user"]];
 let current = "general";
@@ -48,9 +49,9 @@ async function resume(body, rerender) {
   if (primary && primary.parse_status === "parsed") {
     try { detail = await get(`/resumes/${primary.id}`); } catch { /* ignore */ }
   }
-  const file = h("input", { type: "file", id: "cvFile", accept: ".pdf,.doc,.docx", hidden: true });
+  const file = h("input", { type: "file", id: "cvFile", accept: ".pdf,.docx", hidden: true });
   const drop = h("label", { class: "drop", for: "cvFile" }, icon("upload"),
-    h("span", { style: "font-weight:500" }, "拖曳檔案到這裡，或點擊上傳"), h("span", { class: "faint" }, "PDF、Word，10 MB 以內"), file);
+    h("span", { style: "font-weight:500" }, "拖曳檔案到這裡，或點擊上傳"), h("span", { class: "faint" }, "PDF、Word（.docx），10 MB 以內"), file);
   const take = async (f) => {
     if (!f) return;
     if (f.size > 10 * 1024 * 1024) { toast("檔案超過 10 MB"); return; }
@@ -71,10 +72,12 @@ async function resume(body, rerender) {
   for (const ev of ["dragleave", "drop"]) drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); });
   drop.addEventListener("drop", (e) => take(e.dataTransfer.files[0]));
 
+  const preview = (r) => openResumePreview(r, { onClose: () => setTimeout(() => openSettings("resume")) });
   const rows = list.map((r) => h("div", { class: "file" }, h("span", { class: "fi" }, icon("file")),
-    h("span", { style: "flex:1;min-width:0" },
+    h("button", { type: "button", class: "file-open", title: "預覽履歷", onclick: () => preview(r) },
       h("span", { style: "font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, r.filename),
       h("span", { class: "faint" }, `${fmtSize(r.size_bytes)}・${new Date(r.created_at).toLocaleDateString("zh-TW")}${r.is_primary ? "・主要履歷" : ""}・${PARSE[r.parse_status]}`)),
+    h("button", { class: "ib sm", type: "button", "aria-label": "預覽履歷", title: "預覽", onclick: () => preview(r) }, icon("eye")),
     r.is_primary ? null : h("button", { class: "btn ghost sm", type: "button", onclick: async () => {
       try { await patch(`/resumes/${r.id}`, { is_primary: true }); await loadMe(); toast("已設為主要履歷"); changed?.(); rerender(); } catch (e) { errorToast(e); }
     } }, "設為主要"),

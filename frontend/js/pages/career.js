@@ -2,6 +2,7 @@
 import { get, patch, post, put, uploadFile } from "../api.js";
 import { openJd } from "../components/jd.js";
 import { openJob } from "../components/job.js";
+import { openResumePreview } from "../components/resumePreview.js";
 import { openSettings } from "../components/settings.js";
 import { dots, h, icon, replace, skel } from "../dom.js";
 import { fmtDate, loadResumes, S } from "../store.js";
@@ -105,7 +106,7 @@ export async function render(view, _arg, ctx) {
         pollResumes();
       } catch (e) { errorToast(e); }
     }
-    const fileInput = h("input", { type: "file", accept: ".pdf,.doc,.docx", hidden: true, onchange: () => { upload(fileInput.files[0]); fileInput.value = ""; } });
+    const fileInput = h("input", { type: "file", accept: ".pdf,.docx", hidden: true, onchange: () => { upload(fileInput.files[0]); fileInput.value = ""; } });
     function drawResume() {
       const list = S.resumes || [];
       const r = cur();
@@ -114,6 +115,7 @@ export async function render(view, _arg, ctx) {
           [{ title: "用哪份履歷分析" }, ...list.map((x) => ({ label: `${x.filename}${x.is_primary ? "（主要）" : ""}`, v: x.id, checked: f.resumeId === x.id }))],
           (v) => { f.resumeId = v; drawResume(); pollResumes(); }) }, icon("file"), h("b", null, r?.filename || "選擇履歷"), icon("chev"))
           : h("span", { class: "faint" }, "還沒有上傳履歷"),
+        r ? h("button", { class: "btn out sm", type: "button", onclick: () => openResumePreview(r) }, icon("eye"), "預覽") : null,
         h("button", { class: "btn out sm", type: "button", onclick: () => fileInput.click() }, icon("upload"), list.length ? "上傳新履歷" : "上傳履歷"),
         fileInput,
         r ? h("span", { class: "faint" }, PARSE[r.parse_status] || "") : null);

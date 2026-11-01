@@ -27,6 +27,7 @@ CSP = "; ".join([
     "img-src 'self' data: blob:",
     f"media-src 'self' blob: {_S3}".strip(),
     f"connect-src 'self' {_S3}".strip(),
+    "frame-src 'self' blob:",                     # 履歷 PDF 預覽：以 blob 網址放進 iframe，用瀏覽器內建的 PDF 檢視器
     "object-src 'none'",
     "base-uri 'none'",
     "frame-ancestors 'none'",

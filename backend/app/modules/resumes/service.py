@@ -109,6 +109,84 @@ async def delete(user_id: UUID, resume_id: UUID) -> None:
         log.warning("resume_file_delete_failed", error=str(e))
 
 
+# ---------- 預覽 ----------
+async def file(user_id: UUID, resume_id: UUID) -> tuple[bytes, str, str]:
+    """原始檔（給預覽與下載）：經 API 回傳，瀏覽器才能帶登入憑證、用同網域的 blob 顯示。"""
+    async with db.connection() as conn:
+        r = await owned(conn, user_id, resume_id)
+    return await storage.read(r["file_key"]), r["mime_type"], r["filename"]
+
+
+DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+MAX_BLOCKS = 1500
+MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+
+
+async def preview(user_id: UUID, resume_id: UUID) -> dict:
+    """PDF 用瀏覽器內建檢視器（kind=pdf）；Word 瀏覽器無法顯示，轉成段落／標題／清單／表格（kind=docx）。"""
+    async with db.connection() as conn:
+        r = await owned(conn, user_id, resume_id)
+    if r["mime_type"] == "application/pdf":
+        return {"kind": "pdf"}
+    if r["mime_type"] != DOCX:
+        return {"kind": "unsupported", "message": "舊版 Word（.doc）無法預覽，請下載後開啟"}
+    data = await storage.read(r["file_key"])
+    try:
+        blocks = await asyncio.to_thread(_docx_blocks, data)
+    except Exception as e:
+        log.warning("resume_preview_failed", resume_id=str(resume_id), error=repr(e))
+        return {"kind": "unsupported", "message": "這份 Word 檔無法預覽，請下載後開啟"}
+    return {"kind": "docx", "blocks": blocks}
+
+
+def _docx_blocks(data: bytes) -> list[dict]:
+    import docx
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    d = docx.Document(io.BytesIO(data))
+
+    def para(p: Paragraph) -> dict | None:
+        runs = [{"t": x.text, "b": bool(x.bold), "i": bool(x.italic), "u": bool(x.underline)} for x in p.runs if x.text]
+        if not runs:
+            return None
+        style = (p.style.name if p.style is not None else "") or ""
+        level = 1 if style == "Title" else int(style[-1]) + 1 if style.startswith("Heading") and style[-1].isdigit() else 0
+        is_list = "List" in style or p._p.pPr is not None and p._p.pPr.numPr is not None
+        align = {1: "center", 2: "right"}.get(int(p.alignment) if p.alignment is not None else 0)
+        return {"type": "h" if level else "li" if is_list else "p", "level": min(level, 4), "runs": runs, "align": align}
+
+    def table(t: Table) -> dict:
+        rows = []
+        for row in t.rows:
+            cells, seen = [], set()
+            for c in row.cells:                     # 合併儲存格會重複出現同一格，只留一次
+                if id(c._tc) in seen:
+                    continue
+                seen.add(id(c._tc))
+                cells.append(c.text.strip())
+            if any(cells):
+                rows.append(cells)
+        return {"type": "table", "rows": rows}
+
+    out: list[dict] = []
+    for el in d.element.body.iterchildren():
+        if el.tag == qn("w:p"):
+            if b := para(Paragraph(el, d)):
+                out.append(b)
+            # 很多履歷範本把內容放在文字方塊裡，一般的段落列舉讀不到
+            # Word 會同時存一份給舊版用的備援（mc:Fallback），略過才不會重複
+            for box in (x for x in el.iter(qn("w:txbxContent")) if next(x.iterancestors(f"{{{MC}}}Fallback"), None) is None):
+                out.extend(b for b in (para(Paragraph(x, d)) for x in box.iterchildren(qn("w:p"))) if b)
+        elif el.tag == qn("w:tbl"):
+            if (t := table(Table(el, d)))["rows"]:
+                out.append(t)
+        if len(out) >= MAX_BLOCKS:
+            break
+    return out
+
+
 # ---------- 給其他模組使用 ----------
 async def primary_id(conn: db.Connection, user_id: UUID) -> UUID | None:
     return await conn.fetchval("SELECT id FROM resumes WHERE user_id = $1 AND is_primary AND deleted_at IS NULL", user_id)
