@@ -25,6 +25,7 @@ export async function render(view, _arg, ctx) {
   const wrap = h("div", { class: "wrap doc" }, h("div", { class: "center-load" }, dots()));
   view.append(wrap);
   let profile, plan, plans = [], poll = null, editing = false, saving = false, picked = null;
+  const openAreas = new Map();     // 每份分析展開了哪些準備項目，重畫時保留
 
   async function load() {
     [profile, { plan }, { items: plans }] = await Promise.all([get("/career/profile"), get("/career/plans/latest"), get("/career/plans"),
@@ -306,7 +307,12 @@ export async function render(view, _arg, ctx) {
   }
 
   function planView() {
-    const pct = plan.progress.total ? Math.round(plan.progress.done / plan.progress.total * 100) : 0;
+    const totalEl = h("span", { class: "faint num" }), barEl = h("i");
+    const progress = () => {
+      totalEl.textContent = `完成 ${plan.progress.done}/${plan.progress.total}`;
+      barEl.style.width = `${plan.progress.total ? Math.round(plan.progress.done / plan.progress.total * 100) : 0}%`;
+    };
+    progress();
     return [
       h("div", { class: "big" }, h("b", { class: "num" }, `${plan.readiness_score ?? "–"}%`), h("span", null, "整體準備度")),
       plan.summary ? h("p", { class: "muted", style: "margin-top:14px" }, plan.summary) : null,
@@ -318,20 +324,31 @@ export async function render(view, _arg, ctx) {
 
       portfolioView(),
 
-      h("div", { class: "sec-row" }, h("h2", null, "準備計畫"),
-        h("span", { class: "faint num" }, `完成 ${plan.progress.done}/${plan.progress.total}`)),
-      h("div", { class: "bar", style: "margin:-4px 0 12px" }, h("i", { style: `width:${pct}%` })),
+      h("div", { class: "sec-row" }, h("h2", null, "準備計畫"), totalEl),
+      h("div", { class: "bar", style: "margin:-4px 0 12px" }, barEl),
       plan.areas.map((a, i) => {
-        const done = a.tasks.filter((t) => t.is_checked).length;
-        return h("details", { class: "acc", open: i === 0 },
+        const countEl = h("span", { class: "faint num" });
+        const count = () => { countEl.textContent = `${a.tasks.filter((t) => t.is_checked).length}/${a.tasks.length}`; };
+        count();
+        const open = openAreas.get(plan.id)?.has(a.id) ?? i === 0;
+        return h("details", { class: "acc", open, ontoggle: (e) => {
+          const set = openAreas.get(plan.id) || new Set(plan.areas.filter((_, k) => k === 0).map((x) => x.id));
+          e.target.open ? set.add(a.id) : set.delete(a.id);
+          openAreas.set(plan.id, set);
+        } },
           h("summary", null, h("span", { class: "faint num" }, i + 1), h("span", { class: "t" }, a.title),
-            h("span", { class: "tagx" }, `${SEV[a.priority]}優先`), h("span", { class: "faint num" }, `${done}/${a.tasks.length}`), icon("chev")),
+            h("span", { class: "tagx" }, `${SEV[a.priority]}優先`), countEl, icon("chev")),
           h("div", { class: "bd" }, a.why ? h("p", { class: "muted", style: "margin-bottom:6px" }, a.why) : null,
             a.tasks.map((t) => h("label", { class: "chk" },
+              // 打勾只更新數字，不重畫整頁：重畫會收合展開的項目、畫面跳回上面
               h("input", { type: "checkbox", checked: t.is_checked, onchange: async (e) => {
-                t.is_checked = e.target.checked;
-                try { await patch(`/career/plans/${plan.id}/tasks/${t.id}`, { is_checked: t.is_checked }); plan.progress.done += t.is_checked ? 1 : -1; draw(); }
-                catch (err) { t.is_checked = !t.is_checked; e.target.checked = t.is_checked; errorToast(err); }
+                const checked = e.target.checked;
+                t.is_checked = checked; plan.progress.done += checked ? 1 : -1; count(); progress();
+                try { await patch(`/career/plans/${plan.id}/tasks/${t.id}`, { is_checked: checked }); }
+                catch (err) {
+                  t.is_checked = !checked; e.target.checked = !checked; plan.progress.done += checked ? -1 : 1; count(); progress();
+                  errorToast(err);
+                }
               } }), h("span", null, t.text)))));
       }),
 
