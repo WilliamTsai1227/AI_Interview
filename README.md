@@ -116,6 +116,7 @@ docker compose up -d api worker     # 只用 restart 不會讀到新的 .env
 
 | 變數 | 預設值 | 白話說明 |
 |---|---|---|
+| `RESUME_MAX_COUNT` | `3` | 每個帳號最多保留幾份履歷。每份只解析一次，出題、評分、面試建議、職涯規劃都共用解析結果。滿了要先刪除一份才能再上傳。 |
 | `RESUME_MAX_BYTES` | `10485760`（10 MB） | 履歷檔案大小上限。 |
 | `AUDIO_MAX_BYTES` | `15728640`（15 MB） | 每段回答錄音的大小上限。 |
 | `RESUME_MAX_PAGES` | `10` | PDF 履歷最多讀幾頁，超過的頁數會被忽略。 |

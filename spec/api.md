@@ -331,6 +331,7 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 ```
 
 - 只接受 PDF 與 Word（.docx）。舊版 Word（.doc）無法解析也無法預覽，`POST /uploads` 直接回 `415`。
+- 每個帳號最多保留 `RESUME_MAX_COUNT`（預設 3）份履歷，每份只解析一次，出題、評分、面試建議、職涯規劃都讀同一份解析結果。滿了回 `409 RESUME_LIMIT`（`details.max`），要先刪除一份；`POST /uploads` 也會先擋，不用等檔案傳完。另外每人每天最多上傳 20 次（`429 RATE_LIMITED`）。
 - `set_primary` 預設：沒有主要履歷時為 `true`。
 - 同一使用者上傳相同檔案（sha256 相同）時，直接回傳既有履歷。
 - 解析的防護：超過 10 頁只解析前 10 頁；掃描檔才使用視覺模型，且限制頁數；單份解析逾時 60 秒；同時解析的數量有上限（見 [architecture.md §9.4](architecture.md)）。上傳成功就先回應，解析完成再通知。
@@ -340,7 +341,8 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 
 ```json
 { "items": [ { "id": "…", "filename": "陳品妤_履歷_2026.pdf", "size_bytes": 421888,
-               "is_primary": true, "parse_status": "parsed", "created_at": "…" } ] }
+               "is_primary": true, "parse_status": "parsed", "created_at": "…" } ],
+  "max": 3 }
 ```
 
 ### `GET /resumes/{id}`

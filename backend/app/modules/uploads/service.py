@@ -23,6 +23,15 @@ def norm_type(ct: str) -> str:
     return (ct or "").split(";")[0].strip().lower()
 
 
+def resume_limit_error() -> AppError:
+    n = settings.resume_max_count
+    return AppError(409, "RESUME_LIMIT", f"最多只能保留 {n} 份履歷，請先刪除一份再上傳", {"max": n})
+
+
+async def resume_count(conn: Connection, user_id: UUID) -> int:
+    return await conn.fetchval("SELECT count(*) FROM resumes WHERE user_id = $1 AND deleted_at IS NULL", user_id)
+
+
 def _upload_error() -> AppError:
     return AppError(409, "UPLOAD_NOT_FOUND", "找不到上傳的檔案，請重新上傳")
 
@@ -44,6 +53,9 @@ async def create_ticket(user_id: UUID, purpose: str, content_type: str, size_byt
     tid = uuid.uuid4()
     key = f"users/{user_id}/uploads/{tid}"
     async with transaction() as conn:
+        # 先擋一次，免得檔案傳完才發現滿了；真正的檢查在 POST /resumes（同一交易鎖住使用者）
+        if purpose == "resume" and await resume_count(conn, user_id) >= settings.resume_max_count:
+            raise resume_limit_error()
         if purpose == "answer_audio":
             ok = await conn.fetchval(
                 """

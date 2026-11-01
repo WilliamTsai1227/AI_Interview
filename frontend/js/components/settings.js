@@ -2,7 +2,7 @@
 import { del, get, patch, post, uploadFile } from "../api.js";
 import { h, icon, replace } from "../dom.js";
 import { renderSide, setTheme } from "../shell.js";
-import { fmtSize, LANGS, loadMe, loadResumes, MODES, PERSONAS, prefs, S } from "../store.js";
+import { fmtSize, LANGS, loadMe, loadResumes, MODES, PERSONAS, prefs, resumesFull, S } from "../store.js";
 import { closeModal, confirmBox, errorToast, openModal, toast } from "../ui.js";
 import { openResumePreview } from "./resumePreview.js";
 
@@ -89,8 +89,11 @@ async function resume(body, rerender) {
 
   const p = detail?.parsed, a = detail?.analysis;
   replace(body,
-    h("p", { class: "faint", style: "padding-top:12px" }, "Ava 依履歷內容出題和評分，不需要另外填寫經歷或技能。"),
-    h("div", { class: "srow col", style: "border:0" }, rows, drop),
+    h("p", { class: "faint", style: "padding-top:12px" },
+      `Ava 依履歷內容出題和評分，不需要另外填寫經歷或技能。最多保留 ${S.resumeMax || 3} 份（目前 ${list.length} 份）。`),
+    h("div", { class: "srow col", style: "border:0" }, rows,
+      resumesFull() ? h("div", { class: "drop full" }, h("span", { style: "font-weight:500" }, `已經有 ${list.length} 份履歷`),
+        h("span", { class: "faint" }, "刪除一份不用的，才能再上傳新的")) : drop),
     primary && primary.parse_status === "failed" ? h("p", { class: "form-err" }, detail?.parse_error || "解析失敗，請換成可以選取文字的 PDF 再上傳") : null,
     p ? h("div", { class: "doc" }, h("div", { class: "sub-h" }, "Ava 從履歷讀到的"),
       h("div", { class: "row", style: "margin-top:8px" }, (p.skills || []).map((s) => h("span", { class: "tagx" }, s))),

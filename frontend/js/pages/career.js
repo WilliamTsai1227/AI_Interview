@@ -5,7 +5,7 @@ import { openJob } from "../components/job.js";
 import { openResumePreview } from "../components/resumePreview.js";
 import { openSettings } from "../components/settings.js";
 import { dots, h, icon, replace, skel } from "../dom.js";
-import { fmtDate, loadResumes, S } from "../store.js";
+import { fmtDate, loadResumes, resumesFull, S } from "../store.js";
 import { errorToast, logo, openMenu, setHead, toast } from "../ui.js";
 
 const SEV = { high: "高", medium: "中", low: "低" };
@@ -116,7 +116,8 @@ export async function render(view, _arg, ctx) {
           (v) => { f.resumeId = v; drawResume(); pollResumes(); }) }, icon("file"), h("b", null, r?.filename || "選擇履歷"), icon("chev"))
           : h("span", { class: "faint" }, "還沒有上傳履歷"),
         r ? h("button", { class: "btn out sm", type: "button", onclick: () => openResumePreview(r) }, icon("eye"), "預覽") : null,
-        h("button", { class: "btn out sm", type: "button", onclick: () => fileInput.click() }, icon("upload"), list.length ? "上傳新履歷" : "上傳履歷"),
+        h("button", { class: "btn out sm", type: "button", disabled: resumesFull(), title: resumesFull() ? `最多保留 ${S.resumeMax} 份履歷，請到設定刪除一份` : "",
+          onclick: () => fileInput.click() }, icon("upload"), list.length ? "上傳新履歷" : "上傳履歷"),
         fileInput,
         r ? h("span", { class: "faint" }, PARSE[r.parse_status] || "") : null);
       drawActions();      // 履歷狀態變了，「開始分析」能不能按也跟著變

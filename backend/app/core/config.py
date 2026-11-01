@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     portfolio_repo_chars: int = 120_000   # 每個 repo 最多讀多少字的設定檔＋原始碼（不含 README）
 
     # 上傳
+    resume_max_count: int = 3             # 每個帳號最多保留幾份履歷（每份解析一次，給出題、評分、職涯規劃共用）
     resume_max_bytes: int = 10 * 1024 * 1024
     audio_max_bytes: int = 15 * 1024 * 1024
     resume_max_pages: int = 10

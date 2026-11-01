@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.core.security import CurrentUser, current_user
 from app.modules.resumes import service
 
@@ -29,7 +30,7 @@ async def create(body: ResumeIn, response: Response, user: CurrentUser = Depends
 
 @router.get("")
 async def list_(user: CurrentUser = Depends(current_user)):
-    return {"items": await service.list_(user.id)}
+    return {"items": await service.list_(user.id), "max": settings.resume_max_count}
 
 
 @router.get("/{resume_id}")

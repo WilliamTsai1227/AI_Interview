@@ -42,6 +42,10 @@ async def create(user_id: UUID, upload_id: UUID, set_primary: bool | None) -> tu
             """, user_id, digest)
         if dup:
             return 200, out(dup)
+        # 鎖住使用者這一列，兩個上傳同時進來也不會超過上限
+        await conn.execute("SELECT 1 FROM users WHERE id = $1 FOR UPDATE", user_id)
+        if await uploads.resume_count(conn, user_id) >= settings.resume_max_count:
+            raise uploads.resume_limit_error()
         has_primary = await conn.fetchval(
             "SELECT 1 FROM resumes WHERE user_id = $1 AND is_primary AND deleted_at IS NULL", user_id)
         primary = set_primary if set_primary is not None else not has_primary

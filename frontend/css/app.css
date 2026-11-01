@@ -501,3 +501,5 @@ details.acc summary > svg:first-child{transform:none}
 .cv-page td,.cv-page tr:last-child td{border:1px solid #ddd;padding:6px 8px;vertical-align:top;white-space:pre-wrap}
 .cv-page .faint{color:#888}
 @media (max-width:640px){.cv-page{padding:24px 20px}.modal.cv-modal{height:calc(100dvh - 16px)}}
+.drop.full{cursor:default;border-style:solid}
+.drop.full:hover{background:none;color:var(--ink-2)}

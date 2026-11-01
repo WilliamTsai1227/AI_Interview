@@ -27,7 +27,14 @@ export function pickTarget(id) {
 
 export async function loadMe() { S.me = await get("/me"); return S.me; }
 export async function loadTargets() { S.targets = (await get("/targets")).items; return S.targets; }
-export async function loadResumes() { S.resumes = (await get("/resumes")).items; return S.resumes; }
+export async function loadResumes() {
+  const r = await get("/resumes");
+  S.resumes = r.items;
+  S.resumeMax = r.max;
+  return S.resumes;
+}
+/** 履歷份數已達上限（每個帳號最多保留 S.resumeMax 份）。 */
+export const resumesFull = () => !!S.resumeMax && (S.resumes || []).length >= S.resumeMax;
 
 /** 功能開關（後端 FEATURE_* 環境變數，經 /me 回傳）。 */
 export const feature = (name) => !!S.me?.features?.[name];
