@@ -145,7 +145,8 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 | | GET | `/resumes` | 履歷列表 | 新面試・履歷選單 |
 | | GET | `/resumes/{id}` | 解析結果（經歷、技能、亮點） | 設定・履歷 |
 | | GET | `/resumes/{id}/file` | 原始檔（預覽、下載） | 設定・履歷、職涯規劃 |
-| | GET | `/resumes/{id}/preview` | 預覽方式；Word 轉成段落／標題／清單／表格 | 設定・履歷、職涯規劃 |
+| | GET | `/resumes/{id}/preview` | 預覽方式；PDF 回頁數，Word 轉成段落／標題／清單／表格 | 設定・履歷、職涯規劃 |
+| | GET | `/resumes/{id}/pages/{n}` | PDF 第 n 頁的圖片 | 設定・履歷、職涯規劃 |
 | | PATCH | `/resumes/{id}` | 設為主要履歷、改名 | 設定・履歷 |
 | | DELETE | `/resumes/{id}` | 刪除履歷 | 設定・履歷 |
 | Targets | GET | `/targets` | 目標職缺列表（含題數、題組狀態、最近練習） | 目標職缺、側欄、題庫生成、面試建議、新面試・職缺選單 |
@@ -367,12 +368,18 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 
 ### `GET /resumes/{id}/file`
 
-回傳原始檔（`Content-Type` 為上傳時的格式、`Content-Disposition: inline`、`Cache-Control: private, no-store`）。走 API 而不是預簽名網址，瀏覽器才能帶登入憑證、轉成同網域的 blob 網址：PDF 放進 `<iframe>` 用瀏覽器內建檢視器（CSP 只多放行 `frame-src blob:`），也用同一個 blob 提供「新分頁開啟」與「下載」。
+回傳原始檔（`Content-Type` 為上傳時的格式、`Content-Disposition: inline`、`Cache-Control: private, no-store`）。走 API 而不是預簽名網址，瀏覽器才能帶登入憑證、轉成同網域的 blob 網址，給預覽視窗的「新分頁開啟」與「下載」使用。
+
+### `GET /resumes/{id}/pages/{n}`
+
+PDF 第 `n` 頁（從 0 開始，最多前 20 頁）的 WebP 圖片，約 2 倍解析度（A4 一頁約 1190×1684、60–150 KB）。超出頁數或不是 PDF 回 `404`。`Cache-Control: private, max-age=86400`（履歷建立後內容不會變）。
+
+不用瀏覽器內建的 PDF 檢視器（`<iframe>`）：它會被擴充功能或「直接下載 PDF」設定擋成空白，手機版 Chrome／Safari 也不支援。轉成圖片在所有瀏覽器都看得到。
 
 ### `GET /resumes/{id}/preview`
 
 ```json
-{ "kind": "pdf" }
+{ "kind": "pdf", "pages": 6, "total_pages": 6 }      // pages：可預覽的頁數（最多 20）
 // Word：瀏覽器無法顯示，後端轉成簡化版面（文字方塊裡的內容也會讀出來）
 { "kind": "docx", "blocks": [
   { "type": "h", "level": 1, "runs": [{ "t": "陳品妤", "b": false, "i": false, "u": false }], "align": "center" },

@@ -126,12 +126,26 @@ MAX_BLOCKS = 1500
 MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 
 
+PAGE_SCALE = 2.0            # 72 dpi × 2：Retina 螢幕上字也清楚，A4 一頁約 1190×1684
+MAX_PREVIEW_PAGES = 20
+# pdfium 不是 thread-safe：兩個執行緒同時用（就算是不同檔案）會讓整個程序 segfault，所以所有 pdfium 呼叫都要排隊
+_pdfium = asyncio.Lock()
+
+
 async def preview(user_id: UUID, resume_id: UUID) -> dict:
-    """PDF 用瀏覽器內建檢視器（kind=pdf）；Word 瀏覽器無法顯示，轉成段落／標題／清單／表格（kind=docx）。"""
+    """PDF：後端把每頁轉成圖片（kind=pdf, pages）。不用瀏覽器內建的 PDF 檢視器，因為它放在 iframe 裡會被
+    擴充功能、瀏覽器設定擋掉，手機版 Chrome／Safari 也不支援。Word 轉成段落／標題／清單／表格（kind=docx）。"""
     async with db.connection() as conn:
         r = await owned(conn, user_id, resume_id)
     if r["mime_type"] == "application/pdf":
-        return {"kind": "pdf"}
+        data = await storage.read(r["file_key"])
+        try:
+            async with _pdfium:
+                pages = await asyncio.to_thread(_pdf_page_count, data)
+        except Exception as e:
+            log.warning("resume_preview_failed", resume_id=str(resume_id), error=repr(e))
+            return {"kind": "unsupported", "message": "這份 PDF 無法預覽，請下載後開啟"}
+        return {"kind": "pdf", "pages": min(pages, MAX_PREVIEW_PAGES), "total_pages": pages}
     if r["mime_type"] != DOCX:
         return {"kind": "unsupported", "message": "舊版 Word（.doc）無法預覽，請下載後開啟"}
     data = await storage.read(r["file_key"])
@@ -141,6 +155,43 @@ async def preview(user_id: UUID, resume_id: UUID) -> dict:
         log.warning("resume_preview_failed", resume_id=str(resume_id), error=repr(e))
         return {"kind": "unsupported", "message": "這份 Word 檔無法預覽，請下載後開啟"}
     return {"kind": "docx", "blocks": blocks}
+
+
+def _pdf_page_count(data: bytes) -> int:
+    import pypdfium2 as pdfium
+    pdf = pdfium.PdfDocument(data)
+    try:
+        return len(pdf)
+    finally:
+        pdf.close()
+
+
+def _pdf_page_image(data: bytes, n: int) -> bytes | None:
+    import pypdfium2 as pdfium
+    pdf = pdfium.PdfDocument(data)
+    try:
+        if n >= len(pdf):
+            return None
+        img = pdf[n].render(scale=PAGE_SCALE).to_pil()
+    finally:
+        pdf.close()
+    buf = io.BytesIO()
+    img.save(buf, format="WEBP", quality=85, method=4)
+    return buf.getvalue()
+
+
+async def page_image(user_id: UUID, resume_id: UUID, n: int) -> bytes:
+    """PDF 第 n 頁（從 0 開始）的 WebP 圖。"""
+    async with db.connection() as conn:
+        r = await owned(conn, user_id, resume_id)
+    if r["mime_type"] != "application/pdf" or not 0 <= n < MAX_PREVIEW_PAGES:
+        raise not_found("找不到這一頁")
+    data = await storage.read(r["file_key"])
+    async with _pdfium:
+        img = await asyncio.to_thread(_pdf_page_image, data, n)
+    if img is None:
+        raise not_found("找不到這一頁")
+    return img
 
 
 def _docx_blocks(data: bytes) -> list[dict]:

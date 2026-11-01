@@ -489,7 +489,9 @@ details.acc summary > svg:first-child{transform:none}
 .cv-modal .mhead{gap:10px}
 .cv-modal .mbody{flex:1;min-height:0;display:flex;flex-direction:column}
 .cv-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto;background:var(--code)}
-.cv-pdf{flex:1;width:100%;min-height:0;border:0;background:#fff}
+.cv-pages{display:flex;flex-direction:column;align-items:center;gap:16px;padding:20px 16px 24px}
+.cv-img{display:block;width:min(794px,100%);aspect-ratio:210/297;height:auto;background:#fff;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+.cv-img[src]{aspect-ratio:auto}
 .cv-note{padding:10px 18px;font-size:.8rem}
 .cv-page{background:#fff;color:#1f1f1f;margin:0 auto 24px;width:min(794px,calc(100% - 32px));padding:48px 56px;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.18);line-height:1.6;font-size:.92rem}
 .cv-page h2{font-size:1.5rem;margin:0 0 8px}

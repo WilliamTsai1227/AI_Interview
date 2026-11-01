@@ -45,6 +45,13 @@ async def file(resume_id: UUID, user: CurrentUser = Depends(current_user)):
         "Content-Disposition": f"inline; filename*=UTF-8''{quote(name)}", "Cache-Control": "private, no-store"})
 
 
+@router.get("/{resume_id}/pages/{n}")
+async def page(resume_id: UUID, n: int, user: CurrentUser = Depends(current_user)):
+    # 履歷內容建立後不會變（換檔是新的一份），可以讓瀏覽器快取
+    return Response(await service.page_image(user.id, resume_id, n), media_type="image/webp",
+                    headers={"Cache-Control": "private, max-age=86400"})
+
+
 @router.get("/{resume_id}/preview")
 async def preview(resume_id: UUID, user: CurrentUser = Depends(current_user)):
     return await service.preview(user.id, resume_id)
