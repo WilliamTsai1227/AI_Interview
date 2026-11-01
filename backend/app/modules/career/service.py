@@ -1,7 +1,7 @@
-"""職涯差距分析：個人檔案＋履歷 → 比對使用者自己的目標職缺 → 能力差距 → 準備計畫（大項目／小項目）。
+"""求職準備（原「職涯規劃」）：使用者選一份履歷＋1–5 個目標職缺 → 能力差距 → 準備計畫（大項目／小項目）。
 
-比對對象是使用者加入的目標職缺（自己挑的、最可靠）。沒有目標職缺時，只依個人檔案與履歷分析，
-並建議加入目標職缺。不再使用平台職缺或網路搜尋（品質不穩，見 spec/features/career-plan.md）。
+比對哪些職缺由使用者每次自己選：一次全抓會把不同類型職缺的要求混在一起，缺口失焦。
+不使用平台職缺或網路搜尋（品質不穩，見 spec/features/career-plan.md）。
 """
 import asyncio
 import json
@@ -18,7 +18,7 @@ from app.modules.resumes import service as resumes
 from app.workers.queue import enqueue, tx
 
 log = structlog.get_logger()
-MAX_TARGETS = 10
+MAX_TARGETS = 5             # 一次最多比對幾個職缺：太多不同類型的職缺會讓缺口失焦
 REPO_CACHE_SEC = 7 * 86400
 LAST_READ_SEC = 30 * 86400   # GitHub 限流時改用最近一次讀到的結果
 READ_LINK_SEC = 200          # 每個連結（下載＋審閱）最多等多久，超過就略過，不拖垮整份分析
@@ -62,9 +62,22 @@ async def put_profile(user_id: UUID, data: dict) -> dict:
 
 
 # ---------- 建立分析 ----------
-async def start(user_id: UUID) -> dict:
+async def start(user_id: UUID, target_ids: list[UUID]) -> dict:
+    target_ids = list(dict.fromkeys(target_ids))
+    if not 1 <= len(target_ids) <= MAX_TARGETS:
+        raise AppError(400, "VALIDATION_ERROR", f"請選 1–{MAX_TARGETS} 個要比對的目標職缺", {"fields": {"target_ids": "count"}})
     await redis.rate_limit("career_plan", str(user_id))
     async with tx() as conn:
+        rows = await conn.fetch(
+            """SELECT t.id, j.id AS job_id, j.parse_status FROM target_jobs t JOIN job_posts j ON j.id = t.job_post_id
+                WHERE t.id = ANY($1::uuid[]) AND t.user_id = $2 AND t.status = 'active' AND j.deleted_at IS NULL""",
+            target_ids, user_id)
+        if len(rows) != len(target_ids):
+            raise not_found("找不到部分目標職缺，請重新整理後再選")
+        if any(r["parse_status"] in ("pending", "parsing") for r in rows):
+            raise AppError(409, "RESOURCE_NOT_READY", "有職缺還在整理內容，完成後再開始分析")
+        by_id = {r["id"]: r["job_id"] for r in rows}
+        job_ids = [by_id[t] for t in target_ids]
         prof = await conn.fetchrow("SELECT * FROM career_profiles WHERE user_id = $1", user_id)
         p = _profile_out(prof)
         running = await conn.fetchval(
@@ -83,8 +96,8 @@ async def start(user_id: UUID) -> dict:
             raise AppError(400, "VALIDATION_ERROR", "這份履歷沒有解析成功，請換一份或重新上傳", {"fields": {"resume_id": "unparsed"}})
         rid = res["id"]
         pid = await conn.fetchval(
-            "INSERT INTO career_plans (user_id, resume_id, profile_snapshot) VALUES ($1,$2,$3) RETURNING id",
-            user_id, rid, {k: v for k, v in p.items() if k != "updated_at"})
+            "INSERT INTO career_plans (user_id, resume_id, profile_snapshot, target_job_ids) VALUES ($1,$2,$3,$4) RETURNING id",
+            user_id, rid, {k: v for k, v in p.items() if k != "updated_at"}, job_ids)
         await enqueue(conn, "build_career_plan", {"plan_id": str(pid)}, dedupe_key=f"career:{user_id}")
     return {"id": str(pid), "status": "pending"}
 
@@ -98,6 +111,10 @@ async def _plan_out(conn: db.Connection, p) -> dict:
             WHERE cj.plan_id = $1 ORDER BY cj.match_score DESC NULLS LAST""", p["id"], p["user_id"])
     areas = await conn.fetch("SELECT * FROM career_plan_areas WHERE plan_id = $1 ORDER BY sort_order", p["id"])
     tasks = await conn.fetch("SELECT * FROM career_plan_tasks WHERE plan_id = $1 ORDER BY sort_order", p["id"])
+    resume = await conn.fetchval("SELECT filename FROM resumes WHERE id = $1", p["resume_id"]) if p["resume_id"] else None
+    chosen = await conn.fetch(
+        """SELECT j.company_name, j.title FROM unnest($1::uuid[]) WITH ORDINALITY AS x(id, n)
+             JOIN job_posts j ON j.id = x.id ORDER BY x.n""", p["target_job_ids"]) if p["target_job_ids"] else jobs_rs
     by_area: dict = {}
     for t in tasks:
         by_area.setdefault(t["area_id"], []).append({"id": str(t["id"]), "text": t["text"], "is_checked": t["is_checked"]})
@@ -106,6 +123,8 @@ async def _plan_out(conn: db.Connection, p) -> dict:
         "summary": p["summary"], "readiness_score": p["readiness_score"], "strengths": list(p["strengths"] or []),
         "gaps": p["gaps"] or [], "has_resume": p["resume_id"] is not None,
         "error": p["error"], "profile": p["profile_snapshot"], "stage": p["stage"], "portfolio": p["portfolio_evidence"] or [],
+        # 這次比對了什麼：分析中、失敗時也看得到（舊分析沒有存選擇，用結果裡的職缺）
+        "compare": {"resume": resume, "jobs": [{"company_name": r["company_name"], "title": r["title"]} for r in chosen]},
         "jobs": [{"id": str(r["job_post_id"]), "found_by": r["found_by"], "company_name": r["company_name"], "title": r["title"],
                   "city": r["city"], "salary_text": r["salary_text"], "source_url": r["source_url"],
                   "source_site": r["source_site"], "work_mode": r["work_mode"], "match_score": r["match_score"],
@@ -131,10 +150,16 @@ async def get_plan(user_id: UUID, plan_id: UUID | None) -> dict | None:
 async def list_plans(user_id: UUID) -> list[dict]:
     async with db.connection() as conn:
         rs = await conn.fetch(
-            """SELECT id, status, readiness_score, summary, created_at, jsonb_array_length(gaps) AS gap_count
-                 FROM career_plans WHERE user_id = $1 ORDER BY created_at DESC LIMIT 30""", user_id)
+            """SELECT p.id, p.status, p.readiness_score, p.summary, p.created_at, jsonb_array_length(p.gaps) AS gap_count,
+                      r.filename AS resume,
+                      COALESCE(NULLIF(p.target_job_ids, '{}'), ARRAY(SELECT job_post_id FROM career_plan_jobs WHERE plan_id = p.id)) AS job_ids
+                 FROM career_plans p LEFT JOIN resumes r ON r.id = p.resume_id
+                WHERE p.user_id = $1 ORDER BY p.created_at DESC LIMIT 30""", user_id)
+        names = dict(await conn.fetch("SELECT id, company_name FROM job_posts WHERE id = ANY($1::uuid[])",
+                                      list({j for r in rs for j in r["job_ids"]}))) if rs else {}
     return [{"id": str(r["id"]), "status": r["status"], "readiness_score": r["readiness_score"], "summary": r["summary"],
-             "gap_count": r["gap_count"], "created_at": r["created_at"]} for r in rs]
+             "gap_count": r["gap_count"], "created_at": r["created_at"], "resume": r["resume"],
+             "companies": [names[j] for j in r["job_ids"] if j in names]} for r in rs]
 
 
 async def toggle_task(user_id: UUID, plan_id: UUID, task_id: UUID, checked: bool) -> None:
@@ -249,7 +274,11 @@ async def handle_build(payload: dict) -> None:
         profile = p["profile_snapshot"]
         r = await conn.fetchrow("SELECT * FROM resumes WHERE id = $1 AND deleted_at IS NULL", p["resume_id"]) if p["resume_id"] else None
         resume = resumes.snapshot(r)
-        targets = await _target_jobs(conn, p["user_id"])
+        # 新分析用使用者選的職缺（依選擇順序）；舊分析沒有存選擇，沿用當時的做法抓最近的目標職缺
+        targets = await conn.fetch(
+            """SELECT j.* FROM unnest($1::uuid[]) WITH ORDINALITY AS x(id, n) JOIN job_posts j ON j.id = x.id
+                WHERE j.deleted_at IS NULL ORDER BY x.n""", p["target_job_ids"]) if p["target_job_ids"] \
+            else await _target_jobs(conn, p["user_id"])
     uid = p["user_id"]
     cands = [(t["id"], _job_dict(t)) for t in targets]
     portfolio = await read_portfolio(profile.get("portfolio_links") or [], uid)

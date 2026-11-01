@@ -41,6 +41,10 @@ class ProfileIn(BaseModel):
     work_modes: list[Literal["onsite", "hybrid", "remote"]] = Field(default_factory=list, max_length=3)
 
 
+class PlanIn(BaseModel):
+    target_ids: list[UUID] = Field(default_factory=list, max_length=20)
+
+
 class TaskIn(BaseModel):
     is_checked: bool
 
@@ -60,8 +64,8 @@ async def put_profile(body: ProfileIn, user: CurrentUser = Depends(current_user)
 
 
 @router.post("/plans", status_code=202)
-async def start(user: CurrentUser = Depends(current_user)):
-    return await service.start(user.id)
+async def start(body: PlanIn, user: CurrentUser = Depends(current_user)):
+    return await service.start(user.id, body.target_ids)
 
 
 @router.get("/plans")

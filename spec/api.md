@@ -144,9 +144,9 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 | Resumes | POST | `/resumes` | 上傳完成後建立履歷（非同步解析） | 設定・履歷、新面試 |
 | | GET | `/resumes` | 履歷列表 | 新面試・履歷選單 |
 | | GET | `/resumes/{id}` | 解析結果（經歷、技能、亮點） | 設定・履歷 |
-| | GET | `/resumes/{id}/file` | 原始檔（預覽、下載） | 設定・履歷、職涯規劃 |
-| | GET | `/resumes/{id}/preview` | 預覽方式；PDF 回頁數，Word 轉成段落／標題／清單／表格 | 設定・履歷、職涯規劃 |
-| | GET | `/resumes/{id}/pages/{n}` | PDF 第 n 頁的圖片 | 設定・履歷、職涯規劃 |
+| | GET | `/resumes/{id}/file` | 原始檔（預覽、下載） | 設定・履歷、求職準備 |
+| | GET | `/resumes/{id}/preview` | 預覽方式；PDF 回頁數，Word 轉成段落／標題／清單／表格 | 設定・履歷、求職準備 |
+| | GET | `/resumes/{id}/pages/{n}` | PDF 第 n 頁的圖片 | 設定・履歷、求職準備 |
 | | PATCH | `/resumes/{id}` | 設為主要履歷、改名 | 設定・履歷 |
 | | DELETE | `/resumes/{id}` | 刪除履歷 | 設定・履歷 |
 | Targets | GET | `/targets` | 目標職缺列表（含題數、題組狀態、最近練習） | 目標職缺、側欄、題庫生成、面試建議、新面試・職缺選單 |
@@ -332,7 +332,7 @@ Body `{ "password": "…" }`（Google 帳號改為 `{ "confirm": "DELETE" }`）�
 ```
 
 - 只接受 PDF 與 Word（.docx）。舊版 Word（.doc）無法解析也無法預覽，`POST /uploads` 直接回 `415`。
-- 每個帳號最多保留 `RESUME_MAX_COUNT`（預設 3）份履歷，每份只解析一次，出題、評分、面試建議、職涯規劃都讀同一份解析結果。滿了回 `409 RESUME_LIMIT`（`details.max`），要先刪除一份；`POST /uploads` 也會先擋，不用等檔案傳完。另外每人每天最多上傳 20 次（`429 RATE_LIMITED`）。
+- 每個帳號最多保留 `RESUME_MAX_COUNT`（預設 3）份履歷，每份只解析一次，出題、評分、面試建議、求職準備都讀同一份解析結果。滿了回 `409 RESUME_LIMIT`（`details.max`），要先刪除一份；`POST /uploads` 也會先擋，不用等檔案傳完。另外每人每天最多上傳 20 次（`429 RATE_LIMITED`）。
 - `set_primary` 預設：沒有主要履歷時為 `true`。
 - 同一使用者上傳相同檔案（sha256 相同）時，直接回傳既有履歷。
 - 解析的防護：超過 10 頁只解析前 10 頁；掃描檔才使用視覺模型，且限制頁數；單份解析逾時 60 秒；同時解析的數量有上限（見 [architecture.md §9.4](architecture.md)）。上傳成功就先回應，解析完成再通知。

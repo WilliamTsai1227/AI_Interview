@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.ai import client
 
-PV_PLAN = "career_plan_v3"
+PV_PLAN = "career_plan_v4"
 PV_REPO = "career_repo_v2"
 
 
@@ -138,7 +138,8 @@ PLAN_SYSTEM = """你是資深職涯教練。根據使用者的履歷、自我介
 - 有目標職缺時：gaps 是這些職缺反覆要求、但使用者還不具備的能力 3–6 個，severity 依出現頻率與重要性；job_fits 每個目標職缺一筆，index 對應清單編號。
 - 沒有目標職缺時：依使用者想做的職務、產業與一般常見的職務要求判斷 gaps，job_fits 給空清單；不要編造具體公司或職缺。summary 要提醒使用者加入目標職缺後重新分析會更準。
 - 只根據履歷與自我介紹中明確的資訊判斷使用者會什麼，不要捏造經歷。
-- 給使用者看的文字（summary、gaps.detail、areas）提到職缺時用「公司＋職稱」，不要寫 #0、#1 這類內部編號（編號只用在 job_fits.index）。
+- 給使用者看的文字（summary、gaps.detail、areas）提到職缺時，寫出清單裡實際的公司名稱和職稱（例如：台達電子的 AI 應用研發工程師），
+  不要寫 #0、#1 這類內部編號（編號只用在 job_fits.index）。
 - areas：3–6 個準備大項目（例如技術深度、作品集、面試表達、產業知識），每個底下 3–6 個可執行的小項目，並有優先順序。
 - 【作品集】是系統實際讀過原始碼後的審閱結果，和履歷一樣是判斷使用者會什麼的證據：
   - strengths 要盡量引用作品集的具體證據（例如「AI_Interview 用 outbox＋arq 做可靠的背景工作」），不要只寫技術名詞。

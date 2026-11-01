@@ -122,9 +122,9 @@ function pollParse(id, rerender, n = 0) {
 
 function goal() {
   return [
-    h("p", { class: "faint", style: "padding-top:12px" }, "求職意向（職務、產業、薪資、地點、工時）、自我介紹、作品集和分析用的履歷，現在都集中在「職涯規劃」填寫，Ava 會依此比對你的目標職缺，分析你還缺什麼。"),
+    h("p", { class: "faint", style: "padding-top:12px" }, "求職意向（職務、產業、薪資、地點、工時）、自我介紹、作品集和分析用的履歷，現在都集中在「求職準備」填寫：選一份履歷和想應徵的職缺，Ava 會分析你還差多少。"),
     h("div", { class: "row", style: "margin-top:14px" },
-      h("a", { class: "btn pri sm", href: "#career", onclick: () => closeModal() }, icon("brief"), "前往職涯規劃")),
+      h("a", { class: "btn pri sm", href: "#career", onclick: () => closeModal() }, icon("brief"), "前往求職準備")),
   ];
 }
 

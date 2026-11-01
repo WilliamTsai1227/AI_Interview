@@ -505,3 +505,24 @@ details.acc summary > svg:first-child{transform:none}
 @media (max-width:640px){.cv-page{padding:24px 20px}.modal.cv-modal{height:calc(100dvh - 16px)}}
 .drop.full{cursor:default;border-style:solid}
 .drop.full:hover{background:none;color:var(--ink-2)}
+
+/* 求職準備：三步驟表單 */
+.cform h2{display:flex;align-items:center;gap:10px}
+.cform h2 small{font-size:.8rem;font-weight:400;color:var(--ink-3)}
+.step{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:999px;background:var(--inv);color:var(--inv-ink);font-size:.78rem;font-weight:600;flex:none}
+.cjobs{display:flex;flex-direction:column;gap:6px}
+.cjob-pick{display:flex;align-items:flex-start;gap:12px;padding:10px 14px;border:1px solid var(--line);border-radius:12px;cursor:pointer;transition:background .12s,border-color .12s}
+.cjob-pick:hover{background:var(--hover)}
+.cjob-pick.on{border-color:var(--ink-3)}
+.cjob-pick.off{opacity:.5;cursor:default}
+.cjob-pick input{width:17px;height:17px;margin-top:3px;accent-color:var(--ink);flex:none}
+.cjob-pick .bd{display:flex;flex-direction:column;min-width:0}
+.cjob-pick .bd b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cjob-pick .bd .faint{font-size:.8rem}
+details.cmore{margin-top:26px;border-top:1px solid var(--line)}
+details.cmore summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:4px 0}
+details.cmore summary::-webkit-details-marker{display:none}
+details.cmore summary h2{margin:18px 0 14px}
+details.cmore summary .faint{flex:1;font-size:.85rem;min-width:0}
+details.cmore summary svg{width:18px;height:18px;color:var(--ink-3);transition:transform .2s}
+details.cmore[open] summary > svg{transform:rotate(180deg)}

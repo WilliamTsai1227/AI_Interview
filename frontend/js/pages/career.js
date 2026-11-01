@@ -1,11 +1,12 @@
-// 職涯規劃：個人檔案（自我介紹、求職意向）＋履歷 → 比對使用者的目標職缺、分析能力差距 → 準備大項目與小項目。
+// 求職準備（原「職涯規劃」）：使用者選一份履歷＋1–5 個想應徵的目標職缺（自我介紹、作品集、求職意向選填）
+// → 分析能力差距 → 準備大項目與小項目。
 import { get, patch, post, put, uploadFile } from "../api.js";
 import { openJd } from "../components/jd.js";
 import { openJob } from "../components/job.js";
 import { openResumePreview } from "../components/resumePreview.js";
 import { openSettings } from "../components/settings.js";
 import { dots, h, icon, replace, skel } from "../dom.js";
-import { fmtDate, loadResumes, resumesFull, S } from "../store.js";
+import { fmtDate, loadResumes, loadTargets, resumesFull, S } from "../store.js";
 import { errorToast, logo, openMenu, setHead, toast } from "../ui.js";
 
 const SEV = { high: "高", medium: "中", low: "低" };
@@ -14,16 +15,29 @@ const PARSE = { pending: "等待解析", parsing: "Ava 解析中", parsed: "已�
 const STATUS = { pending: "排隊中", running: "分析中", failed: "沒有分析成功" };
 const busy = (p) => p && (p.status === "pending" || p.status === "running");
 const split = (s) => s.split(/[,，、\n]/).map((x) => x.trim()).filter(Boolean);
+const MAX_JOBS = 5;
+const jobName = (j) => `${j.company_name || "未知公司"}｜${j.title || "未命名職缺"}`;
+// 公司簡稱：去掉「股份有限公司」和後面的英文名，清單裡才放得下
+const shortCo = (n) => (n || "").replace(/\s*_.*$/, "").replace(/(股份)?有限公司/g, "").trim() || n;
 
 export async function render(view, _arg, ctx) {
-  setHead("brief", "職涯規劃");
+  setHead("brief", "求職準備");
   const wrap = h("div", { class: "wrap doc" }, h("div", { class: "center-load" }, dots()));
   view.append(wrap);
-  let profile, plan, plans = [], poll = null, editing = false, saving = false;
+  let profile, plan, plans = [], poll = null, editing = false, saving = false, picked = null;
 
   async function load() {
-    [profile, { plan }, { items: plans }] = await Promise.all([get("/career/profile"), get("/career/plans/latest"), get("/career/plans")]);
+    [profile, { plan }, { items: plans }] = await Promise.all([get("/career/profile"), get("/career/plans/latest"), get("/career/plans"),
+      loadTargets().catch(() => {})]);
     if (!S.resumes) await loadResumes().catch(() => {});
+  }
+  // 要比對的職缺：預設沿用上一次分析選的（還在目標職缺裡的），沒有的話選最近的 3 個
+  const targets = () => S.targets || [];
+  function initPicked() {
+    if (picked) return;
+    const alive = new Set(targets().map((t) => t.id));
+    const last = (plan?.jobs || []).map((j) => j.target_id).filter((id) => id && alive.has(id));
+    picked = new Set(last.length && last.length <= MAX_JOBS ? last : targets().slice(0, 3).map((t) => t.id));
   }
   const refreshList = async () => { try { ({ items: plans } = await get("/career/plans")); } catch { /* 列表只是輔助，失敗就沿用舊的 */ } };
   const isLatest = () => !plans.length || plan?.id === plans[0].id;
@@ -33,7 +47,7 @@ export async function render(view, _arg, ctx) {
     try { plan = await get(`/career/plans/${id}`); draw(); scrollTo({ top: 0 }); } catch (e) { errorToast(e); }
   }
   const openHistory = (e) => openMenu(e.currentTarget, [{ title: "歷次分析" }, ...plans.map((x, i) => ({
-    label: `${fmtDate(x.created_at)}${i === 0 ? "（最新）" : ""}`,
+    label: `${fmtDate(x.created_at)}${i === 0 ? "（最新）" : ""}　${x.companies.slice(0, 3).map(shortCo).join("、")}${x.companies.length > 3 ? ` 等 ${x.companies.length} 個` : ""}`,
     sub: x.status === "ready" ? `準備度 ${x.readiness_score ?? "–"}%・${x.gap_count} 個缺口` : STATUS[x.status],
     v: x.id, checked: x.id === plan.id }))], show);
   try { await load(); } catch (e) { if (ctx.isCurrent()) replace(wrap, h("h1", null, "暫時無法載入"), h("p", { class: "muted" }, e.message)); return; }
@@ -73,14 +87,42 @@ export async function render(view, _arg, ctx) {
       links: profile.portfolio_links.length ? [...profile.portfolio_links] : [""],
       resumeId: profile.resume_id || (S.resumes || []).find((r) => r.is_primary)?.id || null,
     };
+    initPicked();
     const resumeBox = h("div", { class: "cresume" });
+    const jobBox = h("div", { class: "cjobs" });
     const actions = h("div", { class: "row", style: "margin-top:22px" });
     const linkBox = h("div", { class: "clinks" });
     const cur = () => (S.resumes || []).find((r) => r.id === f.resumeId);
     const parsing = () => { const r = cur(); return !!r && (r.parse_status === "pending" || r.parse_status === "parsing"); };
     // 履歷必填：沒有選履歷、還在解析、解析失敗都不能開始分析，並說明原因
+    // 至少選 1 個職缺：這個功能就是比對履歷和想應徵的職缺
     const blocked = () => !cur() ? "先上傳履歷才能開始分析" : parsing() ? "履歷解析完成後才能開始分析"
-      : cur().parse_status === "failed" ? "這份履歷沒有解析成功，請換一份或重新上傳" : "";
+      : cur().parse_status === "failed" ? "這份履歷沒有解析成功，請換一份或重新上傳"
+        : !picked.size ? "至少選 1 個要比對的職缺" : "";
+    function drawJobs() {
+      const list = targets();
+      for (const id of [...picked]) if (!list.some((t) => t.id === id)) picked.delete(id);
+      const full = picked.size >= MAX_JOBS;
+      replace(jobBox,
+        list.length ? list.map((t) => {
+          const on = picked.has(t.id);
+          const pending = t.job.parse_status === "pending" || t.job.parse_status === "parsing";
+          return h("label", { class: `cjob-pick${on ? " on" : ""}${!on && full ? " off" : ""}` },
+            h("input", { type: "checkbox", checked: on, disabled: (!on && full) || pending, onchange: (e) => {
+              e.target.checked ? picked.add(t.id) : picked.delete(t.id); drawJobs(); drawActions();
+            } }),
+            h("span", { class: "bd" }, h("b", null, jobName(t.job)),
+              h("span", { class: "faint" }, pending ? "Ava 還在整理這個職缺" : [t.job.city, t.job.salary_text].filter(Boolean).join("・"))));
+        }) : h("p", { class: "faint" }, "還沒有目標職缺。把想應徵的職缺內容貼上來，Ava 就能比對你還差多少。"),
+        h("div", { class: "row", style: "margin-top:10px" },
+          h("button", { class: "btn out sm", type: "button", onclick: () => openJd({ after: async (t) => {
+            await loadTargets().catch(() => {});
+            if (picked.size < MAX_JOBS) picked.add(t.id);
+            toast("已加入目標職缺");
+            drawJobs(); drawActions();
+          } }) }, icon("plus"), "貼上新職缺"),
+          h("span", { class: "faint num" }, `已選 ${picked.size}/${MAX_JOBS}`)));
+    }
     let ptimer = null;
     const pollResumes = () => {
       clearTimeout(ptimer);
@@ -124,7 +166,7 @@ export async function render(view, _arg, ctx) {
     }
     function drawActions() {
       replace(actions,
-        h("button", { class: "btn pri", type: "button", disabled: saving || !!blocked(), title: blocked(), onclick: () => save(true) }, icon("search"), "儲存並開始分析"),
+        h("button", { class: "btn pri", type: "button", disabled: saving || !!blocked(), title: blocked(), onclick: () => save(true) }, icon("search"), "開始分析"),
         h("button", { class: "btn out", type: "button", disabled: saving, onclick: () => save(false) }, "只儲存"),
         blocked() ? h("span", { class: "faint" }, blocked()) : null,
         plan ? h("button", { class: "linkb", type: "button", onclick: () => { editing = false; draw(); } }, "取消") : null);
@@ -136,6 +178,7 @@ export async function render(view, _arg, ctx) {
         h("button", { class: "ib", type: "button", "aria-label": "移除連結", onclick: () => { f.links.splice(i, 1); if (!f.links.length) f.links.push(""); drawLinks(); } }, icon("x")))),
       f.links.length < 10 ? h("button", { class: "linkb", type: "button", onclick: () => { f.links.push(""); drawLinks(); setTimeout(() => linkBox.querySelectorAll("input")[f.links.length - 1]?.focus()); } }, icon("plus", 14), "新增連結") : null);
     drawResume();
+    drawJobs();
     drawLinks();
     pollResumes();
     const periodSeg = h("div", { class: "seg" });
@@ -159,7 +202,7 @@ export async function render(view, _arg, ctx) {
           work_hours: f.hours.value, locations: split(f.loc.value), work_modes: [...f.modes],
         });
         if (thenStart) {
-          await post("/career/plans");
+          await post("/career/plans", { target_ids: [...picked] });
           ({ plan } = await get("/career/plans/latest"));
           await refreshList();
           editing = false;
@@ -169,17 +212,28 @@ export async function render(view, _arg, ctx) {
       } catch (e) { errorToast(e); } finally { saving = false; }
     }
 
+    // 補充資料預設收起來；摘要列出已經填了哪些，使用者知道 Ava 會一起參考
+    const filled = [profile.self_intro && "自我介紹", profile.experience_note && "經歷補充",
+      profile.portfolio_links.length && `作品集 ${profile.portfolio_links.length} 個連結`,
+      (profile.roles.length || profile.industries.length || profile.salary_min || profile.locations.length) && "求職意向"].filter(Boolean);
     return h("div", { class: "cform" },
-      h("h2", null, "關於你"),
-      field("履歷", "必填，用哪一份履歷來分析", resumeBox),
-      field("自我介紹", "選填", f.intro), field("經歷補充", "選填", f.exp),
-      field("作品集", "GitHub、個人網站、Behance 等，一行一個連結", linkBox),
-      h("h2", null, "想找什麼樣的工作"),
-      field("想做的職務", "", f.roles), field("產業", "", f.ind), field("希望的工作內容", "", f.duties),
-      h("div", { class: "cgrid" },
-        field("期望薪資（最低）", "", h("div", { class: "row", style: "flex-wrap:nowrap" }, f.salary, periodSeg)),
-        field("工時偏好", "", f.hours)),
-      field("地點", "", f.loc), field("工作型態", "可複選，不選＝不限", modeRow),
+      h("h2", null, h("span", { class: "step" }, "1"), "用哪份履歷"),
+      field("履歷", "必填", resumeBox),
+      h("h2", null, h("span", { class: "step" }, "2"), "要比對哪些職缺"),
+      h("p", { class: "faint", style: "margin:-6px 0 12px" }, `從你的目標職缺選 1–${MAX_JOBS} 個想應徵的。類型相近的放在一起比，缺口會更準。`),
+      jobBox,
+      h("details", { class: "cmore" },
+        h("summary", null, h("h2", null, h("span", { class: "step" }, "3"), "補充資料", h("small", null, "選填")),
+          h("span", { class: "faint" }, filled.length ? `已填：${filled.join("、")}` : "自我介紹、作品集、求職意向"), icon("chev")),
+        h("div", { class: "bd" },
+          field("自我介紹", "", f.intro), field("經歷補充", "", f.exp),
+          field("作品集", "GitHub 公開 repo 會實際讀取原始碼，一行一個連結", linkBox),
+          h("div", { class: "sub-h" }, "想找什麼樣的工作"),
+          field("想做的職務", "", f.roles), field("產業", "", f.ind), field("希望的工作內容", "", f.duties),
+          h("div", { class: "cgrid" },
+            field("期望薪資（最低）", "", h("div", { class: "row", style: "flex-wrap:nowrap" }, f.salary, periodSeg)),
+            field("工時偏好", "", f.hours)),
+          field("地點", "", f.loc), field("工作型態", "可複選，不選＝不限", modeRow))),
       actions);
   }
 
@@ -188,18 +242,23 @@ export async function render(view, _arg, ctx) {
     const bits = [p.roles?.length ? p.roles.join("、") : null, p.industries?.length ? p.industries.join("、") : null,
       p.salary_min ? `${p.salary_period === "year" ? "年薪" : "月薪"} ${p.salary_min.toLocaleString()}+` : null,
       p.locations?.length ? p.locations.join("、") : null, p.work_hours || null].filter(Boolean);
-    return h("div", { class: "basis" }, h("div", { class: "basis-h" }, icon("user"), "這次分析依據你的個人檔案"),
-      h("div", { class: "su-row" }, h("div", { class: "v" }, bits.length ? bits.join("・") : "尚未填寫求職意向")),
+    const cmp = plan.compare || { resume: null, jobs: [] };
+    return h("div", { class: "basis" }, h("div", { class: "basis-h" }, icon("target"), "這次比對"),
+      h("div", { class: "su-row" }, h("span", { class: "k" }, "履歷"), h("div", { class: "v" },
+        cmp.resume ? h("span", { style: "display:inline-flex;align-items:center;gap:6px" }, icon("file", 15), cmp.resume) : plan.has_resume ? "已刪除的履歷"
+          : [h("button", { class: "btn out sm", type: "button", onclick: () => openSettings("resume", { onChanged: loadResumes }) }, icon("upload"), "上傳履歷"),
+            h("span", { class: "hint" }, "有履歷才能精準比對你缺什麼")])),
+      h("div", { class: "su-row" }, h("span", { class: "k" }, "職缺"), h("div", { class: "v" }, cmp.jobs.length
+        ? h("div", { class: "pf-links" }, cmp.jobs.map((j) => h("span", null, jobName(j))))
+        : h("span", { class: "faint" }, "沒有比對目標職缺"))),
       h("div", { class: "su-row" }, h("span", { class: "k" }, "作品集"), h("div", { class: "v" }, (p.portfolio_links || []).length
         ? h("div", { class: "pf-links" }, p.portfolio_links.map(linkStatus))
         : h("span", { class: "faint" }, "沒有提供作品集連結"))),
-      h("div", { class: "su-row" }, h("span", { class: "k" }, "履歷"), h("div", { class: "v" }, plan.has_resume ? "已使用你選的履歷"
-        : [h("button", { class: "btn out sm", type: "button", onclick: () => openSettings("resume", { onChanged: loadResumes }) }, icon("upload"), "上傳履歷"),
-          h("span", { class: "hint" }, "有履歷才能精準比對你缺什麼")])),
+      bits.length ? h("div", { class: "su-row" }, h("span", { class: "k" }, "意向"), h("div", { class: "v faint" }, bits.join("・"))) : null,
       h("div", { class: "basis-f" }, h("span", { class: "faint" }, `分析時間：${fmtDate(plan.created_at)}`),
         h("div", { class: "row" },
           plans.length > 1 ? h("button", { class: "btn out sm", type: "button", onclick: openHistory }, icon("clock"), `歷次分析（${plans.length}）`) : null,
-          h("button", { class: "btn out sm", type: "button", onclick: () => { editing = true; draw(); } }, icon("pencil"), "編輯檔案"),
+          h("button", { class: "btn out sm", type: "button", onclick: () => { editing = true; draw(); } }, icon("sliders"), "調整比對條件"),
           h("button", { class: "btn pri sm", type: "button", disabled: busy(plan) || busy(plans[0]),
             onclick: rerun }, icon("redo"), "重新分析"))));
   }
@@ -276,8 +335,8 @@ export async function render(view, _arg, ctx) {
               } }), h("span", null, t.text)))));
       }),
 
-      h("div", { class: "sec-row" }, h("h2", null, "你的目標職缺"),
-        h("span", { class: "faint" }, plan.jobs.length ? "缺口依這些職缺分析" : "沒有目標職缺，依個人檔案分析")),
+      h("div", { class: "sec-row" }, h("h2", null, "每個職缺的契合度"),
+        h("span", { class: "faint" }, plan.jobs.length ? "缺口依這些職缺分析" : "沒有比對目標職缺")),
       plan.jobs.length ? plan.jobs.map((j) => h("div", { class: "cjob" },
         logo((j.company_name || "?").slice(0, 1).toUpperCase()),
         h("div", { class: "bd" },
@@ -298,24 +357,34 @@ export async function render(view, _arg, ctx) {
     ];
   }
 
+  // 重新分析：沿用這次比對的職缺；有職缺已經移出目標職缺（或是舊版分析）時，改請使用者重新選
   async function rerun() {
-    try { await post("/career/plans"); ({ plan } = await get("/career/plans/latest")); await refreshList(); draw(); watch(); } catch (e) { errorToast(e); }
+    const ids = (plan.jobs || []).map((j) => j.target_id).filter(Boolean);
+    const want = plan.compare?.jobs.length || 0;
+    if (!ids.length || ids.length !== want || ids.length > MAX_JOBS) {
+      picked = null; editing = true; draw(); toast("請重新選擇要比對的職缺"); return;
+    }
+    try {
+      await post("/career/plans", { target_ids: ids });
+      ({ plan } = await get("/career/plans/latest")); await refreshList(); draw(); watch();
+    } catch (e) { errorToast(e); }
   }
 
   function draw() {
     if (!ctx.isCurrent()) return;
     const intro = h("p", { class: "muted", style: "margin-top:6px" },
-      "告訴 Ava 你是誰、想找什麼工作。Ava 會比對你的目標職缺，分析你還缺什麼，並排出完整的準備計畫。");
-    if (editing || !plan) { replace(wrap, h("h1", null, "職涯規劃"), intro, profileForm()); return; }
+      "選一份履歷和想應徵的職缺，Ava 會分析你還差多少、該先補什麼，並排出準備計畫。");
+    if (editing || !plan) { replace(wrap, h("h1", null, "求職準備"), intro, profileForm()); return; }
+    const n = plan.compare?.jobs.length || 0;
     const hasRepos = (plan.profile?.portfolio_links || []).some((u) => /github\.com\/[^/]+\/[^/]+/i.test(u));
     const old = isLatest() ? null : h("div", { class: "hist-bar" }, icon("clock"),
       h("span", null, `你正在看 ${fmtDate(plan.created_at)} 的分析`),
       h("button", { class: "linkb", type: "button", onclick: () => show(plans[0].id) }, "回到最新"));
-    replace(wrap, h("h1", null, "職涯規劃"), intro, old, profileSummary(),
+    replace(wrap, h("h1", null, "求職準備"), intro, old, profileSummary(),
       busy(plan) ? [h("div", { class: "center-cta" }, dots(), h("p", { class: "muted" },
-        plan.stage === "plan" ? "作品集讀完了，Ava 正在比對你的目標職缺和履歷，大約再 1 分鐘。"
-          : hasRepos ? "Ava 正在讀你的 GitHub 作品集原始碼，再比對目標職缺和履歷，通常需要 2–4 分鐘。"
-            : "Ava 正在比對你的目標職缺和履歷，通常需要 1 分鐘左右。")), skel(3)]
+        plan.stage === "plan" ? `作品集讀完了，Ava 正在比對你選的 ${n} 個職缺和履歷，大約再 1 分鐘。`
+          : hasRepos ? `Ava 正在讀你的 GitHub 作品集原始碼，再比對你選的 ${n} 個職缺和履歷，通常需要 1–3 分鐘。`
+            : `Ava 正在比對你選的 ${n} 個職缺和履歷，通常需要 1 分鐘左右。`)), skel(3)]
         : plan.status === "failed" ? h("div", { class: "err-box", style: "margin-top:20px" }, h("span", { class: "t" }, "Ava 這次沒有分析成功。"),
           h("button", { class: "btn out sm", type: "button", onclick: rerun }, "再試一次"))
           : planView());
