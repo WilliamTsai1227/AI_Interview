@@ -29,7 +29,7 @@ docker compose up -d --build
 
 ```bash
 export KUBECONFIG=~/.kube/k3s.yaml
-./deploy/k3s/deploy.sh             # 完成後打開 http://localhost
+./deploy/k3s/deploy.sh             # 完成後打開 http://localhost:8009（跟 docker compose 同一個網址）
 ```
 
 ## 環境變數

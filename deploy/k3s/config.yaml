@@ -10,11 +10,11 @@ metadata:
 data:
   REDIS_URL: redis://redis:6379/0
   S3_ENDPOINT: http://minio:9000
-  # 預簽名網址是給瀏覽器用的：MinIO 的 LoadBalancer 開在 9200（見 minio.yaml），Lima 再轉到 Mac 的 localhost
-  S3_PUBLIC_ENDPOINT: http://localhost:9200
+  # 預簽名網址是給瀏覽器用的：MinIO 的 LoadBalancer 開在 9100（見 minio.yaml），Lima 再轉到 Mac 的 localhost
+  S3_PUBLIC_ENDPOINT: http://localhost:9100
   S3_BUCKET: ai-interview
-  # Traefik（k3s 內建的 Ingress）在 80 埠，Lima 轉到 Mac 的 localhost
-  BASE_URL: http://localhost
+  # Traefik（k3s 內建的 Ingress）改到 8009 埠（見 traefik-config.yaml），Lima 轉到 Mac 的 localhost。跟 docker compose 相同
+  BASE_URL: http://localhost:8009
   FRONTEND_DIR: /frontend
 ---
 # 練習用的帳號密碼，跟 docker-compose.yml 相同。正式環境不要把密碼寫進 Git，改用 kubectl create secret 或 Sealed Secrets

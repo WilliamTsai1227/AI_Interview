@@ -22,6 +22,7 @@ echo "==> 匯入 k3s（Lima VM：${VM}）"
 docker save "$IMAGE" | limactl shell "$VM" sudo k3s ctr images import -
 
 echo "==> 套用設定"
+kubectl apply -f deploy/k3s/traefik-config.yaml   # Traefik 改用 8009 埠（在 kube-system，不在 kustomization 裡）
 kubectl apply -f deploy/k3s/namespace.yaml
 secret_changed=false
 if [[ -f backend/.env ]]; then
@@ -49,4 +50,4 @@ for d in api worker-interactive worker-default; do
   kubectl rollout status deployment/$d -n $NS --timeout=300s
 done
 
-echo "==> 完成：http://localhost"
+echo "==> 完成：http://localhost:8009"

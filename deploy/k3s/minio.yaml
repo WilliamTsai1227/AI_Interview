@@ -1,5 +1,5 @@
-# MinIO：叢集內的 api／worker 用 minio:9000；瀏覽器用 minio-public（LoadBalancer）的 9200
-# 9200 而不是 docker compose 的 9100，兩邊同時開也不會搶連接埠。bucket 由 api 啟動時自動建立
+# MinIO：叢集內的 api／worker 用 minio:9000；瀏覽器用 minio-public（LoadBalancer）的 9100，跟 docker compose 相同
+# bucket 由 api 啟動時自動建立
 apiVersion: v1
 kind: Service
 metadata:
@@ -9,7 +9,7 @@ spec:
   ports:
     - port: 9000
 ---
-# k3s 內建的 ServiceLB 會在節點上開 9200 埠，Lima 再把它轉到 Mac 的 localhost:9200
+# k3s 內建的 ServiceLB 會在節點上開 9100 埠，Lima 再把它轉到 Mac 的 localhost:9100
 apiVersion: v1
 kind: Service
 metadata:
@@ -18,7 +18,7 @@ spec:
   type: LoadBalancer
   selector: { app: minio }
   ports:
-    - port: 9200
+    - port: 9100
       targetPort: 9000
 ---
 apiVersion: apps/v1

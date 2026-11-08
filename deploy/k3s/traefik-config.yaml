@@ -1,0 +1,14 @@
+# 把 k3s 內建 Traefik（Ingress）的對外埠從 80 改成 8009，網址跟 docker compose 一樣是 http://localhost:8009，
+# Google 登入的重新導向 URI 不用另外設定。
+# Traefik 在 kube-system，不屬於 ai-interview 命名空間，所以不放進 kustomization.yaml，由 deploy.sh 另外套用。
+# 這是整個叢集的設定：刪除 ai-interview 命名空間不會還原，要還原就 kubectl delete -f 這個檔案
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      web:
+        exposedPort: 8009

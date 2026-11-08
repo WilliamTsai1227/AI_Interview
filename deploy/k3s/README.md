@@ -1,15 +1,17 @@
 # k3s 部署（本機 Lima VM）
 
-> 這個資料夾是**用 k3s（輕量版 Kubernetes）部署**的設定，跟 [docker-compose.yml](../../docker-compose.yml) 是兩套獨立的部署方式，同一份程式、同一個 image。兩邊可以同時開，連接埠不衝突。
+> 這個資料夾是**用 k3s（輕量版 Kubernetes）部署**的設定，跟 [docker-compose.yml](../../docker-compose.yml) 是兩套獨立的部署方式，同一份程式、同一個 image。
+>
+> **網址跟 docker compose 完全相同**（網站 `localhost:8009`、MinIO `localhost:9100`），所以 Google 登入的重新導向 URI 不用另外設定。也因為連接埠相同，**兩邊不能同時開**：切換前先 `docker compose down`，或 `limactl stop k3s`。
 
 ## 架構
 
 ```
 Mac 瀏覽器
-  │  http://localhost        → Traefik（k3s 內建 Ingress）→ Service api → api Pod × 2
-  │  http://localhost:9200   → Service minio-public（LoadBalancer）→ minio-0   （預簽名網址直接上傳）
+  │  http://localhost:8009   → Traefik（k3s 內建 Ingress）→ Service api → api Pod × 2
+  │  http://localhost:9100   → Service minio-public（LoadBalancer）→ minio-0   （預簽名網址直接上傳）
   │
-  └─ Lima 把 VM 的 80、9200 埠轉到 Mac 的 localhost
+  └─ Lima 把 VM 的 8009、9100 埠轉到 Mac 的 localhost
 
 命名空間 ai-interview
   ├─ api                  Deployment × 2   滾動更新：先開新的、就緒後才關舊的
@@ -22,6 +24,7 @@ Mac 瀏覽器
 
 | 檔案 | 內容 | 對應 docker-compose.yml |
 |---|---|---|
+| [traefik-config.yaml](traefik-config.yaml) | Traefik 對外埠從 80 改成 8009（整個叢集的設定，deploy.sh 另外套用） | `api` 的 `ports: 8009` |
 | [kustomization.yaml](kustomization.yaml) | 列出所有資源，`kubectl apply -k` 一次套用 | — |
 | [namespace.yaml](namespace.yaml) | 命名空間 `ai-interview` | compose 的專案名稱 |
 | [config.yaml](config.yaml) | ConfigMap（連線位址）、Secret（資料庫和 MinIO 帳密） | `x-app.environment` |
@@ -53,14 +56,14 @@ export KUBECONFIG=~/.kube/k3s.yaml
 ./deploy/k3s/deploy.sh
 ```
 
-完成後打開 <http://localhost>。第一次要下載 PostgreSQL、Redis、MinIO 的 image，約需幾分鐘。
+完成後打開 <http://localhost:8009>。第一次要下載 PostgreSQL、Redis、MinIO 的 image，約需幾分鐘。
 
 deploy.sh 做的事：
 
 1. 用 git commit 當 tag build image（例如 `ai-interview-app:6996397`）。有未提交的修改時加上時間，確保每次都是新 tag，K8s 才會更新。
 2. `docker save | k3s ctr images import`：把 image 直接匯入 k3s。image 不在任何 registry 上，所以 manifest 設了 `imagePullPolicy: IfNotPresent`。
 3. 把 `backend/.env` 建成 Secret `app-secrets`（OpenAI、Google、JWT 等金鑰）。`.env` 有改才會重啟 Pod。
-4. 刪掉舊的 migrate Job 再套用全部設定：Job 建立後不能修改，所以每次都重建。
+4. 套用 Traefik 的連接埠設定；刪掉舊的 migrate Job 再套用全部設定：Job 建立後不能修改，所以每次都重建。
 5. 等 migration 完成，再等 api 和 worker 滾動更新完成。
 
 改了程式碼就再跑一次 deploy.sh，api 會逐一換成新版本，不會停機。
@@ -88,6 +91,7 @@ MinIO 主控台沒有對外開放，要看時：`kubectl port-forward -n ai-inte
 
 ```bash
 kubectl delete namespace ai-interview      # 全部刪除，包含資料庫、Redis、MinIO 的資料
+kubectl delete -f deploy/k3s/traefik-config.yaml   # Traefik 改回 80 埠（選用）
 ```
 
 只想停止但保留資料：`limactl stop k3s`，之後 `limactl start k3s`，Pod 會自動回來。
@@ -97,4 +101,4 @@ kubectl delete namespace ai-interview      # 全部刪除，包含資料庫、Re
 - **worker 被替換時，進行中的工作會中斷**：[backend/app/workers/main.py](../../backend/app/workers/main.py) 設了 `handle_signals=False`，也沒有自己處理 SIGTERM，所以 Pod 收到關閉訊號就直接結束。工作不會遺失，但要等 `sweep` 排程在 10 分鐘後重新投遞。滾動更新 worker 時，正在面試的使用者可能要多等評分結果。
 - **密碼寫在 Git 裡**：[config.yaml](config.yaml) 的帳密是練習用，跟 docker-compose.yml 相同。正式環境要改用 `kubectl create secret`、Sealed Secrets 或雲端的 Key Vault。
 - **單節點**：資料庫、Redis、MinIO 都只有 1 份，磁碟在 VM 本機。VM 刪掉資料就沒了。
-- **只有 HTTP**：`BASE_URL` 是 `http://localhost`，`COOKIE_SECURE` 維持 `false`。對外開放時要加 cert-manager 申請 HTTPS 憑證。
+- **只有 HTTP**：`BASE_URL` 是 `http://localhost:8009`，`COOKIE_SECURE` 維持 `false`。對外開放時要加 cert-manager 申請 HTTPS 憑證。

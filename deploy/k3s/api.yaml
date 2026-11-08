@@ -56,7 +56,7 @@ spec:
   ports:
     - port: 8009
 ---
-# 對外入口：k3s 內建 Traefik，http://localhost/ 全部轉給 api
+# 對外入口：k3s 內建 Traefik（對外埠改成 8009，見 traefik-config.yaml），http://localhost:8009/ 全部轉給 api
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
