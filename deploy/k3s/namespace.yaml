@@ -1,0 +1,5 @@
+# 這個專案的所有資源都放在 ai-interview 命名空間，刪除時 kubectl delete namespace ai-interview 就全部清掉
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-interview

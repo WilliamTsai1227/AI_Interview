@@ -1,0 +1,34 @@
+# 設定分三份，api／worker／migrate 都用 envFrom 依序讀入，後面的會覆蓋前面同名的變數：
+#   1. app-secrets（選用）：從 backend/.env 建立，放 OpenAI、Google、JWT 這些金鑰（見 README）
+#   2. app-config：k3s 固定的連線位址，等於 docker-compose.yml 裡「Docker 固定」的那幾個變數
+#   3. infra-credentials：資料庫、MinIO 的帳號密碼
+# 所以 backend/.env 裡寫的 DATABASE_URL 等連線位址會被 2、3 蓋掉，叢集內一律用 Service 名稱互連。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  REDIS_URL: redis://redis:6379/0
+  S3_ENDPOINT: http://minio:9000
+  # 預簽名網址是給瀏覽器用的：MinIO 的 LoadBalancer 開在 9200（見 minio.yaml），Lima 再轉到 Mac 的 localhost
+  S3_PUBLIC_ENDPOINT: http://localhost:9200
+  S3_BUCKET: ai-interview
+  # Traefik（k3s 內建的 Ingress）在 80 埠，Lima 轉到 Mac 的 localhost
+  BASE_URL: http://localhost
+  FRONTEND_DIR: /frontend
+---
+# 練習用的帳號密碼，跟 docker-compose.yml 相同。正式環境不要把密碼寫進 Git，改用 kubectl create secret 或 Sealed Secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: infra-credentials
+type: Opaque
+stringData:
+  POSTGRES_USER: ai
+  POSTGRES_PASSWORD: ai
+  POSTGRES_DB: ai_interview
+  DATABASE_URL: postgresql://ai:ai@db:5432/ai_interview
+  MINIO_ROOT_USER: minioadmin
+  MINIO_ROOT_PASSWORD: minioadmin
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin

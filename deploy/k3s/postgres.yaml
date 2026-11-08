@@ -1,0 +1,52 @@
+# PostgreSQL：用 StatefulSet，Pod 名稱固定（db-0），重建後掛回同一塊磁碟
+# 磁碟由 k3s 內建的 local-path 建立，實際存在 VM 的 /var/lib/rancher/k3s/storage
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+spec:
+  selector: { app: db }
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+spec:
+  serviceName: db
+  replicas: 1
+  selector:
+    matchLabels: { app: db }
+  template:
+    metadata:
+      labels: { app: db }
+    spec:
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg16
+          envFrom:
+            - secretRef: { name: infra-credentials }
+          env:
+            - name: PGDATA                # 放在子資料夾：掛載點本身不是空的時 initdb 會拒絕執行
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

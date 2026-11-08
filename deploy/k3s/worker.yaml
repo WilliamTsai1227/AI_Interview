@@ -1,0 +1,62 @@
+# 背景工作分成兩個 Deployment，對應 app/workers/main.py 的兩條佇列，可以各自擴充：
+#   worker-interactive：面試中的工作（TTS、轉錄、評分），使用者在等，要快
+#   worker-default：解析、出題、報告、職涯規劃，以及排程（cron）。排程只在這裡跑，所以維持 1 個 Pod
+# 注意：worker 目前沒有處理 SIGTERM（main.py 設了 handle_signals=False），Pod 被替換時進行中的工作會中斷，
+# 要等 sweep 排程在 10 分鐘後重新投遞。所以 terminationGracePeriodSeconds 調長目前沒有效果。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-interactive
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: worker, queue: interactive }
+  template:
+    metadata:
+      labels: { app: worker, queue: interactive }
+    spec:
+      initContainers:
+        - name: wait-for-deps           # 資料庫和 Redis 可以連線才啟動（同 api.yaml）
+          image: redis:7-alpine
+          command: ["sh", "-c", "until nc -z db 5432 && redis-cli -h redis ping; do sleep 2; done"]
+      containers:
+        - name: worker
+          image: ai-interview-app:dev   # deploy.sh 會換成這次 build 的 tag
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "app.workers.main", "interactive"]
+          envFrom:
+            - secretRef: { name: app-secrets, optional: true }
+            - configMapRef: { name: app-config }
+            - secretRef: { name: infra-credentials }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-default
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: worker, queue: default }
+  template:
+    metadata:
+      labels: { app: worker, queue: default }
+    spec:
+      initContainers:
+        - name: wait-for-deps           # 資料庫和 Redis 可以連線才啟動（同 api.yaml）
+          image: redis:7-alpine
+          command: ["sh", "-c", "until nc -z db 5432 && redis-cli -h redis ping; do sleep 2; done"]
+      containers:
+        - name: worker
+          image: ai-interview-app:dev   # deploy.sh 會換成這次 build 的 tag
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "app.workers.main", "default"]
+          envFrom:
+            - secretRef: { name: app-secrets, optional: true }
+            - configMapRef: { name: app-config }
+            - secretRef: { name: infra-credentials }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }

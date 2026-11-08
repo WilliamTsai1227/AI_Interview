@@ -23,6 +23,15 @@ docker compose up -d --build
 - 看 log：`docker compose logs -f api worker`；停止：`docker compose down`（加 `-v` 會一併刪除資料）。
 - 改了程式碼要重新 build：`docker compose up -d --build api worker`。
 
+## 用 k3s 部署（Kubernetes）
+
+除了 docker compose，也可以部署到本機 Lima VM 裡的 k3s（輕量版 Kubernetes）。api 有 2 個 Pod、滾動更新不停機，worker 依佇列拆成兩個 Deployment。設定檔、部署步驟和常用指令見 [deploy/k3s/README.md](deploy/k3s/README.md)。
+
+```bash
+export KUBECONFIG=~/.kube/k3s.yaml
+./deploy/k3s/deploy.sh             # 完成後打開 http://localhost
+```
+
 ## 環境變數
 
 後端的設定都放在 `backend/.env`（範本是 [backend/.env.example](backend/.env.example)，複製一份再改）。**沒寫的變數會用程式裡的預設值**（[backend/app/core/config.py](backend/app/core/config.py)），所以 `.env` 只需要寫你想改的。
@@ -289,6 +298,7 @@ backend/
 frontend/
   index.html、css/app.css
   js/                dom.js（DOM 建構）、api.js、router.js、pages/、components/、interview/（錄音與播放）
+deploy/k3s/          k3s（Kubernetes）部署：manifests、kustomization、deploy.sh
 data/job_crawlers/   職缺爬蟲（AWS Lambda）：公司官網 schema.org JobPosting → job_posts
 data/scheduler/      在本機手動或定時執行爬蟲（讀資料夾內 .env）
 spec/                規格書與 UI 原型；features/ 是每個產品功能的說明
