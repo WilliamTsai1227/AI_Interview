@@ -1,0 +1,74 @@
+# API（同時提供前端）：2 個 Pod，滾動更新時一次多開 1 個新的、舊的全部保留到新的就緒才關（零停機）
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 2
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels: { app: api }
+  template:
+    metadata:
+      labels: { app: api }
+    spec:
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: wait-for-deps           # 等於 docker compose 的 depends_on：資料庫和 Redis 可以連線才啟動，避免一開始反覆崩潰重啟
+          image: redis:7-alpine
+          command: ["sh", "-c", "until nc -z db 5432 && redis-cli -h redis ping; do sleep 2; done"]
+      containers:
+        - name: api
+          image: ai-interview-app:dev   # deploy.sh 會換成這次 build 的 tag
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef: { name: app-secrets, optional: true }
+            - configMapRef: { name: app-config }
+            - secretRef: { name: infra-credentials }
+          ports:
+            - containerPort: 8009
+          # 就緒：health 會查資料庫，連得到才接流量
+          readinessProbe:
+            httpGet: { path: /api/v1/health, port: 8009 }
+            periodSeconds: 5
+          # 存活：只看程序有沒有卡死。不用 health，否則資料庫一斷線所有 api Pod 會被一起重啟
+          livenessProbe:
+            tcpSocket: { port: 8009 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          lifecycle:
+            preStop:                    # 先等 Traefik 把這個 Pod 從轉發名單移除，再讓 uvicorn 收到 SIGTERM
+              exec:
+                command: ["sleep", "5"]
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  selector: { app: api }
+  ports:
+    - port: 8009
+---
+# 對外入口：k3s 內建 Traefik（對外埠改成 8009，見 traefik-config.yaml），http://localhost:8009/ 全部轉給 api
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8009

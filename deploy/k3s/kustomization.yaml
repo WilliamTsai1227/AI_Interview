@@ -1,0 +1,17 @@
+# k3s 部署：一次套用這個資料夾的所有資源（kubectl 內建 kustomize，不用另外安裝）
+#   kubectl apply -k deploy/k3s
+# 平常用 deploy/k3s/deploy.sh：會先 build image、匯入 k3s，再套用並等待更新完成。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ai-interview
+
+resources:
+  - namespace.yaml
+  - config.yaml
+  - postgres.yaml
+  - redis.yaml
+  - minio.yaml
+  - migrate-job.yaml
+  - api.yaml
+  - worker.yaml

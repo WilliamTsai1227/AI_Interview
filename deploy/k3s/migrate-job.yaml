@@ -1,0 +1,24 @@
+# 建立資料表：等於 docker-compose.yml 的 migrate，跑完就結束。migrations 有記錄已執行過的檔案，重跑是安全的
+# Job 的內容建立後不能修改，所以 deploy.sh 每次部署都先刪掉舊的 Job 再建立，讓新版本的 migration 一定會跑
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-db          # 第一次部署時資料庫可能還在初始化，等它可以連線再開始
+          image: pgvector/pgvector:pg16
+          command: ["sh", "-c", "until pg_isready -h db -p 5432; do sleep 2; done"]
+      containers:
+        - name: migrate
+          image: ai-interview-app:dev   # deploy.sh 會換成這次 build 的 tag
+          imagePullPolicy: IfNotPresent # image 是 deploy.sh 匯入 k3s 的，不在任何 registry 上
+          command: ["python", "-m", "app.core.migrate"]
+          envFrom:
+            - secretRef: { name: app-secrets, optional: true }
+            - configMapRef: { name: app-config }
+            - secretRef: { name: infra-credentials }
