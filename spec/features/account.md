@@ -21,4 +21,4 @@
 **安全**
 - 登入相關的 Cookie 是 httpOnly、SameSite=Strict；正式環境要開 `COOKIE_SECURE=true`。
 - 同一個 IP 短時間大量登入 → 被限制次數。
-- 正式環境不要建立示範帳號（`SEED_DEMO` 保持 `false`）。
+- 沒有示範帳號，也沒有 role=admin：管理後台只認 `ADMIN_GOOGLE_EMAILS`＋Google 登入＋後台帳密。

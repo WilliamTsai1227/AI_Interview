@@ -141,7 +141,13 @@ function account() {
     h("div", { class: "srow" }, h("span", null, "登入方式"), h("span", { class: "sv" },
       [me.user.has_password ? "Email 與密碼" : null, (me.user.providers || []).includes("google") ? "Google" : null].filter(Boolean).join("、") || "Email 與密碼")),
     h("div", { class: "srow" }, h("span", null, "方案"),
-      h("span", { class: "sv" }, `${me.user.plan === "pro" ? "Plus" : "Free"}・本月剩 ${Math.max(0, me.usage.interviews_limit - me.usage.interviews_used)} 場`)),
+      h("span", { class: "sv" }, [me.membership?.plan_name || (me.user.plan === "pro" ? "Plus" : "Free"),
+        me.usage.interviews_limit == null ? "面試不限次數" : `本月剩 ${Math.max(0, me.usage.interviews_limit - me.usage.interviews_used)} 場`,
+        me.membership?.plan_expires_at ? `${new Date(me.membership.plan_expires_at).toLocaleDateString()} 到期` : null].filter(Boolean).join("・"))),
+    h("div", { class: "srow" }, h("span", null, "本月 AI 額度"),
+      h("span", { class: "sv" }, me.usage.tokens_limit == null ? "不限"
+        : `已用 ${Math.min(100, Math.round((me.usage.tokens_used / Math.max(1, me.usage.tokens_limit)) * 100))}%`
+          + (me.membership?.resets_at ? `・${new Date(me.membership.resets_at).toLocaleDateString()} 重置` : ""))),
     h("div", { class: "srow" }, h("span", null, "刪除所有面試紀錄與錄音"),
       h("button", { class: "btn out sm danger", type: "button", onclick: async () => {
         if (!(await confirmBox({ title: "刪除所有面試紀錄？", text: "所有面試報告、逐字稿和錄音都會刪除，無法復原。", ok: "全部刪除", danger: true }))) return;

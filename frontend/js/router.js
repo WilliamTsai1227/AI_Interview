@@ -1,5 +1,6 @@
-// Hash 路由：#new、#chat/{session}、#report[/{session}]、#questions[/{target}]、#prep[/{target}]、#career、#targets[/{target}]、#jobs
+// Hash 路由：#new、#chat/{session}、#report[/{session}]、#questions[/{target}]、#prep[/{target}]、#career、#targets[/{target}]、#jobs、#admin
 import { $, clear } from "./dom.js";
+import * as admin from "./pages/admin.js";
 import * as career from "./pages/career.js";
 import * as chat from "./pages/chat.js";
 import * as jobs from "./pages/jobs.js";
@@ -12,7 +13,7 @@ import { closeDrawer, renderSide } from "./shell.js";
 import { feature, S } from "./store.js";
 import { closeMenu, closeModal } from "./ui.js";
 
-const PAGES = { new: newPage, chat, career, report, questions, prep, targets, jobs };
+const PAGES = { new: newPage, chat, career, report, questions, prep, targets, jobs, admin };
 let cleanup = null;
 let seq = 0;
 
@@ -26,7 +27,8 @@ export function rerender() { return route({ keepScroll: true }); }
 export async function route(opts = {}) {
   const [name, arg] = (location.hash || "#new").slice(1).split("/");
   // 職缺搜尋關閉時，直接輸入 #jobs 也導回新面試
-  const off = name === "jobs" && !feature("job_search");
+  // 管理後台只對名單內、用 Google 登入的帳號顯示（後端每個後台 API 也會再檢查）
+  const off = (name === "jobs" && !feature("job_search")) || (name === "admin" && !S.me?.admin_console);
   if (off) history.replaceState(null, "", "#new");
   const next = PAGES[name] && !off ? name : "new";
   const my = ++seq;

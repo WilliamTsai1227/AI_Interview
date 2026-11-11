@@ -12,6 +12,7 @@ import structlog
 from arq import cron
 from arq.worker import Worker
 
+from app.ai.client import QuotaExceeded
 from app.core import db, redis, storage
 from app.core.migrate import ensure_partitions
 from app.modules.career import service as career
@@ -57,7 +58,8 @@ async def run_job(ctx, job_id: int) -> str:
         await handler(j["payload"])
     except Exception as e:
         log.warning("job_failed", job_id=job_id, kind=j["kind"], attempt=j["attempts"], error=repr(e))
-        dead = j["attempts"] >= j["max_attempts"]
+        # 額度用完重試也沒用，直接結束
+        dead = j["attempts"] >= j["max_attempts"] or isinstance(e, QuotaExceeded)
         delay = min(300, 2 ** j["attempts"] * 5)
         async with db.connection() as conn:
             await conn.execute(

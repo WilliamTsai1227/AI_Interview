@@ -14,6 +14,7 @@ from app.core import db, errors, redis, storage
 from app.core.config import settings
 from app.core.http_guard import HttpGuard
 from app.modules.account.router import router as account
+from app.modules.admin.console import router as admin_console
 from app.modules.admin.router import router as admin
 from app.modules.auth.router import router as auth
 from app.modules.career.router import router as career
@@ -70,7 +71,7 @@ async def request_context(request: Request, call_next):
     return response
 
 
-for r in (auth, account, uploads, resumes, targets, questions, preps, career, jobs, interviews, reports, voice, admin):
+for r in (auth, account, uploads, resumes, targets, questions, preps, career, jobs, interviews, reports, voice, admin_console, admin):
     app.include_router(r, prefix="/api/v1")
 
 

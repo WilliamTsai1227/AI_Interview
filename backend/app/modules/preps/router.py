@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
 from app.core.security import CurrentUser, current_user
+from app.modules.membership.quota import require_tokens
 from app.modules.preps import service
 
 router = APIRouter(tags=["preps"])
@@ -39,17 +40,17 @@ async def get(target_id: UUID, user: CurrentUser = Depends(current_user)):
 
 
 @router.post("/targets/{target_id}/prep/analyze", status_code=202)
-async def analyze(target_id: UUID, body: AnalyzeIn | None = None, user: CurrentUser = Depends(current_user)):
+async def analyze(target_id: UUID, body: AnalyzeIn | None = None, user: CurrentUser = Depends(require_tokens)):
     return await service.analyze(user.id, target_id, body.resume_id if body else None)
 
 
 @router.post("/preps/{prep_id}/likely-questions/generate", status_code=202)
-async def likely_more(prep_id: UUID, body: LikelyMoreIn, user: CurrentUser = Depends(current_user)):
+async def likely_more(prep_id: UUID, body: LikelyMoreIn, user: CurrentUser = Depends(require_tokens)):
     return await service.more(user.id, prep_id, "likely_more", body.note, body.category, body.count)
 
 
 @router.post("/preps/{prep_id}/checklist/generate", status_code=202)
-async def checklist_more(prep_id: UUID, body: CheckMoreIn, user: CurrentUser = Depends(current_user)):
+async def checklist_more(prep_id: UUID, body: CheckMoreIn, user: CurrentUser = Depends(require_tokens)):
     return await service.more(user.id, prep_id, "checklist_more", body.note, None, body.count)
 
 

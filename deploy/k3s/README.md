@@ -79,7 +79,6 @@ kubectl logs -n ai-interview -l app=worker -f            # 兩種 worker 的 log
 kubectl describe pod -n ai-interview <名稱>               # 卡住時看最下面的 Events
 
 kubectl exec -it -n ai-interview db-0 -- psql -U ai ai_interview          # 進資料庫
-kubectl exec -n ai-interview deploy/api -- python -m app.seed --admin demo@example.com   # 建示範帳號
 
 kubectl scale deployment/worker-interactive -n ai-interview --replicas=3  # 面試的背景工作加到 3 個
 kubectl rollout undo deployment/api -n ai-interview                       # api 回到上一版

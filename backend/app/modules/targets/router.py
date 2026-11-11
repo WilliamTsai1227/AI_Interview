@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.security import CurrentUser, current_user
+from app.modules.membership.quota import require_tokens
 from app.core.types import Line
 from app.modules.targets import service
 
@@ -65,7 +66,7 @@ async def list_(user: CurrentUser = Depends(current_user)):
 
 
 @router.post("")
-async def create(body: TargetIn, response: Response, user: CurrentUser = Depends(current_user)):
+async def create(body: TargetIn, response: Response, user: CurrentUser = Depends(require_tokens)):
     status, data = await service.create(user.id, body.raw_text, body.job_post_id, body.resume_id, body.source_url)
     response.status_code = status
     return data
@@ -83,7 +84,7 @@ async def patch(target_id: UUID, body: TargetPatch, user: CurrentUser = Depends(
 
 
 @router.post("/{target_id}/regenerate", status_code=202)
-async def regenerate(target_id: UUID, user: CurrentUser = Depends(current_user)):
+async def regenerate(target_id: UUID, user: CurrentUser = Depends(require_tokens)):
     return await service.regenerate(user.id, target_id)
 
 

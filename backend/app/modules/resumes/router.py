@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.security import CurrentUser, current_user
+from app.modules.membership.quota import require_tokens
 from app.modules.resumes import service
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
@@ -22,7 +23,7 @@ class ResumePatch(BaseModel):
 
 
 @router.post("")
-async def create(body: ResumeIn, response: Response, user: CurrentUser = Depends(current_user)):
+async def create(body: ResumeIn, response: Response, user: CurrentUser = Depends(require_tokens)):
     status, data = await service.create(user.id, body.upload_id, body.set_primary)
     response.status_code = status
     return data

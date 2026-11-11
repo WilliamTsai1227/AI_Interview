@@ -11,13 +11,14 @@ from app.core.config import settings
 from app.core.errors import AppError
 from app.core.security import CurrentUser, current_user, verify_password
 from app.core.types import Tag
+from app.modules.admin import console
 from app.modules.auth import repository as auth_repo
 from app.modules.auth.service import user_out
 from app.modules.interviews import service as interviews
+from app.modules.membership import quota
 from app.modules.reports import service as reports
 
 router = APIRouter(prefix="/me", tags=["account"])
-PLAN_LIMIT = interviews.PLAN_LIMIT
 DEFAULT_PREFS = {"default_length": "standard", "default_persona": "warm", "default_language": "zh", "voice_speed": 1.15,
                  "desired_roles": [], "desired_locations": []}
 
@@ -41,7 +42,7 @@ class Confirm(BaseModel):
     password: str | None = None
 
 
-async def me_out(user_id: UUID) -> dict:
+async def me_out(user_id: UUID, user: CurrentUser | None = None) -> dict:
     async with db.connection() as conn:
         u = await conn.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
         if not u:
@@ -53,22 +54,27 @@ async def me_out(user_id: UUID) -> dict:
         has_target = await conn.fetchval("SELECT EXISTS (SELECT 1 FROM target_jobs WHERE user_id = $1 AND status = 'active')", user_id)
         has_done = await conn.fetchval("SELECT EXISTS (SELECT 1 FROM interview_reports WHERE user_id = $1)", user_id)
         active = await interviews.active_summary(conn, user_id)
+        q = await quota.status(conn, user_id)
     prefs = {**DEFAULT_PREFS, **(u["preferences"] or {})}
     async with db.connection() as conn:
         providers = [r["provider"] for r in await conn.fetch("SELECT provider FROM oauth_identities WHERE user_id = $1", user_id)]
     return {"user": {**user_out(u), "has_password": u["password_hash"] is not None, "providers": providers},
             "preferences": prefs,
+            "membership": q.out() if q else None,
             "usage": {"period": dt.date.today().strftime("%Y-%m"), "interviews_used": used,
-                      "interviews_limit": PLAN_LIMIT.get(u["plan"], 10)},
+                      "interviews_limit": q.interview_limit if q else None,
+                      "tokens_used": q.tokens_used if q else 0, "tokens_limit": q.token_limit if q else None},
             "onboarding": {"has_resume": pr is not None, "has_target": has_target, "has_completed_interview": has_done},
             "primary_resume": {"id": str(pr["id"]), "filename": pr["filename"], "parse_status": pr["parse_status"]} if pr else None,
             "active_interview": active,
-            "features": {"job_search": settings.feature_job_search}}
+            "features": {"job_search": settings.feature_job_search},
+            # 只有名單內、用 Google 登入的帳號會是 true（前端據此顯示「管理後台」）；後台 API 另外再檢查一次
+            "admin_console": bool(user) and (await console.eligibility(user))["eligible"]}
 
 
 @router.get("")
 async def get_me(user: CurrentUser = Depends(current_user)):
-    return await me_out(user.id)
+    return await me_out(user.id, user)
 
 
 @router.patch("")
@@ -80,7 +86,7 @@ async def patch_me(body: MePatch, user: CurrentUser = Depends(current_user)):
             cur = await conn.fetchval("SELECT preferences FROM users WHERE id = $1 FOR UPDATE", user.id) or {}
             cur.update(body.preferences.model_dump(exclude_none=True))
             await conn.execute("UPDATE users SET preferences = $2 WHERE id = $1", user.id, cur)
-    return await me_out(user.id)
+    return await me_out(user.id, user)
 
 
 @router.delete("/interviews", status_code=202)

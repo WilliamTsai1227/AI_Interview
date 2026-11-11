@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_redirect_uri: str = ""         # 空白時 = base_url + /api/v1/auth/google/callback
 
+    # 管理後台（/#admin）：三個條件都要符合才能進
+    #   1. 帳號 Email 在 ADMIN_GOOGLE_EMAILS（逗號分隔）  2. 這次是用 Google 登入  3. 輸入後台帳號密碼
+    # 三個值任一沒設定 → 後台整個關閉
+    admin_google_emails: str = ""
+    admin_console_username: str = ""
+    admin_console_password: str = ""
+    admin_console_minutes: int = 30       # 輸入後台密碼後可以用多久（之後要重新輸入）
+
     # OpenAI：沒有金鑰時改用本機假資料（開發用），整個流程仍可走完
     openai_api_key: str = ""
     llm_model_reasoning: str = "gpt-5"
@@ -79,6 +87,14 @@ class Settings(BaseSettings):
     @property
     def ai_enabled(self) -> bool:
         return bool(self.openai_api_key)
+
+    @property
+    def admin_emails(self) -> set[str]:
+        return {e.strip().lower() for e in self.admin_google_emails.split(",") if e.strip()}
+
+    @property
+    def admin_console_enabled(self) -> bool:
+        return bool(self.admin_emails and self.admin_console_username and self.admin_console_password)
 
     @property
     def google_enabled(self) -> bool:

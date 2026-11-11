@@ -19,18 +19,31 @@ docker compose up -d --build
 
 - 會啟動 `db`、`redis`、`minio`、`migrate`（建表，跑完就結束）、`api`（同時提供前端）、`worker`。
 - 要用 OpenAI 或 Google 登入：`cp backend/.env.example backend/.env` 後填金鑰，再 `docker compose up -d` 重新套用。沒有 `.env` 也能跑（開發模式）。每個變數的意思見下方〈環境變數〉。
-- 本機開發想要現成的示範帳號（`demo@example.com` / `demo1234`，管理員）：`SEED_DEMO=true docker compose up -d --build`。正式環境不要開。
 - 看 log：`docker compose logs -f api worker`；停止：`docker compose down`（加 `-v` 會一併刪除資料）。
 - 改了程式碼要重新 build：`docker compose up -d --build api worker`。
 
 ## 用 k3s 部署（Kubernetes）
 
-除了 docker compose，也可以部署到本機 Lima VM 裡的 k3s（輕量版 Kubernetes）。api 有 2 個 Pod、滾動更新不停機，worker 依佇列拆成兩個 Deployment。設定檔、部署步驟和常用指令見 [deploy/k3s/README.md](deploy/k3s/README.md)。
+除了 docker compose，也可以部署到本機 Lima VM 裡的 k3s（輕量版 Kubernetes）。api 有 2 個 Pod、滾動更新不停機，worker 依佇列拆成兩個 Deployment。設定檔、部署步驟和常用指令見 [deploy/k3s/README.md](deploy/k3s/README.md)；從零開始（建 Lima VM、裝 kubectl、KUBECONFIG 連線、打包 image 上去）的完整教學見 [spec/deploy/k3s_deploy.md](spec/deploy/k3s_deploy.md)。
 
 ```bash
+# 第一次才需要：安裝 kubectl（Mac 預設沒有，出現 command not found: kubectl 就是少這個）
+brew install kubectl
+
+# 第一次才需要：讓 Mac 上的 kubectl 連到 k3s（Lima VM 要先裝好 k3s）
+mkdir -p ~/.kube
+limactl shell k3s sudo cat /etc/rancher/k3s/k3s.yaml > ~/.kube/k3s.yaml
+
 export KUBECONFIG=~/.kube/k3s.yaml
+kubectl get nodes                  # 確認 lima-k3s 是 Ready
 ./deploy/k3s/deploy.sh             # 完成後打開 http://localhost:8009（跟 docker compose 同一個網址）
 ```
+
+小提醒：
+
+- `export KUBECONFIG=...` 只對目前的終端機有效；想永久生效，把那一行加進 `~/.zshrc`。
+- 如果 `kubectl get nodes` 連不上，先看 `grep server ~/.kube/k3s.yaml`（預設 `https://127.0.0.1:6443`，需要 Lima 有轉發 6443 埠），並用 `limactl list` 確認 VM 在跑。
+- 不想裝 kubectl 的話，也可以直接在 VM 裡執行：`limactl shell k3s sudo k3s kubectl get nodes`。
 
 ## 環境變數
 
@@ -86,6 +99,10 @@ docker compose up -d api worker     # 只用 restart 不會讀到新的 .env
 | `COOKIE_SECURE` | `false` | 登入用的 Cookie 是否只在 HTTPS 傳送。**正式環境（HTTPS）請設 `true`**；本機用 http 時保持 `false`，否則會登入不了。 |
 | `GOOGLE_CLIENT_ID` | 空白 | Google 登入的用戶端 ID。跟下面的密鑰都有填，登入頁才會出現「使用 Google 繼續」。設定方式見下方〈Google 登入〉。 |
 | `GOOGLE_CLIENT_SECRET` | 空白 | Google 登入的用戶端密鑰（`GOCSPX-` 開頭）。要跟上面的 Client ID 是同一組；對不起來時 Google 會回 `invalid_client`。 |
+| `ADMIN_GOOGLE_EMAILS` | 空白 | 可以進管理後台（`/#admin`）的帳號 Email，逗號分隔。還要「這次是用 Google 登入」並輸入下面的後台帳密才進得去；同一個帳號用密碼登入看不到後台。三個管理後台變數任一留白 → 後台關閉。 |
+| `ADMIN_CONSOLE_USERNAME` | 空白 | 管理後台的帳號（Google 登入後還要再輸入一次）。 |
+| `ADMIN_CONSOLE_PASSWORD` | 空白 | 管理後台的密碼。用長一點的隨機字串（`openssl rand -base64 24`）。換掉後，已經進後台的人會立刻被登出。密碼錯 5 次鎖 15 分鐘。 |
+| `ADMIN_CONSOLE_MINUTES` | `30` | 輸入後台密碼後可以用幾分鐘，之後要重新輸入。 |
 | `GOOGLE_REDIRECT_URI` | 空白（＝`BASE_URL` + `/api/v1/auth/google/callback`） | Google 登入完成後導回來的網址。一般留空即可，會自動用 `BASE_URL` 組出來。必須跟 Google Cloud 上填的「已授權的重新導向 URI」完全一樣。 |
 
 ### OpenAI 與 AI 模型
@@ -146,12 +163,6 @@ docker compose up -d api worker     # 只用 restart 不會讀到新的 .env
 |---|---|---|
 | `RATE_LIMITS_ENABLED` | `true` | 次數限制（登入、註冊、出題、建立面試等的每小時上限）。**只給效能測試環境用**：設 `false` 會關掉所有次數限制，但只有 `ENV=dev` 時才有效，正式環境設了也不會關。見 [test/performance](test/performance/README.md)。 |
 | `FEATURE_JOB_SEARCH` | `false` | 職缺搜尋頁。第一版先關閉：側邊欄、選單、全站搜尋都看不到，搜尋 API 回 404。改成 `true` 並重啟 `api` 就會打開。 |
-
-### Docker Compose 用的變數（不放在 `backend/.env`）
-
-| 變數 | 預設值 | 白話說明 |
-|---|---|---|
-| `SEED_DEMO` | `false` | 啟動時要不要建立示範帳號 `demo@example.com` / `demo1234`（**管理員**）。只在本機開發時設 `true`；**正式環境不要開**，這組帳密寫在公開的程式碼裡，任何人都能用來登入管理員。用法：`SEED_DEMO=true docker compose up -d --build`，或寫在專案根目錄的 `.env`（注意：是根目錄，不是 `backend/.env`）。 |
 
 ### 職缺爬蟲排程（`data/scheduler/.env`）
 
@@ -252,9 +263,8 @@ cd backend
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cp .env.example .env            # 要用真的 AI 就填 OPENAI_API_KEY
 
-# 3. 建立資料表（想要示範帳號 demo@example.com / demo1234 再執行第二行）
+# 3. 建立資料表
 .venv/bin/python -m app.core.migrate
-.venv/bin/python -m app.seed --admin demo@example.com
 
 # 4. 啟動 API（同時提供前端）與 worker（兩個終端機）
 .venv/bin/uvicorn app.main:app --port 8009 --reload

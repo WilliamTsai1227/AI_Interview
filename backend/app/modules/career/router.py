@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
 from app.core.security import CurrentUser, current_user
+from app.modules.membership.quota import require_tokens
 from app.core.types import Link, Tag
 from app.modules.career import service
 
@@ -64,7 +65,7 @@ async def put_profile(body: ProfileIn, user: CurrentUser = Depends(current_user)
 
 
 @router.post("/plans", status_code=202)
-async def start(body: PlanIn, user: CurrentUser = Depends(current_user)):
+async def start(body: PlanIn, user: CurrentUser = Depends(require_tokens)):
     return await service.start(user.id, body.target_ids)
 
 
