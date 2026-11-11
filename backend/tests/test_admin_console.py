@@ -19,6 +19,18 @@ def test_full_gate_passes(client, console):
     assert client.get(f"{API}/me", headers=h).json()["admin_console"] is True
     assert client.get(f"{API}/admin/plans", headers=h).status_code == 200
     assert client.get(f"{API}/admin/users", headers=h).status_code == 200
+    # 職缺匯入／審核也在同一道門後面
+    assert client.get(f"{API}/admin/jobs/review-queue", headers=h).status_code == 200
+    assert client.get(f"{API}/admin/job-ingest-runs", headers=h).status_code == 200
+
+
+def test_job_admin_apis_need_console(client, console):
+    user, _ = register(client, f"plain-{uuid.uuid4().hex[:8]}@example.com")
+    for method, path in [("GET", "/admin/jobs/review-queue"), ("GET", "/admin/job-ingest-runs"),
+                         ("POST", "/admin/jobs/import"), ("PATCH", f"/admin/jobs/{uuid.uuid4()}/review")]:
+        r = client.request(method, f"{API}{path}", headers=user, json=[] if method == "POST" else {"review_status": "published"})
+        assert r.status_code == 404, (path, r.status_code)
+    assert "role" not in client.get(f"{API}/me", headers=user).json()["user"]
 
 
 def test_disabled_when_not_configured(client, monkeypatch):

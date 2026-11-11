@@ -1,4 +1,7 @@
-"""管理後台：匯入平台職缺（合作夥伴／ATS 公開 API）、待審清單、審核、ETL 執行紀錄（api.md §13）；會員方案與 token 額度。"""
+"""管理後台：匯入平台職缺（合作夥伴／ATS 公開 API）、待審清單、審核、ETL 執行紀錄（api.md §13）；會員方案與 token 額度。
+
+所有 API 都要通過後台三關（名單內 Email＋Google 登入＋後台帳密），見 console.py。
+"""
 import datetime as dt
 import re
 from typing import Literal
@@ -10,7 +13,7 @@ from pydantic import BaseModel, Field, HttpUrl
 
 from app.core import db
 from app.core.errors import bad_request, not_found
-from app.core.security import CurrentUser, admin_user
+from app.core.security import CurrentUser
 from app.modules.admin.console import console_admin
 from app.modules.jobs.service import search_text
 from app.modules.membership import quota
@@ -54,7 +57,7 @@ class ReviewIn(BaseModel):
 
 
 @router.post("/jobs/import")
-async def import_jobs(items: list[ImportJob], _: CurrentUser = Depends(admin_user)):
+async def import_jobs(items: list[ImportJob], _: CurrentUser = Depends(console_admin)):
     inserted = updated = 0
     async with db.transaction() as conn:
         for j in items:
@@ -83,7 +86,7 @@ async def import_jobs(items: list[ImportJob], _: CurrentUser = Depends(admin_use
 
 
 @router.get("/jobs/review-queue")
-async def review_queue(_: CurrentUser = Depends(admin_user)):
+async def review_queue(_: CurrentUser = Depends(console_admin)):
     async with db.connection() as conn:
         rs = await conn.fetch(
             """SELECT j.id, j.title, j.company_name, j.source_url, c.code, j.ai_confidence, j.review_reasons, j.fetched_at
@@ -95,7 +98,7 @@ async def review_queue(_: CurrentUser = Depends(admin_user)):
 
 
 @router.patch("/jobs/{job_id}/review")
-async def review(job_id: str, body: ReviewIn, _: CurrentUser = Depends(admin_user)):
+async def review(job_id: str, body: ReviewIn, _: CurrentUser = Depends(console_admin)):
     async with db.transaction() as conn:
         cat = await conn.fetchval("SELECT id FROM job_categories WHERE code = $1", body.category_code) if body.category_code else None
         status = "closed" if body.review_status == "closed" else "active"
@@ -110,13 +113,13 @@ async def review(job_id: str, body: ReviewIn, _: CurrentUser = Depends(admin_use
 
 
 @router.get("/job-ingest-runs")
-async def ingest_runs(_: CurrentUser = Depends(admin_user)):
+async def ingest_runs(_: CurrentUser = Depends(console_admin)):
     async with db.connection() as conn:
         rs = await conn.fetch("SELECT * FROM job_ingest_runs ORDER BY started_at DESC LIMIT 50")
     return {"items": [dict(r) | {"id": str(r["id"])} for r in rs]}
 
 
-# ---------- 會員方案與 token 額度（管理後台：名單內的 Google 帳號＋後台帳密，見 console.py）----------
+# ---------- 會員方案與 token 額度 ----------
 class PlanIn(BaseModel):
     name: str = Field(min_length=1, max_length=40)
     monthly_token_limit: int | None = Field(default=None, ge=0)        # None = 不限
@@ -173,7 +176,7 @@ async def list_users(q: str | None = None, plan: str | None = None, over_quota: 
     async with db.connection() as conn:
         rs = await conn.fetch(
             """
-            SELECT u.id, u.email, u.display_name, u.plan, u.role, u.status, u.plan_expires_at, u.token_limit_override,
+            SELECT u.id, u.email, u.display_name, u.plan, u.status, u.plan_expires_at, u.token_limit_override,
                    u.created_at, u.last_login_at,
                    COALESCE(u.token_limit_override, p.monthly_token_limit) AS token_limit,
                    COALESCE(t.total_tokens, 0) AS tokens_used, COALESCE(t.call_count, 0) AS calls

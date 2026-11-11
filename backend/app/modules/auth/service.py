@@ -16,8 +16,7 @@ COOKIE_PATH = "/api/v1/auth"
 
 
 def user_out(u) -> dict:
-    return {"id": str(u["id"]), "email": u["email"], "display_name": u["display_name"], "plan": u["plan"],
-            "role": u["role"]}
+    return {"id": str(u["id"]), "email": u["email"], "display_name": u["display_name"], "plan": u["plan"]}
 
 
 def _client_ip(request: Request) -> str | None:
@@ -40,7 +39,7 @@ async def _issue(conn, user, request: Request, response: Response, family_id: uu
     await repo.insert_refresh(conn, user["id"], family_id or uuid.uuid4(), h, settings.refresh_token_days,
                               request.headers.get("user-agent"), _client_ip(request), auth_method)
     _set_cookie(response, token)
-    return create_access_token(user["id"], user["role"], auth_method)
+    return create_access_token(user["id"], auth_method)
 
 
 async def _event(conn, name: str, user_id, request: Request) -> None:

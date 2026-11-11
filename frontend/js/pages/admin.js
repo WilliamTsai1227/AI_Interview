@@ -120,7 +120,7 @@ async function membersTab(body, plans, state) {
         const pc = pct(u.tokens_used, u.token_limit);
         return h("tr", { class: "adm-row", tabindex: "0", onclick: () => memberModal(u.id, plans, load),
           onkeydown: (e) => { if (e.key === "Enter") memberModal(u.id, plans, load); } },
-        h("td", null, h("b", null, u.display_name), u.role === "admin" ? h("span", { class: "adm-tag" }, "admin") : null,
+        h("td", null, h("b", null, u.display_name),
           h("div", { class: "faint", style: "font-size:.82rem" }, u.email)),
         h("td", null, planName[u.plan] || u.plan, u.token_limit_override != null ? h("span", { class: "adm-tag" }, "自訂上限") : null),
         h("td", null, h("div", null, `${fmtN(u.tokens_used)} / ${fmtN(u.token_limit)}`),

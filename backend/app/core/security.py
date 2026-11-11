@@ -9,7 +9,7 @@ from uuid import UUID
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from fastapi import Depends, Request
+from fastapi import Request
 
 from app.core.config import settings
 from app.core.errors import AppError
@@ -38,9 +38,9 @@ def _verify(hashed: str, pw: str) -> bool:
         return False
 
 
-def create_access_token(user_id: UUID, role: str, amr: str = "password") -> str:
+def create_access_token(user_id: UUID, amr: str = "password") -> str:
     now = dt.datetime.now(dt.timezone.utc)
-    payload = {"sub": str(user_id), "role": role, "amr": amr, "iat": now,
+    payload = {"sub": str(user_id), "amr": amr, "iat": now,
                "exp": now + dt.timedelta(minutes=settings.access_token_minutes)}
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
@@ -57,7 +57,6 @@ def sha256(s: str) -> str:
 @dataclass(frozen=True)
 class CurrentUser:
     id: UUID
-    role: str
     amr: str = "password"     # 登入方式：password / google（管理後台只接受 google）
 
 
@@ -73,12 +72,6 @@ def current_user(request: Request) -> CurrentUser:
         raise AppError(401, "UNAUTHENTICATED", "請先登入")
     if data.get("typ"):          # 其他用途的 JWT（例如管理後台的工作階段）不能拿來當登入憑證
         raise AppError(401, "UNAUTHENTICATED", "請先登入")
-    user = CurrentUser(UUID(data["sub"]), data.get("role", "user"), data.get("amr", "password"))
+    user = CurrentUser(UUID(data["sub"]), data.get("amr", "password"))
     request.state.user_id = user.id
-    return user
-
-
-def admin_user(user: CurrentUser = Depends(current_user)) -> CurrentUser:
-    if user.role != "admin":
-        raise AppError(403, "FORBIDDEN", "需要管理員權限")
     return user

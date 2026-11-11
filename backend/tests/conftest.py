@@ -27,7 +27,7 @@ def register(c: TestClient, email: str) -> tuple[dict, str]:
 
 def google_headers(uid: str) -> dict:
     """等同用 Google 登入後拿到的 access token（amr = google）。"""
-    return {"Authorization": f"Bearer {create_access_token(uuid.UUID(uid), 'user', 'google')}"}
+    return {"Authorization": f"Bearer {create_access_token(uuid.UUID(uid), 'google')}"}
 
 
 @pytest.fixture()
