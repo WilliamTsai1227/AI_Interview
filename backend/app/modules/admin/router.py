@@ -1,16 +1,18 @@
-"""管理後台：匯入平台職缺（合作夥伴／ATS 公開 API）、待審清單、審核、ETL 執行紀錄（api.md §13）。"""
+"""管理後台：匯入平台職缺（合作夥伴／ATS 公開 API）、待審清單、審核、ETL 執行紀錄（api.md §13）；會員方案與 token 額度。"""
 import datetime as dt
 import re
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, HttpUrl
 
 from app.core import db
-from app.core.errors import not_found
+from app.core.errors import bad_request, not_found
 from app.core.security import CurrentUser, admin_user
 from app.modules.jobs.service import search_text
+from app.modules.membership import quota
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -111,3 +113,130 @@ async def ingest_runs(_: CurrentUser = Depends(admin_user)):
     async with db.connection() as conn:
         rs = await conn.fetch("SELECT * FROM job_ingest_runs ORDER BY started_at DESC LIMIT 50")
     return {"items": [dict(r) | {"id": str(r["id"])} for r in rs]}
+
+
+# ---------- 會員方案與 token 額度 ----------
+class PlanIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    monthly_token_limit: int | None = Field(default=None, ge=0)        # None = 不限
+    monthly_interview_limit: int | None = Field(default=None, ge=0)    # None = 不限
+    hard_limit_ratio: float = Field(default=1.2, ge=1, le=5)
+    price_twd: int = Field(default=0, ge=0)
+    is_active: bool = True
+    sort_order: int = 0
+
+
+class MembershipIn(BaseModel):
+    plan: str | None = Field(default=None, max_length=40)
+    plan_expires_at: dt.datetime | None = None
+    token_limit_override: int | None = Field(default=None, ge=0)
+    reason: str | None = Field(default=None, max_length=300)
+
+
+def _plan_out(r) -> dict:
+    return {"code": r["code"], "name": r["name"], "monthly_token_limit": r["monthly_token_limit"],
+            "monthly_interview_limit": r["monthly_interview_limit"], "hard_limit_ratio": float(r["hard_limit_ratio"]),
+            "price_twd": r["price_twd"], "is_active": r["is_active"], "sort_order": r["sort_order"]}
+
+
+@router.get("/plans")
+async def list_plans(_: CurrentUser = Depends(admin_user)):
+    async with db.connection() as conn:
+        rs = await conn.fetch(
+            """SELECT p.*, (SELECT count(*) FROM users u WHERE u.plan = p.code AND u.status <> 'deleted') AS members
+                 FROM plans p ORDER BY sort_order, code""")
+    return {"items": [_plan_out(r) | {"members": r["members"]} for r in rs]}
+
+
+@router.put("/plans/{code}")
+async def put_plan(code: str, body: PlanIn, _: CurrentUser = Depends(admin_user)):
+    if not re.fullmatch(r"[a-z][a-z0-9_]{1,39}", code):
+        raise bad_request("方案代碼只能用小寫英數與底線", {"code": "pattern"})
+    async with db.transaction() as conn:
+        r = await conn.fetchrow(
+            """INSERT INTO plans (code, name, monthly_token_limit, monthly_interview_limit, hard_limit_ratio, price_twd,
+                                  is_active, sort_order)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+               ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, monthly_token_limit = EXCLUDED.monthly_token_limit,
+                      monthly_interview_limit = EXCLUDED.monthly_interview_limit, hard_limit_ratio = EXCLUDED.hard_limit_ratio,
+                      price_twd = EXCLUDED.price_twd, is_active = EXCLUDED.is_active, sort_order = EXCLUDED.sort_order
+               RETURNING *""", code, body.name, body.monthly_token_limit, body.monthly_interview_limit,
+            body.hard_limit_ratio, body.price_twd, body.is_active, body.sort_order)
+    return _plan_out(r)
+
+
+@router.get("/users")
+async def list_users(q: str | None = None, plan: str | None = None, over_quota: bool = False, limit: int = 50,
+                     _: CurrentUser = Depends(admin_user)):
+    """會員清單＋本月 token 用量。over_quota=true 只列出已達上限的人。"""
+    async with db.connection() as conn:
+        rs = await conn.fetch(
+            """
+            SELECT u.id, u.email, u.display_name, u.plan, u.role, u.status, u.plan_expires_at, u.token_limit_override,
+                   u.created_at, u.last_login_at,
+                   COALESCE(u.token_limit_override, p.monthly_token_limit) AS token_limit,
+                   COALESCE(t.total_tokens, 0) AS tokens_used, COALESCE(t.call_count, 0) AS calls
+              FROM users u
+              JOIN plans p ON p.code = CASE WHEN u.plan_expires_at <= now() THEN 'free' ELSE u.plan END
+              LEFT JOIN user_token_usage t ON t.user_id = u.id AND t.period_start = date_trunc('month', now())::date
+             WHERE u.status <> 'deleted'
+               AND ($1::text IS NULL OR u.email ILIKE '%' || $1 || '%' OR u.display_name ILIKE '%' || $1 || '%')
+               AND ($2::text IS NULL OR u.plan = $2)
+               AND (NOT $3 OR (COALESCE(u.token_limit_override, p.monthly_token_limit) IS NOT NULL
+                               AND COALESCE(t.total_tokens, 0) >= COALESCE(u.token_limit_override, p.monthly_token_limit)))
+             ORDER BY tokens_used DESC, u.created_at DESC
+             LIMIT $4
+            """, q, plan, over_quota, max(1, min(limit, 200)))
+    return {"items": [dict(r) | {"id": str(r["id"])} for r in rs]}
+
+
+@router.get("/users/{user_id}/usage")
+async def user_usage(user_id: UUID, months: int = 6, _: CurrentUser = Depends(admin_user)):
+    """單一會員：目前額度、近幾個月用量、本月各功能（purpose）用量、方案異動紀錄。"""
+    async with db.connection() as conn:
+        qt = await quota.status(conn, user_id)
+        if not qt:
+            raise not_found("找不到這個使用者")
+        history = await conn.fetch(
+            """SELECT period_start, input_tokens, output_tokens, cached_tokens, total_tokens, call_count
+                 FROM user_token_usage WHERE user_id = $1 ORDER BY period_start DESC LIMIT $2""",
+            user_id, max(1, min(months, 24)))
+        by_purpose = await conn.fetch(
+            """SELECT purpose, count(*) AS calls, COALESCE(sum(input_tokens), 0) AS input_tokens,
+                      COALESCE(sum(output_tokens), 0) AS output_tokens
+                 FROM llm_calls WHERE user_id = $1 AND status = 'ok' AND created_at >= date_trunc('month', now())
+                GROUP BY purpose ORDER BY sum(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)) DESC""", user_id)
+        changes = await conn.fetch(
+            "SELECT * FROM user_plan_changes WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20", user_id)
+    return {"membership": qt.out() | {"raw_plan": qt.raw_plan, "token_limit_overridden": qt.overridden,
+                                      "hard_limit": qt.hard_limit},
+            "history": [dict(r) for r in history],
+            "this_month_by_purpose": [dict(r) for r in by_purpose],
+            "plan_changes": [dict(r) | {"id": str(r["id"]), "user_id": str(r["user_id"]),
+                                        "changed_by": str(r["changed_by"]) if r["changed_by"] else None} for r in changes]}
+
+
+@router.patch("/users/{user_id}/membership")
+async def set_membership(user_id: UUID, body: MembershipIn, admin: CurrentUser = Depends(admin_user)):
+    """改方案／到期日／個人 token 上限。只會改有送出的欄位；送 null 代表清除（不到期、不覆寫）。"""
+    sent = body.model_fields_set
+    if not sent - {"reason"}:
+        raise bad_request("沒有要變更的欄位")
+    async with db.transaction() as conn:
+        u = await conn.fetchrow("SELECT plan, plan_expires_at, token_limit_override FROM users WHERE id = $1 FOR UPDATE",
+                                user_id)
+        if not u:
+            raise not_found("找不到這個使用者")
+        plan = body.plan if "plan" in sent and body.plan else u["plan"]
+        if plan != u["plan"] and not await conn.fetchval("SELECT 1 FROM plans WHERE code = $1 AND is_active", plan):
+            raise bad_request("沒有這個方案或方案已停用", {"plan": "invalid"})
+        expires = body.plan_expires_at if "plan_expires_at" in sent else u["plan_expires_at"]
+        override = body.token_limit_override if "token_limit_override" in sent else u["token_limit_override"]
+        await conn.execute(
+            "UPDATE users SET plan = $2, plan_expires_at = $3, token_limit_override = $4 WHERE id = $1",
+            user_id, plan, expires, override)
+        await conn.execute(
+            """INSERT INTO user_plan_changes (user_id, from_plan, to_plan, token_limit_override, plan_expires_at, changed_by, reason)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)""", user_id, u["plan"], plan, override, expires, admin.id, body.reason)
+        qt = await quota.status(conn, user_id)
+    return qt.out() | {"raw_plan": qt.raw_plan, "token_limit_overridden": qt.overridden}

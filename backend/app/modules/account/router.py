@@ -14,10 +14,10 @@ from app.core.types import Tag
 from app.modules.auth import repository as auth_repo
 from app.modules.auth.service import user_out
 from app.modules.interviews import service as interviews
+from app.modules.membership import quota
 from app.modules.reports import service as reports
 
 router = APIRouter(prefix="/me", tags=["account"])
-PLAN_LIMIT = interviews.PLAN_LIMIT
 DEFAULT_PREFS = {"default_length": "standard", "default_persona": "warm", "default_language": "zh", "voice_speed": 1.15,
                  "desired_roles": [], "desired_locations": []}
 
@@ -53,13 +53,16 @@ async def me_out(user_id: UUID) -> dict:
         has_target = await conn.fetchval("SELECT EXISTS (SELECT 1 FROM target_jobs WHERE user_id = $1 AND status = 'active')", user_id)
         has_done = await conn.fetchval("SELECT EXISTS (SELECT 1 FROM interview_reports WHERE user_id = $1)", user_id)
         active = await interviews.active_summary(conn, user_id)
+        q = await quota.status(conn, user_id)
     prefs = {**DEFAULT_PREFS, **(u["preferences"] or {})}
     async with db.connection() as conn:
         providers = [r["provider"] for r in await conn.fetch("SELECT provider FROM oauth_identities WHERE user_id = $1", user_id)]
     return {"user": {**user_out(u), "has_password": u["password_hash"] is not None, "providers": providers},
             "preferences": prefs,
+            "membership": q.out() if q else None,
             "usage": {"period": dt.date.today().strftime("%Y-%m"), "interviews_used": used,
-                      "interviews_limit": PLAN_LIMIT.get(u["plan"], 10)},
+                      "interviews_limit": q.interview_limit if q else None,
+                      "tokens_used": q.tokens_used if q else 0, "tokens_limit": q.token_limit if q else None},
             "onboarding": {"has_resume": pr is not None, "has_target": has_target, "has_completed_interview": has_done},
             "primary_resume": {"id": str(pr["id"]), "filename": pr["filename"], "parse_status": pr["parse_status"]} if pr else None,
             "active_interview": active,

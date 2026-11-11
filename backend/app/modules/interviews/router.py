@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.core.errors import bad_request
 from app.core.security import CurrentUser, current_user
+from app.modules.membership.quota import require_tokens
 from app.modules.interviews import service
 
 router = APIRouter(prefix="/interviews", tags=["interviews"])
@@ -53,7 +54,7 @@ class HeartbeatIn(BaseModel):
 
 
 @router.post("", status_code=201)
-async def create(body: CreateIn, user: CurrentUser = Depends(current_user)):
+async def create(body: CreateIn, user: CurrentUser = Depends(require_tokens)):
     return await service.create(user.id, body.target_id, body.resume_id, "resume_id" in body.model_fields_set,
                                 body.length_mode, body.persona, body.language, body.recording_consent)
 

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 
 from app.core.security import CurrentUser, current_user
+from app.modules.membership.quota import require_tokens
 from app.core.types import Line, Tag
 from app.modules.questions import service
 
@@ -48,7 +49,7 @@ async def list_(target_id: UUID, user: CurrentUser = Depends(current_user)):
 
 
 @router.post("/targets/{target_id}/questions/generate", status_code=202)
-async def generate(target_id: UUID, body: GenerateIn, user: CurrentUser = Depends(current_user)):
+async def generate(target_id: UUID, body: GenerateIn, user: CurrentUser = Depends(require_tokens)):
     return await service.generate(user.id, target_id, body.note, body.categories, body.difficulty, body.count)
 
 

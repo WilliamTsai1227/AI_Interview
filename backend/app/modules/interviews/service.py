@@ -24,12 +24,12 @@ from app.modules.questions import service as questions
 from app.modules.resumes import service as resumes
 from app.modules.uploads import service as uploads
 from app.modules.voice import service as voice
+from app.modules.membership import quota
 from app.workers.queue import enqueue, tx
 
 log = structlog.get_logger()
 LENGTH = {"quick": 3, "standard": 5, "deep": 8}
 ACTIVE = ("preparing", "ready", "in_progress", "paused")
-PLAN_LIMIT = {"free": 10, "pro": 30}
 RESUME_WINDOW = dt.timedelta(hours=24)
 
 
@@ -169,12 +169,13 @@ async def create(user_id: UUID, target_id: UUID, resume_id: UUID | None, resume_
             raise AppError(503, "SERVICE_BUSY", "目前同時面試的人比較多，請稍候再試", {"estimated_wait_sec": 30},
                            headers={"Retry-After": "30"})
         u = await conn.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
-        if not settings.is_dev:
+        q = await quota.status(conn, user_id)     # 方案上限在 plans 表（monthly_interview_limit；NULL = 不限）
+        if not settings.is_dev and q and q.interview_limit is not None:
             used = await conn.fetchval(
                 "SELECT count(*) FROM interview_sessions WHERE user_id = $1 AND created_at >= date_trunc('month', now())", user_id)
-            if used >= PLAN_LIMIT.get(u["plan"], 10):
+            if used >= q.interview_limit:
                 raise AppError(403, "PLAN_LIMIT_REACHED", "這個月的面試次數已經用完了",
-                               {"used": used, "limit": PLAN_LIMIT.get(u["plan"], 10)})
+                               {"used": used, "limit": q.interview_limit})
         t = await conn.fetchrow(
             """SELECT t.*, qs.id AS set_id, qs.status AS set_status FROM target_jobs t
                  JOIN question_sets qs ON qs.target_job_id = t.id WHERE t.id = $1 AND t.user_id = $2 AND t.status = 'active'""",
