@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     db_pool_min: int = 2
     db_pool_max: int = 10
     redis_url: str = "redis://localhost:6381/0"
+    # worker 收到關閉訊號後，最多等進行中的工作幾秒（0 = 等到該佇列的 job_timeout）。
+    # 要比部署平台給的寬限時間短（k3s 的 terminationGracePeriodSeconds、docker compose 的 stop_grace_period）
+    worker_drain_seconds: int = 0
 
     s3_endpoint: str = "http://localhost:9100"
     s3_public_endpoint: str = ""          # 瀏覽器看到的位址；空白時同 s3_endpoint

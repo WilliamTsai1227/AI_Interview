@@ -387,14 +387,19 @@ export async function render(view, sid, ctx) {
     chatBox.append(h("a", { class: "rcard", href: `#report/${sid}` }, h("span", { class: "ic" }, icon("report")),
       h("span", { style: "flex:1;min-width:0" }, h("b", null, `面試報告・${st.s.job.company_name}`), sub), tail));
     scrollEnd();
-    st.reportStop = sse(`/interviews/${sid}/report/events`, (ev, data) => {
-      if (ev === "report_ready" || (ev === "snapshot" && data.status === "ready")) {
-        st.reportReady = true;
-        sub.textContent = `總分 ${data.overall_score ?? ""}・逐題評分與改善建議`;
-        replace(tail, h("span", { style: "color:var(--ink-3)" }, icon("right", 18)));
-        if (alive()) { toast("報告完成了"); drawDock(); }
-      }
-    });
+    const listen = () => {
+      st.reportStop = sse(`/interviews/${sid}/report/events`, (ev, data) => {
+        if (ev === "report_ready" || (ev === "snapshot" && data.status === "ready")) {
+          st.reportReady = true;
+          sub.textContent = `總分 ${data.overall_score ?? ""}・逐題評分與改善建議`;
+          replace(tail, h("span", { style: "color:var(--ink-3)" }, icon("right", 18)));
+          if (alive()) { toast("報告完成了"); drawDock(); }
+        }
+      }, () => {     // 連線結束（伺服器 120 秒時限、部署換版）但報告還沒好：稍等再接上
+        if (!st.reportReady && alive()) setTimeout(() => { if (!st.reportReady && alive()) listen(); }, 3000);
+      });
+    };
+    listen();
   }
 
   async function pause() {

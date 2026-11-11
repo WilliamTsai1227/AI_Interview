@@ -115,7 +115,9 @@ async function detail(view, sid, ctx) {
       stop = sse(`/interviews/${sid}/report/events`, (ev) => {
         if (ev === "evaluation_done" || ev === "report_ready") load();
         if (ev === "report_ready") { toast("報告完成了"); stop?.(); stop = null; }
-      }, (err) => { if (err && ctx.isCurrent()) setTimeout(() => { stop = null; load(); }, 3000); });
+      }, () => {     // 連線結束（伺服器 120 秒時限、部署換版、網路瞬斷）但報告還沒好：重新整理並再接上
+        if (stop && ctx.isCurrent()) setTimeout(() => { stop = null; load(); }, 3000);
+      });
     }
   };
 

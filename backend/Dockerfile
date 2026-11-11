@@ -18,4 +18,7 @@ USER app
 
 EXPOSE 8009
 # 閒置連線保留 75 秒：要比前面的負載平衡器長（例如 AWS ALB 預設 60 秒），否則連線剛好被關掉時會出現偶發的 502
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8009", "--proxy-headers", "--timeout-keep-alive", "75"]
+# 收到 SIGTERM 後最多等進行中的請求 40 秒（送出回答要等語音轉文字和追問判斷）；SSE 這類長連線到時間就切斷，前端會自己重連。
+# 要比 k3s 的 terminationGracePeriodSeconds 扣掉 preStop 短（api.yaml：60 − 5）
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8009", "--proxy-headers", "--timeout-keep-alive", "75", \
+     "--timeout-graceful-shutdown", "40"]

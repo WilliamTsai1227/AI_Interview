@@ -17,8 +17,12 @@ async def handle_transcribe(payload: dict) -> None:
     aid = UUID(payload["attempt_id"])
     async with db.connection() as conn:
         a = await conn.fetchrow(
-            "SELECT a.*, s.language, s.user_id FROM answer_attempts a JOIN interview_sessions s ON s.id = a.session_id WHERE a.id = $1", aid)
+            """SELECT a.*, s.language, s.user_id, e.status AS eval_status FROM answer_attempts a
+                 JOIN interview_sessions s ON s.id = a.session_id LEFT JOIN evaluations e ON e.attempt_id = a.id
+                WHERE a.id = $1""", aid)
     if not a or a["status"] != "saved":
+        return
+    if a["eval_status"] in ("done", "needs_review"):     # 工作重跑（worker 換版、當機）時已經評完；要重評時 re_evaluate 會先改回 pending
         return
     client_t = (payload.get("client_transcript") or "").strip()
     try:
@@ -50,7 +54,9 @@ async def handle_evaluate(payload: dict) -> None:
                  JOIN session_questions q ON q.id = a.session_question_id WHERE a.id = $1""", aid)
         if not a:
             return
-        await conn.execute("UPDATE evaluations SET status = 'running' WHERE attempt_id = $1", aid)
+        already = await conn.fetchval("SELECT status IN ('done','needs_review') FROM evaluations WHERE attempt_id = $1", aid)
+        if not already:
+            await conn.execute("UPDATE evaluations SET status = 'running' WHERE attempt_id = $1", aid)
         context: list[dict] = []
         if a["kind"] == "followup":    # 追問：主題目與前面的追問只當上下文
             rows = await conn.fetch(
@@ -59,6 +65,8 @@ async def handle_evaluate(payload: dict) -> None:
                     WHERE (q.id = $1 OR q.parent_id = $1) AND q.followup_no < $2 ORDER BY q.followup_no""",
                 a["parent_id"], a["followup_no"])
             context = [{"題目": r["text"], "回答": r["final_transcript"] or ""} for r in rows]
+    if already:     # 工作重跑：分數已經寫好，只補排報告（上次可能在排報告前就被中斷）
+        return await _maybe_report(a["session_id"])
     t = a["final_transcript"] or ""
     try:
         res = await ev.evaluate(question=a["q_text"], rubric=a["rubric"], transcript=t, job=a["job_snapshot"] or {},
