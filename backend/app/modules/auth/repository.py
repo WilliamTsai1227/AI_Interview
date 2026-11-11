@@ -25,12 +25,12 @@ async def touch_login(conn: Connection, user_id: UUID) -> None:
 
 
 async def insert_refresh(conn: Connection, user_id: UUID, family_id: UUID, token_hash: str, days: int,
-                         user_agent: str | None, ip: str | None) -> None:
+                         user_agent: str | None, ip: str | None, auth_method: str = "password") -> None:
     await conn.execute(
         """
-        INSERT INTO refresh_tokens (user_id, family_id, token_hash, expires_at, user_agent, ip)
-        VALUES ($1, $2, $3, now() + make_interval(days => $4), $5, $6::inet)
-        """, user_id, family_id, token_hash, days, (user_agent or "")[:300], ip)
+        INSERT INTO refresh_tokens (user_id, family_id, token_hash, expires_at, user_agent, ip, auth_method)
+        VALUES ($1, $2, $3, now() + make_interval(days => $4), $5, $6::inet, $7)
+        """, user_id, family_id, token_hash, days, (user_agent or "")[:300], ip, auth_method)
 
 
 async def get_refresh_for_update(conn: Connection, token_hash: str) -> Record | None:

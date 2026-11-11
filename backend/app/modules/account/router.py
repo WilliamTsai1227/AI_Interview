@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.errors import AppError
 from app.core.security import CurrentUser, current_user, verify_password
 from app.core.types import Tag
+from app.modules.admin import console
 from app.modules.auth import repository as auth_repo
 from app.modules.auth.service import user_out
 from app.modules.interviews import service as interviews
@@ -41,7 +42,7 @@ class Confirm(BaseModel):
     password: str | None = None
 
 
-async def me_out(user_id: UUID) -> dict:
+async def me_out(user_id: UUID, user: CurrentUser | None = None) -> dict:
     async with db.connection() as conn:
         u = await conn.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
         if not u:
@@ -66,12 +67,14 @@ async def me_out(user_id: UUID) -> dict:
             "onboarding": {"has_resume": pr is not None, "has_target": has_target, "has_completed_interview": has_done},
             "primary_resume": {"id": str(pr["id"]), "filename": pr["filename"], "parse_status": pr["parse_status"]} if pr else None,
             "active_interview": active,
-            "features": {"job_search": settings.feature_job_search}}
+            "features": {"job_search": settings.feature_job_search},
+            # 只有名單內、用 Google 登入的帳號會是 true（前端據此顯示「管理後台」）；後台 API 另外再檢查一次
+            "admin_console": bool(user) and (await console.eligibility(user))["eligible"]}
 
 
 @router.get("")
 async def get_me(user: CurrentUser = Depends(current_user)):
-    return await me_out(user.id)
+    return await me_out(user.id, user)
 
 
 @router.patch("")
@@ -83,7 +86,7 @@ async def patch_me(body: MePatch, user: CurrentUser = Depends(current_user)):
             cur = await conn.fetchval("SELECT preferences FROM users WHERE id = $1 FOR UPDATE", user.id) or {}
             cur.update(body.preferences.model_dump(exclude_none=True))
             await conn.execute("UPDATE users SET preferences = $2 WHERE id = $1", user.id, cur)
-    return await me_out(user.id)
+    return await me_out(user.id, user)
 
 
 @router.delete("/interviews", status_code=202)

@@ -33,12 +33,14 @@ def _set_cookie(response: Response, token: str) -> None:
                         secure=settings.cookie_secure, samesite="strict", path=COOKIE_PATH)
 
 
-async def _issue(conn, user, request: Request, response: Response, family_id: uuid.UUID | None = None) -> str:
+async def _issue(conn, user, request: Request, response: Response, family_id: uuid.UUID | None = None,
+                 auth_method: str = "password") -> str:
+    """auth_method：這條登入鏈最初是怎麼登入的（password / google），refresh 時沿用，寫進 access token 的 amr。"""
     token, h = new_refresh_token()
     await repo.insert_refresh(conn, user["id"], family_id or uuid.uuid4(), h, settings.refresh_token_days,
-                              request.headers.get("user-agent"), _client_ip(request))
+                              request.headers.get("user-agent"), _client_ip(request), auth_method)
     _set_cookie(response, token)
-    return create_access_token(user["id"], user["role"])
+    return create_access_token(user["id"], user["role"], auth_method)
 
 
 async def _event(conn, name: str, user_id, request: Request) -> None:
@@ -100,7 +102,7 @@ async def refresh(request: Request, response: Response) -> dict:
         if not user:
             raise AppError(401, "UNAUTHENTICATED", "請重新登入")
         await repo.revoke_refresh(conn, rt["id"])
-        access = await _issue(conn, user, request, response, family_id=rt["family_id"])
+        access = await _issue(conn, user, request, response, family_id=rt["family_id"], auth_method=rt["auth_method"])
     return {"access_token": access, "user": user_out(user)}
 
 

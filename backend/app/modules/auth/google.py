@@ -117,7 +117,7 @@ async def callback(request: Request) -> RedirectResponse:
         if user is None:
             return _fail("disabled")
         await repo.touch_login(conn, user["id"])
-        await service._issue(conn, user, request, resp)
+        await service._issue(conn, user, request, resp, auth_method="google")
         await service._event(conn, "auth.google_login", user["id"], request)
     return resp
 

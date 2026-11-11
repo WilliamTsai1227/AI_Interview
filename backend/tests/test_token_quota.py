@@ -1,43 +1,23 @@
-"""會員方案與 token 額度：/me 顯示用量、入口軟上限、LLMClient 硬上限、方案到期、管理後台。
+"""會員方案與 token 額度：/me 顯示用量、入口軟上限、LLMClient 硬上限、方案到期、管理後台 API。
 
-需要 docker compose 的 PostgreSQL 與 Redis，以及示範管理員（python -m app.seed --admin demo@example.com）。
-執行：.venv/bin/pytest tests/test_token_quota.py -q
+需要 docker compose 的 PostgreSQL 與 Redis。執行：.venv/bin/pytest tests/test_token_quota.py -q
 """
 import datetime as dt
 import uuid
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.ai import client as ai
-from app.core.config import settings
-from app.main import app
 from app.modules.membership import quota
+from tests.conftest import API, register
 
-API = "/api/v1"
 JD = "資深後端工程師\n公司：Acme\n工作內容：設計與維運 Python API、PostgreSQL 調校、雲端部署。\n條件：3 年以上 FastAPI 經驗。"
 
 
 @pytest.fixture()
-def client(monkeypatch):
-    monkeypatch.setattr(settings, "rate_limits_enabled", False)
-    with TestClient(app, base_url="http://localhost:8009") as c:
-        yield c
-
-
-def _auth(c: TestClient, path: str, body: dict) -> dict:
-    r = c.post(f"{API}/auth/{path}", json=body)
-    assert r.status_code in (200, 201), r.text
-    return {"Authorization": f"Bearer {r.json()['access_token']}"}
-
-
-@pytest.fixture()
-def users(client):
-    email = f"quota-{uuid.uuid4().hex[:8]}@example.com"
-    user = _auth(client, "register", {"email": email, "password": "Passw0rd!x", "display_name": "額度測試"})
-    admin = _auth(client, "login", {"email": "demo@example.com", "password": "demo1234"})
-    uid = client.get(f"{API}/me", headers=user).json()["user"]["id"]
-    return user, admin, uid
+def users(client, console):
+    user, uid = register(client, f"quota-{uuid.uuid4().hex[:8]}@example.com")
+    return user, console[2], uid
 
 
 def _set(client, admin, uid, **body):
@@ -114,7 +94,7 @@ def test_plan_expiry_falls_back_to_free(client, users):
 
 def test_admin_only_and_plan_validation(client, users):
     user, admin, uid = users
-    assert client.get(f"{API}/admin/plans", headers=user).status_code == 403
+    assert client.get(f"{API}/admin/plans", headers=user).status_code == 404   # 不在名單：不透露後台存在
     plans = {p["code"]: p for p in client.get(f"{API}/admin/plans", headers=admin).json()["items"]}
     assert plans["free"]["monthly_token_limit"] == 300000 and plans["unlimited"]["monthly_token_limit"] is None
     r = client.patch(f"{API}/admin/users/{uid}/membership", headers=admin, json={"plan": "nope"})
@@ -125,6 +105,12 @@ def test_admin_only_and_plan_validation(client, users):
     assert r.status_code == 200 and r.json()["is_active"] is False
     r = client.patch(f"{API}/admin/users/{uid}/membership", headers=admin, json={"plan": code})
     assert r.status_code == 400   # 停用的方案不能指派
+
+    async def cleanup():
+        from app.core import db
+        async with db.connection() as conn:
+            await conn.execute("DELETE FROM plans WHERE code = $1", code)
+    client.portal.call(cleanup)
 
 
 def quota_schema():

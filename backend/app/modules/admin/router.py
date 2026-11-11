@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, HttpUrl
 from app.core import db
 from app.core.errors import bad_request, not_found
 from app.core.security import CurrentUser, admin_user
+from app.modules.admin.console import console_admin
 from app.modules.jobs.service import search_text
 from app.modules.membership import quota
 
@@ -115,7 +116,7 @@ async def ingest_runs(_: CurrentUser = Depends(admin_user)):
     return {"items": [dict(r) | {"id": str(r["id"])} for r in rs]}
 
 
-# ---------- 會員方案與 token 額度 ----------
+# ---------- 會員方案與 token 額度（管理後台：名單內的 Google 帳號＋後台帳密，見 console.py）----------
 class PlanIn(BaseModel):
     name: str = Field(min_length=1, max_length=40)
     monthly_token_limit: int | None = Field(default=None, ge=0)        # None = 不限
@@ -140,7 +141,7 @@ def _plan_out(r) -> dict:
 
 
 @router.get("/plans")
-async def list_plans(_: CurrentUser = Depends(admin_user)):
+async def list_plans(_: CurrentUser = Depends(console_admin)):
     async with db.connection() as conn:
         rs = await conn.fetch(
             """SELECT p.*, (SELECT count(*) FROM users u WHERE u.plan = p.code AND u.status <> 'deleted') AS members
@@ -149,7 +150,7 @@ async def list_plans(_: CurrentUser = Depends(admin_user)):
 
 
 @router.put("/plans/{code}")
-async def put_plan(code: str, body: PlanIn, _: CurrentUser = Depends(admin_user)):
+async def put_plan(code: str, body: PlanIn, _: CurrentUser = Depends(console_admin)):
     if not re.fullmatch(r"[a-z][a-z0-9_]{1,39}", code):
         raise bad_request("方案代碼只能用小寫英數與底線", {"code": "pattern"})
     async with db.transaction() as conn:
@@ -167,7 +168,7 @@ async def put_plan(code: str, body: PlanIn, _: CurrentUser = Depends(admin_user)
 
 @router.get("/users")
 async def list_users(q: str | None = None, plan: str | None = None, over_quota: bool = False, limit: int = 50,
-                     _: CurrentUser = Depends(admin_user)):
+                     _: CurrentUser = Depends(console_admin)):
     """會員清單＋本月 token 用量。over_quota=true 只列出已達上限的人。"""
     async with db.connection() as conn:
         rs = await conn.fetch(
@@ -191,7 +192,7 @@ async def list_users(q: str | None = None, plan: str | None = None, over_quota: 
 
 
 @router.get("/users/{user_id}/usage")
-async def user_usage(user_id: UUID, months: int = 6, _: CurrentUser = Depends(admin_user)):
+async def user_usage(user_id: UUID, months: int = 6, _: CurrentUser = Depends(console_admin)):
     """單一會員：目前額度、近幾個月用量、本月各功能（purpose）用量、方案異動紀錄。"""
     async with db.connection() as conn:
         qt = await quota.status(conn, user_id)
@@ -217,7 +218,7 @@ async def user_usage(user_id: UUID, months: int = 6, _: CurrentUser = Depends(ad
 
 
 @router.patch("/users/{user_id}/membership")
-async def set_membership(user_id: UUID, body: MembershipIn, admin: CurrentUser = Depends(admin_user)):
+async def set_membership(user_id: UUID, body: MembershipIn, admin: CurrentUser = Depends(console_admin)):
     """改方案／到期日／個人 token 上限。只會改有送出的欄位；送 null 代表清除（不到期、不覆寫）。"""
     sent = body.model_fields_set
     if not sent - {"reason"}:

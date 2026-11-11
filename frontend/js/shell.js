@@ -35,8 +35,11 @@ export function renderSide() {
     const on = S.route === id || (S.route === "chat" && id === "new");
     list.append(h("a", { class: `nav-i${on ? " on" : ""}`, href: `#${id}`, onclick: closeDrawer }, icon(ic), h("span", { class: "t" }, label)));
   }
+  if (S.me?.admin_console) {
+    list.append(h("a", { class: `nav-i${S.route === "admin" ? " on" : ""}`, href: "#admin", onclick: closeDrawer }, icon("lock"), h("span", { class: "t" }, "管理後台")));
+  }
   const u = S.me?.user;
   replace($("#meBtn"), h("span", { class: "av" }, (u?.display_name || "?").slice(-1)),
-    h("span", null, h("b", null, u?.display_name || ""), h("small", null, u?.plan === "pro" ? "Plus" : "Free")));
+    h("span", null, h("b", null, u?.display_name || ""), h("small", null, S.me?.membership?.plan_name || (u?.plan === "pro" ? "Plus" : "Free"))));
 }
 

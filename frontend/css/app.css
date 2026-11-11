@@ -526,3 +526,27 @@ details.cmore summary h2{margin:18px 0 14px}
 details.cmore summary .faint{flex:1;font-size:.85rem;min-width:0}
 details.cmore summary svg{width:18px;height:18px;color:var(--ink-3);transition:transform .2s}
 details.cmore[open] summary > svg{transform:rotate(180deg)}
+
+/* 管理後台 */
+.adm-lock{max-width:360px;margin:8vh auto 0;display:flex;flex-direction:column;gap:12px;text-align:center}
+.adm-lock .muted{font-size:.9rem;margin-bottom:6px}
+.adm-lock .inp{padding:11px 14px;border-radius:12px}
+.adm-lock .btn{margin-top:4px}
+.adm-lock-ic{width:48px;height:48px;margin:0 auto;border-radius:14px;display:grid;place-items:center;background:var(--surface);color:var(--ink-2)}
+.adm-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.adm-top h1{flex:1}
+.adm-row{cursor:pointer}
+.adm-row:hover td{background:var(--hover)}
+.adm-tag{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;font-size:.72rem;border:1px solid var(--line-2);color:var(--ink-2);vertical-align:1px}
+.adm-meter{height:4px;border-radius:2px;background:var(--line);margin-top:6px;max-width:160px;overflow:hidden}
+.adm-meter i{display:block;height:100%;background:var(--ink-2)}
+.adm-meter.warn i{background:#d4a017}
+.adm-meter.over i{background:#d14343}
+.adm-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:16px}
+.adm-stat{border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.adm-stat span{font-size:.78rem;color:var(--ink-3)}
+.adm-stat b{font-weight:600}
+.adm-form{display:flex;flex-direction:column;gap:12px}
+.adm-f{display:flex;flex-direction:column;gap:5px;font-size:.86rem;color:var(--ink-2)}
+.adm-f .inp,.adm-f .selx{color:var(--ink);font-size:.92rem}
+.adm-h{font-size:.95rem;font-weight:600;margin:22px 0 8px}

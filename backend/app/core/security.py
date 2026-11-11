@@ -38,9 +38,9 @@ def _verify(hashed: str, pw: str) -> bool:
         return False
 
 
-def create_access_token(user_id: UUID, role: str) -> str:
+def create_access_token(user_id: UUID, role: str, amr: str = "password") -> str:
     now = dt.datetime.now(dt.timezone.utc)
-    payload = {"sub": str(user_id), "role": role, "iat": now,
+    payload = {"sub": str(user_id), "role": role, "amr": amr, "iat": now,
                "exp": now + dt.timedelta(minutes=settings.access_token_minutes)}
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
@@ -58,6 +58,7 @@ def sha256(s: str) -> str:
 class CurrentUser:
     id: UUID
     role: str
+    amr: str = "password"     # 登入方式：password / google（管理後台只接受 google）
 
 
 def current_user(request: Request) -> CurrentUser:
@@ -70,7 +71,9 @@ def current_user(request: Request) -> CurrentUser:
         raise AppError(401, "TOKEN_EXPIRED", "登入已過期")
     except jwt.PyJWTError:
         raise AppError(401, "UNAUTHENTICATED", "請先登入")
-    user = CurrentUser(UUID(data["sub"]), data.get("role", "user"))
+    if data.get("typ"):          # 其他用途的 JWT（例如管理後台的工作階段）不能拿來當登入憑證
+        raise AppError(401, "UNAUTHENTICATED", "請先登入")
+    user = CurrentUser(UUID(data["sub"]), data.get("role", "user"), data.get("amr", "password"))
     request.state.user_id = user.id
     return user
 
