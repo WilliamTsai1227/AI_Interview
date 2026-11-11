@@ -24,12 +24,26 @@ docker compose up -d --build
 
 ## 用 k3s 部署（Kubernetes）
 
-除了 docker compose，也可以部署到本機 Lima VM 裡的 k3s（輕量版 Kubernetes）。api 有 2 個 Pod、滾動更新不停機，worker 依佇列拆成兩個 Deployment。設定檔、部署步驟和常用指令見 [deploy/k3s/README.md](deploy/k3s/README.md)。
+除了 docker compose，也可以部署到本機 Lima VM 裡的 k3s（輕量版 Kubernetes）。api 有 2 個 Pod、滾動更新不停機，worker 依佇列拆成兩個 Deployment。設定檔、部署步驟和常用指令見 [deploy/k3s/README.md](deploy/k3s/README.md)；從零開始（建 Lima VM、裝 kubectl、KUBECONFIG 連線、打包 image 上去）的完整教學見 [spec/deploy/k3s_deploy.md](spec/deploy/k3s_deploy.md)。
 
 ```bash
+# 第一次才需要：安裝 kubectl（Mac 預設沒有，出現 command not found: kubectl 就是少這個）
+brew install kubectl
+
+# 第一次才需要：讓 Mac 上的 kubectl 連到 k3s（Lima VM 要先裝好 k3s）
+mkdir -p ~/.kube
+limactl shell k3s sudo cat /etc/rancher/k3s/k3s.yaml > ~/.kube/k3s.yaml
+
 export KUBECONFIG=~/.kube/k3s.yaml
+kubectl get nodes                  # 確認 lima-k3s 是 Ready
 ./deploy/k3s/deploy.sh             # 完成後打開 http://localhost:8009（跟 docker compose 同一個網址）
 ```
+
+小提醒：
+
+- `export KUBECONFIG=...` 只對目前的終端機有效；想永久生效，把那一行加進 `~/.zshrc`。
+- 如果 `kubectl get nodes` 連不上，先看 `grep server ~/.kube/k3s.yaml`（預設 `https://127.0.0.1:6443`，需要 Lima 有轉發 6443 埠），並用 `limactl list` 確認 VM 在跑。
+- 不想裝 kubectl 的話，也可以直接在 VM 裡執行：`limactl shell k3s sudo k3s kubectl get nodes`。
 
 ## 環境變數
 
