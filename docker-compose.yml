@@ -87,6 +87,11 @@ services:
   worker:
     <<: *app
     command: ["python", "-m", "app.workers.main"]
+    # compose 是先關舊的再開新的，等太久佇列會停擺：只等 45 秒，沒做完的交還，新的 worker 起來後接手
+    environment:
+      <<: *app-env
+      WORKER_DRAIN_SECONDS: "45"
+    stop_grace_period: 60s
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }

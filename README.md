@@ -75,6 +75,7 @@ docker compose up -d api worker     # 只用 restart 不會讀到新的 .env
 | `DB_POOL_MIN` | `2` | 資料庫連線池最少保留幾條連線。 |
 | `DB_POOL_MAX` | `10` | 資料庫連線池最多開幾條連線。同時使用的人很多、出現等連線的情況時再調高。 |
 | `REDIS_URL` | `redis://localhost:6381/0` | Redis 的連線位址。Redis 負責背景工作佇列、即時通知、次數限制、短期快取。（Docker 固定） |
+| `WORKER_DRAIN_SECONDS` | `0` | worker 收到關閉訊號（部署換版）後，最多等進行中的背景工作幾秒，沒做完的交還給新的 worker。`0` 表示等到工作的時限（面試相關 300 秒、其他 600 秒），k3s 用這個。docker compose 是先關舊的再開新的，等太久佇列會停擺，所以固定成 45 秒。 |
 
 ### 檔案儲存（S3／MinIO）
 
@@ -291,8 +292,10 @@ cp .env.example .env            # 要用真的 AI 就填 OPENAI_API_KEY
 ```bash
 cd backend
 .venv/bin/python tests/e2e_api.py      # 對執行中的 API＋worker 走完整流程（含追問規則與整組分數）
-.venv/bin/pytest -q                    # Google 登入（假的 Google 回應，不需要真的憑證）
+.venv/bin/pytest -q                    # 單元測試：Google 登入、額度、管理後台、worker 平滑關閉、migration 相容性（需要 docker compose up -d db redis）
 ```
+
+部署不中斷的演練（一邊跑面試、上傳、評分、登入，一邊實際部署到 k3s）見 [deploy/k3s/README.md](deploy/k3s/README.md#部署不中斷使用者)。
 
 效能測試（負載、壓力）用 Locust，在獨立的壓測環境跑，見 [test/performance/README.md](test/performance/README.md)。
 

@@ -284,7 +284,7 @@ def _extract_text(data: bytes, ext: str) -> str:
 async def handle_parse(payload: dict) -> None:
     rid = UUID(payload["resume_id"])
     async with db.connection() as conn:
-        r = await conn.fetchrow("UPDATE resumes SET parse_status = 'parsing' WHERE id = $1 AND deleted_at IS NULL RETURNING *", rid)
+        r = await conn.fetchrow("UPDATE resumes SET parse_status = 'parsing' WHERE id = $1 AND deleted_at IS NULL AND parse_status <> 'parsed' RETURNING *", rid)
     if not r:
         return
     try:

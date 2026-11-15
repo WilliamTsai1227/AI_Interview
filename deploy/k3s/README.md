@@ -95,9 +95,34 @@ kubectl delete -f deploy/k3s/traefik-config.yaml   # Traefik 改回 80 埠（選
 
 只想停止但保留資料：`limactl stop k3s`，之後 `limactl start k3s`，Pod 會自動回來。
 
+## 部署不中斷使用者
+
+滾動更新時，每一層各自負責不讓使用者斷線：
+
+| 使用者正在做的事 | 部署時發生什麼 | 靠什麼不中斷 |
+|---|---|---|
+| 面試中（作答、送出回答） | 舊的 api Pod 先從 Traefik 移除（preStop 5 秒），再等進行中的請求做完（uvicorn 最多 40 秒）才結束 | 面試狀態都在資料庫（`state_version`），換到哪個 Pod 都一樣；送出回答帶 `Idempotency-Key`，前端重送不會重複作答 |
+| 上傳履歷、錄音 | 檔案用預簽名網址直接傳到 MinIO／S3，**不經過 api Pod** | 前端 PUT 失敗最多重試 4 次，網址過期就重拿上傳單（[api.js](../../frontend/js/api.js) `uploadFile`） |
+| 等評分、等報告 | 舊的 worker Pod 不再接新工作，把手上的做完（最多 job_timeout 秒）；新 Pod 同時已經在接新工作 | 時間到還沒做完的工作**交還**（不扣嘗試次數、立刻重新投遞）；worker 被硬殺時，心跳 30 秒後過期，sweep 收回重排。handler 都可以安全重跑：已經評分完的不會再呼叫 AI |
+| 看報告進度（SSE） | 長連線在 api Pod 關閉時被切斷 | 前端 3 秒後自動重連（chat.js、report.js） |
+| 登入 | JWT 用同一把金鑰、refresh token 在資料庫、Google 登入的 state 在 Redis | 不依賴是哪個 Pod |
+| 其他 API | — | GET 和帶 `Idempotency-Key` 的請求，遇到連線錯誤或 502／503／504 會自動重送 3 次 |
+
+**資料庫 migration 只能「擴充」**：部署時 migration 先跑完，舊版 Pod 還會用新的 schema 跑一陣子。刪欄位、改名、加 NOT NULL 這種會讓舊程式壞掉的變更，要拆成兩次部署（先上不再使用它的程式，下一次才刪）。[test_migration_compat.py](../../backend/tests/test_migration_compat.py) 會擋下沒有寫 `-- deploy-safe: 原因` 的這類 migration。
+
+### 演練：一邊跑流量一邊部署
+
+```bash
+export KUBECONFIG=~/.kube/k3s.yaml
+backend/.venv/bin/python backend/tests/rollout_drill.py --deploy ./deploy/k3s/deploy.sh --out drill.json
+```
+
+同時跑 3 場面試（每題作答 20 秒，橫跨整個部署；macOS 會用 `say` 產生真的語音，STT 和評分才會真的花時間）、3 條上傳迴圈、1 條登入迴圈，送出 2 題回答、評分工作開始跑之後執行部署。結束後等報告評分完成，到資料庫查這段時間的背景工作有沒有 dead，最後把一場面試的轉錄／評分工作改回待重跑，確認分數不變、沒有多呼叫 AI。報表分開列出重送前的原始錯誤和使用者看得到的失敗。開了 OpenAI 金鑰時會真的呼叫 AI。
+
 ## 已知限制
 
-- **worker 被替換時，進行中的工作會中斷**：[backend/app/workers/main.py](../../backend/app/workers/main.py) 設了 `handle_signals=False`，也沒有自己處理 SIGTERM，所以 Pod 收到關閉訊號就直接結束。工作不會遺失，但要等 `sweep` 排程在 10 分鐘後重新投遞。滾動更新 worker 時，正在面試的使用者可能要多等評分結果。
+- **第一次部署這個版本時**，舊版 worker 還不會平滑關閉：被換掉時手上的工作會中斷，要等 15 分鐘的保底規則收回（舊版 worker 沒有心跳，新版的 sweep 不會提早搶它的工作）。之後的部署就不會再有這個問題。
+- **docker compose 做不到不中斷**：compose 是先關舊的再開新的，api 換版時會斷幾秒。要不中斷請用 k3s。
 - **密碼寫在 Git 裡**：[config.yaml](config.yaml) 的帳密是練習用，跟 docker-compose.yml 相同。正式環境要改用 `kubectl create secret`、Sealed Secrets 或雲端的 Key Vault。
 - **單節點**：資料庫、Redis、MinIO 都只有 1 份，磁碟在 VM 本機。VM 刪掉資料就沒了。
 - **只有 HTTP**：`BASE_URL` 是 `http://localhost:8009`，`COOKIE_SECURE` 維持 `false`。對外開放時要加 cert-manager 申請 HTTPS 憑證。
