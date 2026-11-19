@@ -14,4 +14,5 @@
 | 求職準備（原職涯規劃） | 選一份履歷和 1–5 個想應徵的職缺，看還差什麼、怎麼補 | [career-plan.md](career-plan.md) |
 | 履歷與設定 | 上傳履歷、設定預設的面試方式 | [resume-settings.md](resume-settings.md) |
 | 帳號與登入 | Email 或 Google 登入 | [account.md](account.md) |
+| MCP 連接器（設計中） | 授權 Notion，讓 AI 匯出報告、讀取準備筆記 | [mcp-connectors.md](mcp-connectors.md) |
 | 職缺搜尋（第一版關閉） | 從平台職缺庫挑職缺 | [job-search.md](job-search.md) |

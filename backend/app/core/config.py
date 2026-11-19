@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     admin_console_password: str = ""
     admin_console_minutes: int = 30       # 輸入後台密碼後可以用多久（之後要重新輸入）
 
+    # MCP 連接器（spec/features/mcp-connectors.md）：使用者授權自己的 Notion 給 AI 使用
+    # 正式環境沒設定 MCP_CONNECTOR_ENC_KEY → 連接器整個關閉；開發環境由 JWT_SECRET 推導金鑰
+    mcp_connector_enc_key: str = ""
+    notion_mcp_url: str = "https://mcp.notion.com/mcp"
+
     # OpenAI：沒有金鑰時改用本機假資料（開發用），整個流程仍可走完
     openai_api_key: str = ""
     llm_model_reasoning: str = "gpt-5"
@@ -106,6 +111,13 @@ class Settings(BaseSettings):
     @property
     def google_callback(self) -> str:
         return self.google_redirect_uri or f"{self.base_url.rstrip('/')}/api/v1/auth/google/callback"
+
+    @property
+    def mcp_connectors_enabled(self) -> bool:
+        return bool(self.mcp_connector_enc_key) or self.is_dev
+
+    def mcp_callback(self, provider: str) -> str:
+        return f"{self.base_url.rstrip('/')}/api/v1/mcp-connectors/{provider}/callback"
 
     @property
     def is_dev(self) -> bool:

@@ -10,6 +10,7 @@ boto3==1.35.*
 openai>=1.60
 argon2-cffi==23.*
 PyJWT==2.*
+cryptography>=43
 pypdf==5.*
 pypdfium2==4.*
 Pillow==11.*
