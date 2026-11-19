@@ -71,6 +71,17 @@ async function enterApp() {
   applyTheme();
   startRouter();
   route();
+  mcpReturn();
+}
+
+// MCP 連接器授權完成後，後端導回 /?mcp_connected=… 或 /?mcp_error=…；顯示一次後從網址移除
+const MCP_ERRORS = { cancelled: "已取消連接", state: "連結已失效，請再試一次", failed: "連接失敗，請再試一次" };
+function mcpReturn() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has("mcp_connected") && !q.has("mcp_error")) return;
+  history.replaceState(null, "", location.pathname + location.hash);
+  toast(q.has("mcp_connected") ? "已連接 Notion" : (MCP_ERRORS[q.get("mcp_error")] || MCP_ERRORS.failed));
+  openSettings("mcp");
 }
 
 boot();

@@ -1,4 +1,4 @@
-// 設定：一般／履歷／求職意向／帳號。
+// 設定：一般／履歷／求職意向／MCP 連接器／帳號。
 import { del, get, patch, post, uploadFile } from "../api.js";
 import { h, icon, replace } from "../dom.js";
 import { renderSide, setTheme } from "../shell.js";
@@ -6,7 +6,8 @@ import { fmtSize, LANGS, loadMe, loadResumes, MODES, PERSONAS, prefs, resumesFul
 import { closeModal, confirmBox, errorToast, openModal, toast } from "../ui.js";
 import { openResumePreview } from "./resumePreview.js";
 
-const TABS = [["general", "一般", "gear"], ["resume", "履歷", "file"], ["goal", "求職意向", "target"], ["account", "帳號", "user"]];
+const TABS = [["general", "一般", "gear"], ["resume", "履歷", "file"], ["goal", "求職意向", "target"],
+  ["mcp", "MCP 連接器", "share"], ["account", "帳號", "user"]];
 let current = "general";
 let changed = null;
 
@@ -128,6 +129,39 @@ function goal() {
   ];
 }
 
+const MCP_DESC = { notion: "匯出面試建議、題庫和報告到 Notion，也能讀取你的準備筆記。" };
+
+async function mcp(body) {
+  replace(body, h("div", { class: "center-load" }, "載入中⋯"));
+  const res = await get("/mcp-connectors");
+  if (!res.enabled) {
+    replace(body, h("p", { class: "faint", style: "padding-top:12px" }, "MCP 連接器尚未開放。"));
+    return;
+  }
+  const status = (c) => !c.connected ? "尚未連接"
+    : c.status === "error" ? "連線已失效，請重新連接"
+    : `已連接${c.account_label ? `（${c.account_label}）` : ""}`;
+  const connectBtn = (c, label) => h("button", { class: "btn pri sm", type: "button", onclick: async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try { location.href = (await post(`/mcp-connectors/${c.provider}/start`)).authorize_url; }
+    catch (err) { errorToast(err); btn.disabled = false; }
+  } }, label);
+  replace(body,
+    h("p", { class: "faint", style: "padding-top:12px" }, "授權你自己的帳號給 Ava 使用。Ava 要建立或修改內容前，一定會先讓你確認。"),
+    res.items.map((c) => h("div", { class: "srow" },
+      h("div", null, h("div", { style: "font-weight:500" }, c.name),
+        h("div", { class: "faint" }, MCP_DESC[c.provider] || ""),
+        h("div", { class: c.status === "error" ? "form-err" : "faint" }, status(c))),
+      !c.connected ? connectBtn(c, "連接")
+        : h("div", { class: "row" }, c.status === "error" ? connectBtn(c, "重新連接") : null,
+          h("button", { class: "btn out sm danger", type: "button", onclick: async () => {
+            if (!(await confirmBox({ title: `中斷 ${c.name} 連線？`, text: "會刪除我們保存的授權，之後要使用需要重新連接。", ok: "中斷連線", danger: true }))) { openSettings("mcp"); return; }
+            try { await del(`/mcp-connectors/${c.provider}`); toast(`已中斷 ${c.name} 連線`); } catch (err) { errorToast(err); }
+            openSettings("mcp");
+          } }, "中斷連線")))));
+}
+
 function account() {
   const me = S.me;
   const name = h("input", { class: "inp", value: me.user.display_name, "aria-label": "名稱", maxlength: 60 });
@@ -182,6 +216,7 @@ export function openSettings(tab = "general", { onChanged } = {}) {
   const body = h("div", { class: "set-body" });
   const draw = () => {
     if (tab === "resume") resume(body, () => openSettings("resume")).catch(errorToast);
+    else if (tab === "mcp") mcp(body).catch(errorToast);
     else replace(body, tab === "goal" ? goal() : tab === "account" ? account() : general());
   };
   openModal({ title: "設定", bodyStyle: "padding:0", onClose: () => { current = null; },
