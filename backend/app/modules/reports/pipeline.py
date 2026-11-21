@@ -49,7 +49,7 @@ async def handle_evaluate(payload: dict) -> None:
     async with db.connection() as conn:
         a = await conn.fetchrow(
             """SELECT a.*, s.language, s.user_id, s.job_snapshot, s.resume_snapshot, s.status AS session_status,
-                      q.text AS q_text, q.rubric, q.kind, q.parent_id, q.followup_no
+                      q.text AS q_text, q.rubric, q.kind, q.parent_id, q.followup_no, q.category
                  FROM answer_attempts a JOIN interview_sessions s ON s.id = a.session_id
                  JOIN session_questions q ON q.id = a.session_question_id WHERE a.id = $1""", aid)
         if not a:
@@ -71,7 +71,7 @@ async def handle_evaluate(payload: dict) -> None:
     try:
         res = await ev.evaluate(question=a["q_text"], rubric=a["rubric"], transcript=t, job=a["job_snapshot"] or {},
                                 resume=a["resume_snapshot"] or None, context=context, language=a["language"],
-                                duration_ms=a["audio_duration_ms"], user_id=a["user_id"], session_id=a["session_id"])
+                                duration_ms=a["audio_duration_ms"], category=a["category"], user_id=a["user_id"], session_id=a["session_id"])
     except Exception as e:
         async with db.connection() as conn:
             await conn.execute("UPDATE evaluations SET status = 'failed', error = $2, finished_at = now() WHERE attempt_id = $1",

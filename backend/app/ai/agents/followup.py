@@ -7,9 +7,10 @@ import json
 from pydantic import BaseModel, Field
 
 from app.ai import client, text
+from app.ai.knowledge import ai_system_design as asd
 
-PV_WRITER = "fu_writer_v2"
-PV_DECIDER = "fu_decider_v2"
+PV_WRITER = "fu_writer_v3"
+PV_DECIDER = "fu_decider_v3"
 
 GENERIC = {
     "zh": ["可以再具體說明你在這件事裡負責的部分嗎？", "這個結果你是怎麼衡量的？", "如果重來一次，你會有什麼不同的做法？"],
@@ -48,8 +49,11 @@ def resume_points(resume: dict | None) -> dict | None:
 
 
 def _context(main: dict, transcript: str, previous: list[dict], persona: str, language: str,
-             resume: dict | None) -> str:
+             resume: dict | None, job: dict | None = None) -> str:
+    # AI 職缺的技術題：附上這類面試官常追問的方向（只是參考，追問仍要接在考生剛才的回答上）
+    ai = asd.probes(job) if main.get("category") in ("系統設計", "技術深度") else None
     return json.dumps({
+        **({"AI 系統設計常見追問方向（參考）": ai} if ai else {}),
         "主題目": main["text"], "評分規準": (main.get("rubric") or {}).get("must_mention", []),
         "考生剛才的回答（快速轉錄）": transcript or "（沒有聽清楚）",
         "前面的追問與回答": previous, "考生履歷重點": resume_points(resume) or "（沒有履歷）",
@@ -63,7 +67,7 @@ def _ok(q: str, previous: list[dict]) -> bool:
 
 
 async def write(main: dict, transcript: str, previous: list[dict], *, persona: str, language: str,
-                resume: dict | None = None, user_id=None, session_id=None) -> str | None:
+                resume: dict | None = None, job: dict | None = None, user_id=None, session_id=None) -> str | None:
     """回傳追問；內容不合格回傳 None（呼叫端改用通用追問，次數不變）。"""
     def fake() -> WriterOut:
         hint = transcript.strip()[:14]
@@ -75,12 +79,12 @@ async def write(main: dict, transcript: str, previous: list[dict], *, persona: s
         timeout=settings_timeout(), attempts=1, user_id=user_id, session_id=session_id, fake=fake,
         system="你是面試官。根據考生剛才的回答寫「一句」追問：針對回答中模糊、缺少細節或值得深挖的地方；"
                "回答和履歷重點有關（或說法對不上）時可以拿履歷來問。不要提出新主題、不要評論對錯、不要重複前面的追問。",
-        user=_context(main, transcript, previous, persona, language, resume))
+        user=_context(main, transcript, previous, persona, language, resume, job))
     return out.question.strip() if _ok(out.question, previous) else None
 
 
 async def decide(main: dict, transcript: str, previous: list[dict], *, persona: str, language: str,
-                 resume: dict | None = None, user_id=None, session_id=None) -> str | None:
+                 resume: dict | None = None, job: dict | None = None, user_id=None, session_id=None) -> str | None:
     """adaptive：需要追問時回傳追問內容，否則 None。"""
     def fake() -> DeciderOut:
         short = len(transcript.strip()) < 40
@@ -92,7 +96,7 @@ async def decide(main: dict, transcript: str, previous: list[dict], *, persona: 
         timeout=settings_timeout(), attempts=1, user_id=user_id, session_id=session_id, fake=fake,
         system="你是面試官。判斷考生的回答是否需要追問：回答過短、離題、缺少評分規準中的關鍵要點或細節時才追問。"
                "需要時寫「一句」追問，可以拿履歷重點來問，不提出新主題。",
-        user=_context(main, transcript, previous, persona, language, resume))
+        user=_context(main, transcript, previous, persona, language, resume, job))
     if not out.should_follow_up or not _ok(out.question, previous):
         return None
     return out.question.strip()

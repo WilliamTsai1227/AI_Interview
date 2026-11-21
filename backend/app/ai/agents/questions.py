@@ -4,8 +4,9 @@ import json
 from pydantic import BaseModel, Field
 
 from app.ai import client, text
+from app.ai.knowledge import ai_system_design as asd
 
-PV_PLAN = "qplan_v2"
+PV_PLAN = "qplan_v3"
 PV_RUBRIC = "rubric_v1"
 
 
@@ -53,7 +54,8 @@ PLAN_SYSTEM = """你是在台灣業界面試過上百人的用人主管，替求
 - 技術題問「實務上怎麼做、為什麼這樣做、遇過什麼問題」；系統設計題只在職缺層級需要時出，題目要貼近這家公司的產品或業務。
 - source_reason 寫這題在真實面試中的來由，例如「幾乎每場都會問」「職缺最核心的技能」「履歷上的 X 專案」，≤ 40 字。
 - 題目 ≤ 120 字；使用指定語言（zh 繁體中文、en 英文）。不要和「既有題目」重複或只換句話說。
-- rubric.criteria 用 structure、depth、fluency、job_fit、confidence 五個 key，權重合計 1。"""
+- rubric.criteria 用 structure、depth、fluency、job_fit、confidence 五個 key，權重合計 1。
+- 使用者訊息有「AI 系統設計參考」時：這是 AI 工程職缺，系統設計類的題目依參考的主題與解題步驟出題，換成這家公司的產品情境、給具體規模，不要照抄參考題目；expected_points 寫參考裡「面試官看什麼」的重點。"""
 
 
 def default_followup(category: str) -> tuple[str, int]:
@@ -122,6 +124,7 @@ async def plan_questions(*, job: dict, resume: dict | None, categories: list[str
         "題目類型": categories or "由你依職缺決定，盡量涵蓋不同類型",
         "難度": difficulty, "題數": count, "使用者需求": note or "（無）", "語言": language,
         "既有題目": existing[:60],
+        **({"AI 系統設計參考": ref} if (ref := asd.context(job)) else {}),
     }, ensure_ascii=False)
     out = await client.structured(
         purpose="question_gen", schema=PlanOut, system=PLAN_SYSTEM, user=user, tier="reasoning",

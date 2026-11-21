@@ -11,8 +11,9 @@ from pydantic import BaseModel, Field
 from app.ai import client, text
 from app.ai.agents import evaluation as ev
 from app.ai.agents import questions as qa
+from app.ai.knowledge import ai_system_design as asd
 
-PV_BRIEF = "live_brief_v2"
+PV_BRIEF = "live_brief_v3"
 PV_SEGMENT = "live_segment_v1"
 PV_FEEDBACK = "live_feedback_v1"
 LIVE_MINUTES = {"quick": 8, "standard": 15, "deep": 25}
@@ -69,7 +70,8 @@ BRIEF_SYSTEM = """你是在台灣業界面試過上百人的用人主管，面�
   可以補上履歷亮點或疑點相關的主題；
   第一個主題是自我介紹，總時間不超過指定分鐘數（要留 2 分鐘給候選人反問與結語）。
 - 沒有履歷時 highlights、concerns 給空陣列，議程只依職缺。
-- 使用指定語言（zh、mixed 用繁體中文；en 用英文）。"""
+- 使用指定語言（zh、mixed 用繁體中文；en 用英文）。
+- 使用者訊息有「AI 系統設計參考」時：這是 AI 工程職缺，系統設計類的題目依參考的主題與解題步驟出題，換成這家公司的產品情境、給具體規模，不要照抄參考題目；dig_into 可以用參考裡的追問方向。"""
 
 
 def _seed_view(seeds: list[dict]) -> list[dict]:
@@ -109,6 +111,7 @@ async def build_brief(*, job: dict, resume: dict | None, seeds: list[dict], leng
         "職缺": {k: job.get(k) for k in ("company_name", "title", "about", "duties", "requirements", "tags")},
         "職缺原文": (job.get("description") or "")[:2500],
         "履歷": resume or "（沒有履歷）", "種子題目": _seed_view(seeds), "面試分鐘數": minutes, "語言": language,
+        **({"AI 系統設計參考": ref} if (ref := asd.context(job)) else {}),
     }, ensure_ascii=False)
     out = await client.structured(
         purpose="live_brief", schema=BriefOut, system=BRIEF_SYSTEM, user=user, tier="reasoning",
