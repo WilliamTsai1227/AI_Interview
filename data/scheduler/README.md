@@ -39,7 +39,7 @@ nohup ./run.sh start > /dev/null 2>&1 &     # 停止：pkill -f "scheduler.py st
 |---|---|---|
 | `DATABASE_URL` | `postgresql://ai:ai@localhost:5434/ai_interview` | docker compose 的資料庫，通常不用改 |
 | `OPENAI_API_KEY` | 空 | 選填；有填才用 AI 寫職缺摘要與重點（可複製 `backend/.env` 的金鑰） |
-| `CRAWLER_SUMMARIZE` / `CRAWLER_SUMMARY_MODEL` | `true` / `gpt-5-mini` | 摘要開關與模型 |
+| `CRAWLER_SUMMARIZE` / `CRAWLER_SUMMARY_MODEL` | `true` / `gpt-6.1-terra` | 摘要開關與模型 |
 | `CRAWLER_USER_AGENT` | `AIInterviewJobBot/0.1 (…)` | 表明身分，請改成你的網域與信箱 |
 | `CRAWLER_DELAY_SEC` | `2` | 同一網站兩次請求的最短間隔 |
 | `CRAWLER_MAX_PAGES_PER_SITE` / `CRAWLER_MAX_JOBS_PER_SITE` | `60` / `50` | 每站上限 |

@@ -27,11 +27,12 @@ CUES = {
            "followup_lead": "I'd like to dig a little deeper.",
            "outro": "That's the end of today's interview. Thank you. I'll put together scores and suggestions for each answer."},
 }
-# gpt-4o-mini-tts 的說話風格指示（語速無法用參數調，只能靠指示；前端另外用 playbackRate 微調）
-STYLE_VERSION = "v2"     # 指示改了就改版本，舊的快取音檔就不會再被使用
+# 說話風格指示（gpt-realtime-* 與 gpt-4o-mini-tts 都適用）。語速靠指示調；前端預設不再加速播放（變速會有電子音）
+STYLE_VERSION = "v3"     # 指示改了就改版本，舊的快取音檔就不會再被使用
 BASE_STYLE = {
-    "zh": ("你是台灣科技公司的資深面試官 Ava，用台灣口音的自然中文（台灣國語）跟求職者面對面對話。"
-           "像真人聊天，不是播音或朗讀：有自然的抑揚頓挫與輕重音，語速自然偏快，句子之間只做短暫停頓。"
+    "zh": ("你是台灣科技公司的資深面試官 Ava，用台灣口音的自然中文（台灣國語，不是大陸腔）跟求職者面對面對話。"
+           "像真人在會議室裡聊天，不是播音、客服或朗讀：語氣放鬆、有自然的抑揚頓挫與輕重音，"
+           "語速跟一般台灣上班族講話一樣偏快，句子之間只做短暫停頓，句尾不要拖長或刻意上揚。"
            "英文技術名詞（例如 API、Kubernetes、RAG）用自然的英文發音直接念出來。"),
     "en": ("You are Ava, a senior interviewer at a tech company, talking face to face with a candidate. "
            "Sound like a real person in conversation, not a narrator: natural intonation, a brisk natural pace, short pauses."),

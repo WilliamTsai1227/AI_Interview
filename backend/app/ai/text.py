@@ -1,5 +1,6 @@
-"""文字工具：去重用的三元組相似度（中英混合）、贅詞與語速計算、職缺文字粗解析。"""
+"""文字工具：去重用的三元組相似度（中英混合）、贅詞與語速計算、職缺文字粗解析、簡轉繁。"""
 import re
+from functools import lru_cache
 
 CATEGORIES = ["自我介紹", "技術深度", "系統設計", "團隊合作", "情境題", "動機與規劃"]
 DIFFICULTIES = ["basic", "medium", "advanced"]
@@ -112,3 +113,17 @@ def rough_parse_jd(raw: str) -> dict:
     return {"title": title, "company_name": company, "about": " ".join(about)[:400] or None,
             "duties": duties[:8], "requirements": reqs[:8], "tags": find_tags(raw), "city": find_city(raw),
             "location_text": find_city(raw)}
+
+
+@lru_cache(maxsize=1)
+def _s2tw():
+    from opencc import OpenCC
+    return OpenCC("s2twp")
+
+
+def to_traditional(s: str, language: str | None = "zh") -> str:
+    """語音轉文字（OpenAI STT、GPT-Live 字幕）常回簡體字：轉成台灣繁體與用語（软件→軟體）。英文面試不轉。
+    OpenCC 會把「台」改成「臺」，台灣日常多寫「台」，轉回來。"""
+    if not s or language == "en":
+        return s
+    return _s2tw().convert(s).replace("臺", "台")

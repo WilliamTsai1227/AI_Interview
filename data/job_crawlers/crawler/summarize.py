@@ -31,6 +31,8 @@ def summarize(cfg: Config, title: str, company: str, description: str) -> dict |
     }
     if cfg.summary_model.startswith("gpt-5"):
         body["reasoning"] = {"effort": "minimal"}
+    elif cfg.summary_model.startswith("gpt-6"):        # 6 系列沒有 minimal；terra／luna 最低是 none
+        body["reasoning"] = {"effort": "none"}
     req = urllib.request.Request("https://api.openai.com/v1/responses", data=json.dumps(body).encode(),
                                  headers={"Authorization": f"Bearer {cfg.openai_api_key}", "Content-Type": "application/json"})
     try:

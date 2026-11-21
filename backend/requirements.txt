@@ -8,6 +8,8 @@ redis==5.*
 arq==0.26.*
 boto3==1.35.*
 openai>=1.60
+opencc-python-reimplemented==0.1.7   # 語音轉文字常回簡體字：轉成台灣繁體
+lameenc==1.8.1                       # Realtime 語音模型輸出 PCM：即時編碼成 mp3（LGPL）
 argon2-cffi==23.*
 PyJWT==2.*
 cryptography>=43
