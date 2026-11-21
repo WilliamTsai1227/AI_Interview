@@ -20,13 +20,15 @@ def _origin(url: str) -> str:
 
 # 履歷與錄音是瀏覽器用預簽名網址直接傳到 S3／MinIO，播放錄音也是，所以要放行那個來源
 _S3 = _origin(settings.s3_public_endpoint or settings.s3_endpoint)
+# 擬真人像（Simli）：瀏覽器直接用 WebSocket 連 Simli 做訊號交換（影像走 WebRTC，不受 CSP 限制）
+_SIMLI = _origin(settings.simli_url).replace("https://", "wss://", 1) if settings.simli_enabled else ""
 CSP = "; ".join([
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",          # 前端用 style 屬性排版；樣式無法執行程式
     "img-src 'self' data: blob:",
     f"media-src 'self' blob: {_S3}".strip(),
-    f"connect-src 'self' {_S3}".strip(),
+    f"connect-src 'self' {_S3} {_SIMLI}".strip(),
     "object-src 'none'",
     "base-uri 'none'",
     "frame-ancestors 'none'",
@@ -37,7 +39,7 @@ HEADERS = [
     (b"x-content-type-options", b"nosniff"),
     (b"x-frame-options", b"DENY"),
     (b"referrer-policy", b"strict-origin-when-cross-origin"),
-    (b"permissions-policy", b"microphone=(self), camera=(), geolocation=()"),
+    (b"permissions-policy", b"microphone=(self), camera=(self), geolocation=()"),   # 鏡頭只用在面試畫面的本機預覽
 ]
 
 

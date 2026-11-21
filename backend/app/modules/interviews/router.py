@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from app.core.errors import bad_request
 from app.core.security import CurrentUser, current_user
 from app.modules.membership.quota import require_tokens
-from app.modules.interviews import service
+from app.modules.interviews import avatar, live, service
 
 router = APIRouter(prefix="/interviews", tags=["interviews"])
 
@@ -18,6 +18,7 @@ class CreateIn(BaseModel):
     length_mode: Literal["quick", "standard", "deep"] = "standard"
     persona: Literal["warm", "real", "tough"] = "warm"
     language: Literal["zh", "en", "mixed"] = "zh"
+    voice_mode: Literal["scripted", "live"] = "scripted"   # live：GPT-Live 自由對談
     recording_consent: bool = False
 
 
@@ -47,6 +48,23 @@ class EndIn(Versioned):
     reason: Literal["user_ended", "completed"] = "user_ended"
 
 
+class LiveConnectIn(BaseModel):
+    sdp: str = Field(min_length=10, max_length=20000)
+
+
+class LiveTurn(BaseModel):
+    seq: int = Field(ge=0, le=100_000)
+    role: Literal["interviewer", "candidate"]
+    text: str = Field(max_length=8000)
+    started_ms: int | None = Field(default=None, ge=0)
+    ended_ms: int | None = Field(default=None, ge=0)
+
+
+class LiveTurnsIn(BaseModel):
+    turns: list[LiveTurn] = Field(default_factory=list, max_length=100)
+    usage_seconds: float | None = Field(default=None, ge=0, le=7200)   # session.closed 的 usage.seconds
+
+
 class HeartbeatIn(BaseModel):
     phase: str | None = Field(default=None, max_length=40)
     rtc_state: str | None = Field(default=None, max_length=40)
@@ -56,7 +74,7 @@ class HeartbeatIn(BaseModel):
 @router.post("", status_code=201)
 async def create(body: CreateIn, user: CurrentUser = Depends(require_tokens)):
     return await service.create(user.id, body.target_id, body.resume_id, "resume_id" in body.model_fields_set,
-                                body.length_mode, body.persona, body.language, body.recording_consent)
+                                body.length_mode, body.persona, body.language, body.recording_consent, body.voice_mode)
 
 
 @router.get("/active")
@@ -68,6 +86,11 @@ async def active(user: CurrentUser = Depends(current_user)):
 @router.get("/{sid}")
 async def get(sid: UUID, user: CurrentUser = Depends(current_user)):
     return await service.get(user.id, sid)
+
+
+@router.get("/{sid}/feedback")
+async def feedback(sid: UUID, user: CurrentUser = Depends(current_user)):
+    return await service.feedback(user.id, sid)
 
 
 @router.post("/{sid}/start")
@@ -122,6 +145,22 @@ async def heartbeat(sid: UUID, body: HeartbeatIn, user: CurrentUser = Depends(cu
 @router.post("/{sid}/end")
 async def end(sid: UUID, body: EndIn, user: CurrentUser = Depends(current_user)):
     return await service.end(user.id, sid, body.expected_version, body.reason)
+
+
+@router.post("/{sid}/live/connect")
+async def live_connect(sid: UUID, body: LiveConnectIn, user: CurrentUser = Depends(require_tokens)):
+    return await live.connect(user.id, sid, body.sdp)
+
+
+@router.post("/{sid}/live/turns", status_code=204)
+async def live_turns(sid: UUID, body: LiveTurnsIn, user: CurrentUser = Depends(current_user)):
+    await live.add_turns(user.id, sid, [t.model_dump() for t in body.turns], body.usage_seconds)
+    return Response(status_code=204)
+
+
+@router.post("/{sid}/avatar/connect")
+async def avatar_connect(sid: UUID, user: CurrentUser = Depends(require_tokens)):
+    return await avatar.connect(user.id, sid)
 
 
 @router.post("/{sid}/realtime/connect")

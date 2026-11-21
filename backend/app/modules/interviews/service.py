@@ -4,6 +4,7 @@
 - 所有推進都在 `SELECT … FOR UPDATE` 的交易中，並檢查 expected_version（樂觀鎖）。
 - 題目順序由系統決定；追問次數由程式計數（count(*) WHERE parent_id = 主題目），AI 只寫內容。
 - 回答錄音上傳成功且寫入成功，才會前進。
+- voice_mode = live（GPT-Live 自由對談）不走逐題的 phase，只有 status；對談與切題見 interviews/live.py。
 """
 import asyncio
 import datetime as dt
@@ -16,6 +17,7 @@ import structlog
 from app.ai import client as ai
 from app.ai import limiter
 from app.ai.agents import followup as fua
+from app.ai.agents import interviewer as iva
 from app.ai.agents import questions as qa
 from app.core import db, redis
 from app.core.config import settings
@@ -118,7 +120,19 @@ async def session_out(conn: db.Connection, s) -> dict:
         "started_at": s["started_at"], "elapsed_sec": _elapsed(s), "paused_at": s["paused_at"],
         "resume_deadline": s["paused_at"] + RESUME_WINDOW if s["paused_at"] else None,
         "ended_at": s["ended_at"], "end_reason": s["end_reason"],
+        "live": await _live_out(conn, s) if s["voice_mode"] == "live" else None,
+        "avatar": "simli" if settings.simli_enabled else None,     # 有設定就用擬真人像，否則前端畫插畫人像
     }
+
+
+async def _live_out(conn: db.Connection, s) -> dict:
+    brief = s["live_brief"] or {}
+    turns = await conn.fetchrow("SELECT count(*) AS n, COALESCE(max(seq), -1) + 1 AS next_seq FROM session_turns WHERE session_id = $1", s["id"])
+    return {"brief_ready": "topics" in brief, "time_limit_sec": iva.LIVE_MINUTES[s["length_mode"]] * 60,
+            "wrap_up_sec": settings.live_wrap_up_sec, "wrap_up_cue": iva.wrap_up_cue(s["language"]),
+            "turn_count": turns["n"], "next_seq": turns["next_seq"],
+            "tools": bool(settings.live_delegate_model),
+            "topics": [{"id": t["id"], "title": t["title"], "category": t["category"]} for t in brief.get("topics", [])]}
 
 
 async def _active(conn: db.Connection, user_id: UUID) -> db.Record | None:
@@ -138,7 +152,8 @@ async def active_summary(conn: db.Connection, user_id: UUID) -> dict | None:
     if not s:
         return None
     o = await session_out(conn, s)
-    return {"id": o["id"], "status": o["status"], "target_id": o["target_id"], "company_name": o["job"]["company_name"],
+    return {"id": o["id"], "status": o["status"], "voice_mode": o["voice_mode"], "target_id": o["target_id"],
+            "company_name": o["job"]["company_name"],
             "answered": o["progress"]["answered"], "current_main_no": o["progress"]["current_main_no"],
             "total_main": o["progress"]["total_main"], "resume_deadline": o["resume_deadline"]}
 
@@ -155,9 +170,46 @@ async def get(user_id: UUID, sid: UUID) -> dict:
         return await session_out(conn, s)
 
 
+
+async def feedback(user_id: UUID, sid: UUID) -> dict:
+    """面試畫面右側欄：已回答的題目與評分。
+
+    依題目模式（以及 Live 結束切完題之後）讀正式評分 evaluations；Live 面試中讀 live_feedback（快速模型的參考分數）。
+    """
+    async with db.connection() as conn:
+        s = await conn.fetchrow("SELECT id, voice_mode FROM interview_sessions WHERE id = $1 AND user_id = $2", sid, user_id)
+        if not s:
+            raise not_found("找不到這場面試")
+        rows = await conn.fetch(
+            """SELECT q.id, q.kind, q.order_no, q.followup_no, q.category, q.text, e.status, e.score, e.strengths,
+                      e.improvements, e.better_answer
+                 FROM session_questions q
+                 JOIN answer_attempts a ON a.session_question_id = q.id AND a.is_final AND a.status = 'saved'
+                 LEFT JOIN evaluations e ON e.attempt_id = a.id
+                WHERE q.session_id = $1 ORDER BY q.order_no, q.followup_no""", sid)
+        if rows or s["voice_mode"] != "live":
+            items = [{"id": str(r["id"]),
+                      "label": f"第 {r['order_no']} 題・" + (r["category"] if r["kind"] == "main" else f"追問 {r['followup_no']}"),
+                      "title": r["text"], "status": _fb_status(r["status"]), "score": r["score"],
+                      "strengths": (r["strengths"] or [])[:3], "improvements": (r["improvements"] or [])[:3],
+                      "tip": r["better_answer"] or None} for r in rows]
+            return {"items": items, "provisional": False}
+        rows = await conn.fetch(
+            """SELECT seq, question, status, title, score, strengths, improvements, tip FROM live_feedback
+                WHERE session_id = $1 AND status <> 'skipped' ORDER BY seq""", sid)
+    items = [{"id": f"live-{r['seq']}", "label": f"第 {i + 1} 段", "title": r["title"] or r["question"][-120:],
+              "status": r["status"], "score": r["score"], "strengths": r["strengths"] or [],
+              "improvements": r["improvements"] or [], "tip": r["tip"]} for i, r in enumerate(rows)]
+    return {"items": items, "provisional": True}
+
+
+def _fb_status(status: str | None) -> str:
+    return {"done": "done", "needs_review": "done", "failed": "failed"}.get(status or "", "pending")
+
+
 # ---------- 建立場次 ----------
 async def create(user_id: UUID, target_id: UUID, resume_id: UUID | None, resume_given: bool, length_mode: str,
-                 persona: str, language: str, consent: bool) -> dict:
+                 persona: str, language: str, consent: bool, voice_mode: str = "scripted") -> dict:
     if not consent:
         raise bad_request("開始面試前需要同意錄音", {"recording_consent": "required"})
     await redis.rate_limit("interview_create", str(user_id))
@@ -200,6 +252,7 @@ async def create(user_id: UUID, target_id: UUID, resume_id: UUID | None, resume_
         fill = await qa.plan_questions(job=job_snap, resume=resume_snap, categories=[], difficulty="medium",
                                        count=n - len(items), note="", existing=[i["text"] for i in items],
                                        language="en" if language == "en" else "zh", user_id=user_id)
+    live = voice_mode == "live"
     try:
         async with tx() as conn:
             if fill:
@@ -216,11 +269,12 @@ async def create(user_id: UUID, target_id: UUID, resume_id: UUID | None, resume_
                 """
                 INSERT INTO interview_sessions (user_id, target_job_id, job_post_id, resume_id, question_set_id, length_mode,
                        persona, language, voice_mode, job_snapshot, resume_snapshot, planned_question_count,
-                       recording_consent_at, last_heartbeat_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scripted',$9,$10,$11, now(), now()) RETURNING *
+                       recording_consent_at, last_heartbeat_at, live_brief)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now(), now(), $13) RETURNING *
                 """, user_id, target_id, job["id"], r["id"] if r else None, t["set_id"], length_mode, persona, language,
-                job_snap, resume_snap or {}, len(items))
-            for i, it in enumerate(items):
+                voice_mode, job_snap, resume_snap or {}, len(items), {"seeds": [_seed(it) for it in items]} if live else None)
+            # live：題庫只當「種子」交給面試官簡報，題目等對談結束後才從逐字稿切出來
+            for i, it in enumerate([] if live else items):
                 mode, cnt = it["followup_mode"], it["followup_count"]
                 pl = planned.get(it["id"], [])
                 if mode == "planned" and not pl:
@@ -234,19 +288,25 @@ async def create(user_id: UUID, target_id: UUID, resume_id: UUID | None, resume_
                     """, s["id"], it["id"], i + 1, mode, target_n, pl if mode == "planned" else None, it["category"],
                     it["difficulty"], it["text"], it["competency"], it["expected_points"] or [], it["rubric"])
             prefs = dict(u["preferences"] or {})
-            prefs.update({"default_length": length_mode, "default_persona": persona, "default_language": language})
+            prefs.update({"default_length": length_mode, "default_persona": persona, "default_language": language,
+                          "default_voice_mode": voice_mode})
             await conn.execute("UPDATE users SET preferences = $2 WHERE id = $1", user_id, prefs)
             await conn.execute("UPDATE target_jobs SET last_practiced_at = now(), resume_id = COALESCE(resume_id, $2) WHERE id = $1",
                                target_id, r["id"] if r else None)
-            await enqueue(conn, "synthesize_tts", {"session_id": str(s["id"])}, queue="interactive")
+            await enqueue(conn, "prepare_live" if live else "synthesize_tts", {"session_id": str(s["id"])}, queue="interactive")
             await conn.execute(
                 "INSERT INTO app_events (user_id, event_name, properties) VALUES ($1, 'interview.created', $2)",
-                user_id, {"session_id": str(s["id"]), "length": length_mode, "persona": persona})
+                user_id, {"session_id": str(s["id"]), "length": length_mode, "persona": persona, "voice_mode": voice_mode})
             qs = await conn.fetch("SELECT id, order_no, category FROM session_questions WHERE session_id = $1 ORDER BY order_no", s["id"])
             out = await session_out(conn, s)
     except asyncpg.UniqueViolationError:
         raise AppError(409, "ACTIVE_SESSION_EXISTS", "你有一場還沒結束的面試")
     return {"session": out, "questions": [{"id": str(q["id"]), "order_no": q["order_no"], "category": q["category"]} for q in qs]}
+
+
+def _seed(it) -> dict:
+    return {"source_item_id": str(it["id"]), "category": it["category"], "difficulty": it["difficulty"], "text": it["text"],
+            "competency": it["competency"], "expected_points": it["expected_points"] or [], "rubric": it["rubric"]}
 
 
 async def handle_tts(payload: dict) -> None:
@@ -311,13 +371,16 @@ async def start(user_id: UUID, sid: UUID, expected: int) -> dict:
         s = await _lock(conn, user_id, sid)
         _check(s, expected, status=("ready",))
         first = await conn.fetchval("SELECT id FROM session_questions WHERE session_id = $1 AND kind = 'main' ORDER BY order_no LIMIT 1", sid)
-        s = await _bump(conn, sid, status="in_progress", phase="asking", current_question_id=first, started_at=_now(),
-                        last_heartbeat_at=_now())
+        live = s["voice_mode"] == "live"         # live：Ava 的開場由 GPT-Live 說，前端接著呼叫 live/connect
+        s = await _bump(conn, sid, status="in_progress", phase="idle" if live else "asking", current_question_id=first,
+                        started_at=_now(), last_heartbeat_at=_now())
         name = await conn.fetchval("SELECT display_name FROM users WHERE id = $1", user_id)
         await conn.execute("INSERT INTO app_events (user_id, event_name, properties) VALUES ($1, 'interview.started', $2)",
                            user_id, {"session_id": str(sid)})
         out = await session_out(conn, s)
     await limiter.mark_live(str(sid))
+    if live:
+        return {"session": out, "intro": None}
     return {"session": out, "intro": await voice.speech(voice.intro_text(s["language"], _short(name)), s["language"], s["persona"])}
 
 
@@ -410,6 +473,7 @@ async def decide_followup(s, main, transcript: str, *, skipped: bool) -> tuple[s
         if transcript and not skipped:
             try:
                 q = await asyncio.wait_for(fua.write(dict(main), transcript, previous, persona=s["persona"], language=s["language"],
+                                                     resume=s["resume_snapshot"] or None,
                                                      user_id=s["user_id"], session_id=s["id"]),
                                            timeout=settings.followup_timeout_sec + 0.5)
             except Exception as e:
@@ -422,6 +486,7 @@ async def decide_followup(s, main, transcript: str, *, skipped: bool) -> tuple[s
         return None
     try:
         q = await asyncio.wait_for(fua.decide(dict(main), transcript, previous, persona=s["persona"], language=s["language"],
+                                              resume=s["resume_snapshot"] or None,
                                               user_id=s["user_id"], session_id=s["id"]),
                                    timeout=settings.followup_timeout_sec + 0.5)
     except Exception as e:
@@ -454,8 +519,10 @@ async def _advance(conn: db.Connection, s, main, decision, fu_tts_key: str | Non
 
 
 async def _finish(conn: db.Connection, s, end_reason: str) -> db.Record:
-    """結束場次：有作答 → completed＋報告；沒有 → aborted。"""
+    """結束場次：有作答 → completed＋報告；沒有 → aborted。live：候選人有說話就算有作答，先切題再評分。"""
+    live = s["voice_mode"] == "live"
     answered = await conn.fetchval(
+        "SELECT count(*) FROM session_turns WHERE session_id = $1 AND role = 'candidate'" if live else
         "SELECT count(*) FROM answer_attempts WHERE session_id = $1 AND is_final AND status = 'saved'", s["id"])
     now = _now()
     if s["paused_at"]:
@@ -469,7 +536,10 @@ async def _finish(conn: db.Connection, s, end_reason: str) -> db.Record:
         await conn.execute(
             "INSERT INTO interview_reports (session_id, user_id, status) VALUES ($1, $2, 'processing') ON CONFLICT DO NOTHING",
             s["id"], s["user_id"])
-        await enqueue(conn, "build_report", {"session_id": str(s["id"])}, dedupe_key=f"build_report:{s['id']}")
+        if live:
+            await enqueue(conn, "segment_live", {"session_id": str(s["id"])}, dedupe_key=f"segment_live:{s['id']}")
+        else:
+            await enqueue(conn, "build_report", {"session_id": str(s["id"])}, dedupe_key=f"build_report:{s['id']}")
     await conn.execute("INSERT INTO app_events (user_id, event_name, properties) VALUES ($1, $2, $3)",
                        s["user_id"], f"interview.{status}", {"session_id": str(s["id"]), "end_reason": end_reason})
     await limiter.unmark_live(str(s["id"]))
@@ -625,7 +695,7 @@ async def resume(user_id: UUID, sid: UUID, expected: int | None) -> dict:
             await _finish(conn, s, "expired")
             raise state_conflict(None, "這場面試暫停超過 24 小時，已經自動結束")
         q = await conn.fetchrow("SELECT * FROM session_questions WHERE id = $1", s["current_question_id"]) if s["current_question_id"] else None
-        phase = "awaiting_answer" if q and q["asked_at"] else "asking"
+        phase = "idle" if s["voice_mode"] == "live" else "awaiting_answer" if q and q["asked_at"] else "asking"
         s = await _bump(conn, sid, status="in_progress", phase=phase, paused_at=None, last_heartbeat_at=_now(),
                         paused_total_sec=s["paused_total_sec"] + int((_now() - s["paused_at"]).total_seconds()))
         out = await session_out(conn, s)
