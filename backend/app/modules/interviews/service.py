@@ -473,7 +473,7 @@ async def decide_followup(s, main, transcript: str, *, skipped: bool) -> tuple[s
         if transcript and not skipped:
             try:
                 q = await asyncio.wait_for(fua.write(dict(main), transcript, previous, persona=s["persona"], language=s["language"],
-                                                     resume=s["resume_snapshot"] or None,
+                                                     resume=s["resume_snapshot"] or None, job=s["job_snapshot"] or None,
                                                      user_id=s["user_id"], session_id=s["id"]),
                                            timeout=settings.followup_timeout_sec + 0.5)
             except Exception as e:
@@ -486,7 +486,7 @@ async def decide_followup(s, main, transcript: str, *, skipped: bool) -> tuple[s
         return None
     try:
         q = await asyncio.wait_for(fua.decide(dict(main), transcript, previous, persona=s["persona"], language=s["language"],
-                                              resume=s["resume_snapshot"] or None,
+                                              resume=s["resume_snapshot"] or None, job=s["job_snapshot"] or None,
                                               user_id=s["user_id"], session_id=s["id"]),
                                    timeout=settings.followup_timeout_sec + 0.5)
     except Exception as e:
