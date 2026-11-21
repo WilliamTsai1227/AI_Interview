@@ -21,7 +21,7 @@ const jobName = (j) => `${j.company_name || "未知公司"}｜${j.title || "未�
 const shortCo = (n) => (n || "").replace(/\s*_.*$/, "").replace(/(股份)?有限公司/g, "").trim() || n;
 
 export async function render(view, _arg, ctx) {
-  setHead("brief", "求職準備");
+  setHead("brief", "能力落差分析");
   const wrap = h("div", { class: "wrap doc" }, h("div", { class: "center-load" }, dots()));
   view.append(wrap);
   let profile, plan, plans = [], poll = null, editing = false, saving = false, picked = null;
@@ -77,7 +77,7 @@ export async function render(view, _arg, ctx) {
     const f = {
       intro: h("textarea", { class: "inp", rows: 4, maxlength: 3000, placeholder: "用幾句話介紹你自己：背景、擅長的事、想往哪個方向發展" }, profile.self_intro),
       exp: h("textarea", { class: "inp", rows: 3, maxlength: 3000, placeholder: "履歷以外的經歷：side project、社群、志工、自學課程⋯" }, profile.experience_note),
-      salary: h("input", { class: "inp", type: "number", min: 0, step: 1000, placeholder: "例如 70000", value: profile.salary_min ?? "" }),
+      salary: h("input", { class: "inp", type: "number", inputmode: "numeric", min: 0, step: 1000, placeholder: "例如 70000", "aria-label": "期望薪資（最低）", value: profile.salary_min ?? "" }),
       period: profile.salary_period,
       roles: h("input", { class: "inp", placeholder: "例如：後端工程師、資料分析師（用逗號分隔）", value: profile.roles.join("、") }),
       ind: h("input", { class: "inp", placeholder: "例如：金融科技、電商、遊戲", value: profile.industries.join("、") }),
@@ -114,12 +114,12 @@ export async function render(view, _arg, ctx) {
             } }),
             h("span", { class: "bd" }, h("b", null, jobName(t.job)),
               h("span", { class: "faint" }, pending ? "Ava 還在整理這個職缺" : [t.job.city, t.job.salary_text].filter(Boolean).join("・"))));
-        }) : h("p", { class: "faint" }, "還沒有目標職缺。把想應徵的職缺內容貼上來，Ava 就能比對你還差多少。"),
+        }) : h("p", { class: "faint" }, "還沒有職缺。把想應徵的職缺內容貼上來，Ava 就能比對你還差多少。"),
         h("div", { class: "row", style: "margin-top:10px" },
           h("button", { class: "btn out sm", type: "button", onclick: () => openJd({ after: async (t) => {
             await loadTargets().catch(() => {});
             if (picked.size < MAX_JOBS) picked.add(t.id);
-            toast("已加入目標職缺");
+            toast("已加入我的職缺");
             drawJobs(); drawActions();
           } }) }, icon("plus"), "貼上新職缺"),
           h("span", { class: "faint num" }, `已選 ${picked.size}/${MAX_JOBS}`)));
@@ -221,7 +221,7 @@ export async function render(view, _arg, ctx) {
       h("h2", null, h("span", { class: "step" }, "1"), "用哪份履歷"),
       field("履歷", "必填", resumeBox),
       h("h2", null, h("span", { class: "step" }, "2"), "要比對哪些職缺"),
-      h("p", { class: "faint", style: "margin:-6px 0 12px" }, `從你的目標職缺選 1–${MAX_JOBS} 個想應徵的。類型相近的放在一起比，缺口會更準。`),
+      h("p", { class: "faint", style: "margin:-6px 0 12px" }, `從「我的職缺」選 1–${MAX_JOBS} 個想應徵的。類型相近的放在一起比，缺口會更準。`),
       jobBox,
       h("details", { class: "cmore" },
         h("summary", null, h("h2", null, h("span", { class: "step" }, "3"), "補充資料", h("small", null, "選填")),
@@ -251,7 +251,7 @@ export async function render(view, _arg, ctx) {
             h("span", { class: "hint" }, "有履歷才能精準比對你缺什麼")])),
       h("div", { class: "su-row" }, h("span", { class: "k" }, "職缺"), h("div", { class: "v" }, cmp.jobs.length
         ? h("div", { class: "pf-links" }, cmp.jobs.map((j) => h("span", null, jobName(j))))
-        : h("span", { class: "faint" }, "沒有比對目標職缺"))),
+        : h("span", { class: "faint" }, "沒有比對職缺"))),
       h("div", { class: "su-row" }, h("span", { class: "k" }, "作品集"), h("div", { class: "v" }, (p.portfolio_links || []).length
         ? h("div", { class: "pf-links" }, p.portfolio_links.map(linkStatus))
         : h("span", { class: "faint" }, "沒有提供作品集連結"))),
@@ -353,7 +353,7 @@ export async function render(view, _arg, ctx) {
       }),
 
       h("div", { class: "sec-row" }, h("h2", null, "每個職缺的契合度"),
-        h("span", { class: "faint" }, plan.jobs.length ? "缺口依這些職缺分析" : "沒有比對目標職缺")),
+        h("span", { class: "faint" }, plan.jobs.length ? "缺口依這些職缺分析" : "沒有比對職缺")),
       plan.jobs.length ? plan.jobs.map((j) => h("div", { class: "cjob" },
         logo((j.company_name || "?").slice(0, 1).toUpperCase()),
         h("div", { class: "bd" },
@@ -363,13 +363,13 @@ export async function render(view, _arg, ctx) {
           j.reason ? h("div", { class: "muted" }, j.reason) : null,
           j.gaps.length ? h("div", { class: "row", style: "margin-top:6px" }, j.gaps.map((g) => h("span", { class: "tagx" }, `補強：${g}`))) : null,
           h("div", { class: "row", style: "margin-top:8px" },
-            j.target_id ? h("a", { class: "btn out sm", href: `#targets/${j.target_id}` }, "查看目標職缺")
+            j.target_id ? h("a", { class: "btn out sm", href: `#targets/${j.target_id}` }, "查看職缺")
               : h("button", { class: "btn out sm", type: "button", onclick: () => openJob(j.id) }, "查看職缺"),
             j.source_url ? h("a", { class: "linkb", href: j.source_url, target: "_blank", rel: "noopener noreferrer" }, "原始職缺頁 ↗") : null))))
         : h("div", { class: "err-box", style: "margin-top:4px" },
-          h("div", { class: "t" }, h("b", null, "還沒有目標職缺"),
+          h("div", { class: "t" }, h("b", null, "還沒有職缺"),
             h("div", { class: "muted" }, "這次的缺口是依你的個人檔案和履歷推估的。加入想應徵的職缺後再按「重新分析」，Ava 會比對職缺的實際要求，缺口會更準。")),
-          h("button", { class: "btn out sm", type: "button", onclick: () => openJd({ after: () => toast("已加入目標職缺，按「重新分析」就會比對這個職缺") }) },
+          h("button", { class: "btn out sm", type: "button", onclick: () => openJd({ after: () => toast("已加入我的職缺，按「重新分析」就會比對這個職缺") }) },
             icon("plus"), "貼上職缺內容")),
     ];
   }
@@ -391,13 +391,13 @@ export async function render(view, _arg, ctx) {
     if (!ctx.isCurrent()) return;
     const intro = h("p", { class: "muted", style: "margin-top:6px" },
       "選一份履歷和想應徵的職缺，Ava 會分析你還差多少、該先補什麼，並排出準備計畫。");
-    if (editing || !plan) { replace(wrap, h("h1", null, "求職準備"), intro, profileForm()); return; }
+    if (editing || !plan) { replace(wrap, h("h1", null, "能力落差分析"), intro, profileForm()); return; }
     const n = plan.compare?.jobs.length || 0;
     const hasRepos = (plan.profile?.portfolio_links || []).some((u) => /github\.com\/[^/]+\/[^/]+/i.test(u));
     const old = isLatest() ? null : h("div", { class: "hist-bar" }, icon("clock"),
       h("span", null, `你正在看 ${fmtDate(plan.created_at)} 的分析`),
       h("button", { class: "linkb", type: "button", onclick: () => show(plans[0].id) }, "回到最新"));
-    replace(wrap, h("h1", null, "求職準備"), intro, old, profileSummary(),
+    replace(wrap, h("h1", null, "能力落差分析"), intro, old, profileSummary(),
       busy(plan) ? [h("div", { class: "center-cta" }, dots(), h("p", { class: "muted" },
         plan.stage === "plan" ? `作品集讀完了，Ava 正在比對你選的 ${n} 個職缺和履歷，大約再 1 分鐘。`
           : hasRepos ? `Ava 正在讀你的 GitHub 作品集原始碼，再比對你選的 ${n} 個職缺和履歷，通常需要 1–3 分鐘。`

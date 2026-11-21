@@ -20,7 +20,7 @@ class Config:
     max_jobs_per_site: int = field(default_factory=lambda: int(os.environ.get("CRAWLER_MAX_JOBS_PER_SITE", "50")))
     # 選用：有 OpenAI 金鑰時，用 AI 寫 2–3 句摘要與重點條列（不轉貼原文）
     openai_api_key: str = field(default_factory=lambda: os.environ.get("OPENAI_API_KEY", ""))
-    summary_model: str = field(default_factory=lambda: os.environ.get("CRAWLER_SUMMARY_MODEL", "gpt-5-mini"))
+    summary_model: str = field(default_factory=lambda: os.environ.get("CRAWLER_SUMMARY_MODEL", "gpt-6.1-terra"))
     summarize: bool = field(default_factory=lambda: _bool(os.environ.get("CRAWLER_SUMMARIZE"), True))
     # 只允許 https（測試用的本機伺服器可設 CRAWLER_ALLOW_HTTP=true）
     allow_http: bool = field(default_factory=lambda: _bool(os.environ.get("CRAWLER_ALLOW_HTTP")))

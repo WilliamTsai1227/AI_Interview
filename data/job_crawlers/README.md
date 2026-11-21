@@ -86,7 +86,7 @@ sam deploy --guided              # 依 template.yaml 建立 Lambda 與每日排�
 | `CRAWLER_DELAY_SEC` | `2` | 同一網站兩次請求的最短間隔 |
 | `CRAWLER_MAX_PAGES_PER_SITE` / `CRAWLER_MAX_JOBS_PER_SITE` | `60` / `50` | 每站上限 |
 | `OPENAI_API_KEY` | 空 | 有填才產生摘要；`CRAWLER_SUMMARIZE=false` 可關閉 |
-| `CRAWLER_SUMMARY_MODEL` | `gpt-5-mini` | 摘要模型 |
+| `CRAWLER_SUMMARY_MODEL` | `gpt-6.1-terra` | 摘要模型 |
 
 Lambda 事件：`{"mode": "crawl"}`、`{"mode": "crawl", "companies": ["acme"]}`、`{"mode": "verify", "limit": 300}`。
 

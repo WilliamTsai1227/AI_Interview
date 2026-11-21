@@ -51,25 +51,39 @@ class Settings(BaseSettings):
 
     # OpenAI：沒有金鑰時改用本機假資料（開發用），整個流程仍可走完
     openai_api_key: str = ""
-    llm_model_reasoning: str = "gpt-5"
-    llm_model_fast: str = "gpt-5-mini"
-    # 推理強度（只對支援的推理模型送出；空白＝不送）。追問要在 3 秒內回應，所以 fast 用 minimal
+    # gpt-5／gpt-5-mini 2026-12-11 停用；6 系列：sol 日常主力、terra 快速（gpt-5-mini 的官方替代）
+    llm_model_reasoning: str = "gpt-6.2-sol"
+    llm_model_fast: str = "gpt-6.1-terra"
+    # 推理強度（只對支援的推理模型送出；空白＝不送）。6 系列沒有 minimal：sol 最低 low；terra 可用 none（追問要 3 秒內回應）
     llm_effort_reasoning: str = "low"
-    llm_effort_fast: str = "minimal"
+    llm_effort_fast: str = "none"
     llm_timeout_reasoning: float = 150
     llm_timeout_fast: float = 60
-    stt_model_fast: str = "gpt-4o-mini-transcribe"
-    stt_model: str = "gpt-4o-transcribe"
-    tts_model: str = "gpt-4o-mini-tts"
+    stt_model_fast: str = "gpt-transcribe"     # gpt-4o-*-transcribe 2027-02-26 停用
+    stt_model: str = "gpt-transcribe"
+    # gpt-realtime-*：用 Realtime 語音模型念稿（比 gpt-4o-mini-tts 自然；後者 2027-01-06 停用），後端編碼成 mp3
+    tts_model: str = "gpt-realtime-2.1-mini"
     tts_voice: str = "marin"              # 官方建議最自然的是 marin（女聲）或 cedar（男聲）
     embedding_model: str = "text-embedding-3-small"
     realtime_model: str = "gpt-realtime-2.1"
+    # Live 即時對談（GPT-Live 全雙工）：後端代理 SDP 交換，API 金鑰不給前端
+    live_url: str = "https://api.openai.com/v1/live/sessions"
+    live_model: str = "gpt-live-1.1"
+    live_voice: str = ""                  # 空白＝GPT-Live 預設聲音；對談中不能換
+    # Responses delegation 的後端模型：面試官靠它呼叫 end_interview／mark_topic_done（另計 token 費用）。
+    # 空白＝不委派，結束靠時間上限或使用者按「結束面試」
+    live_delegate_model: str = "gpt-6.1-terra"
+    live_wrap_up_sec: int = 90            # 剩這麼多秒時提醒 Ava 收尾；超過上限 60 秒自動結束
+    # 面試官的擬真人像（Simli，依分鐘計費）：後端用金鑰換 5 分鐘有效的 session token 給瀏覽器；空白＝用瀏覽器內的插畫人像
+    simli_api_key: str = ""
+    simli_face_id: str = "14c60d62-6ebf-424d-b626-1f4f91c33b04"   # Simli 預設臉（Anna）；後台可以換其他臉
+    simli_url: str = "https://api.simli.ai"
 
     # 面試
     answer_max_sec: int = 300
     silence_prompt_sec: int = 12
     heartbeat_sec: int = 15
-    followup_timeout_sec: float = 3.0
+    followup_timeout_sec: float = 4.0     # 追問判斷約 2.5–3.2 秒（模型實測）；接話短句會蓋過等待時間
     group_weight_main: float = 0.6
     max_live_interviews: int = 200        # 准入控制門檻（§9.4）
     openai_concurrency: int = 32          # 每個模型的同時呼叫上限
@@ -95,6 +109,10 @@ class Settings(BaseSettings):
     @property
     def ai_enabled(self) -> bool:
         return bool(self.openai_api_key)
+
+    @property
+    def simli_enabled(self) -> bool:
+        return bool(self.simli_api_key)
 
     @property
     def admin_emails(self) -> set[str]:

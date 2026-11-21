@@ -4,9 +4,10 @@ import json
 from pydantic import BaseModel, Field
 
 from app.ai import client, text
+from app.ai.agents.questions import REALISM
 
-PV_ANALYZE = "prep_v1"
-PV_EXTEND = "prep_more_v1"
+PV_ANALYZE = "prep_v2"
+PV_EXTEND = "prep_more_v2"
 
 
 class Direction(BaseModel):
@@ -32,11 +33,15 @@ class AnalyzeOut(BaseModel):
     checklist: list[str]
 
 
-ANALYZE_SYSTEM = """你是求職教練。比對「職缺內容」與「履歷」，產生面試建議（繁體中文、口語、具體）。
-- strengths、gaps 各 2–4 點，每點 ≤ 25 字；沒有履歷時 strengths 給空陣列，gaps 寫職缺最重要的準備方向。
-- directions：高機率會被問的方向 3–5 個，probability 0–100。
-- likely_questions：3–5 題「新的」可能題目（不要和既有項目重複）。
-- checklist：3–5 項面試前準備事項（不要和既有項目重複）。"""
+ANALYZE_SYSTEM = """你是在台灣業界當過用人主管的求職教練。比對「職缺內容」與「履歷」，產生面試建議（繁體中文、口語、具體）。
+""" + REALISM + """
+- strengths、gaps 各 2–4 點，每點 ≤ 25 字，要具體到技能或經歷名稱；沒有履歷時 strengths 給空陣列，gaps 寫職缺最重要的準備方向。
+- directions：這場面試最可能花時間的方向 3–5 個，probability 0–100（依真實面試常見程度，不是平均分配）。
+- likely_questions：3–5 題這個職缺「真的很可能被問」的題目，依可能性排序（不要和既有項目重複）。
+  why 說明為什麼會問（例如「幾乎每場都問」「職缺第一項核心技能」「履歷上 X 專案的數字很亮眼」）；
+  tip 要具體到「拿履歷上的哪段經驗回答、要講出哪個重點」，不要空泛的「用 STAR」「保持自信」。
+- checklist：3–5 項面試前真的做得到的準備（例如「把 X 專案的延遲數字與量測方式整理成一句話」），
+  不要「了解公司文化」這種泛泛的事（不要和既有項目重複）。"""
 
 
 def _fake_analyze(job: dict, resume: dict | None, existing_q: list[str], existing_c: list[str]) -> AnalyzeOut:
@@ -114,7 +119,8 @@ async def extend_likely(*, job: dict, resume: dict | None, existing: list[str], 
         return LikelyMore(items=items[:count])
     out = await client.structured(
         purpose="prep_more", schema=LikelyMore, tier="fast", prompt_version=PV_EXTEND, user_id=user_id, fake=fake,
-        system="你是求職教練。依職缺與履歷，產生指定數量的「新的」可能面試題目，附為什麼會問與回答建議（繁體中文）。不要和既有題目重複。",
+        system="你是在台灣業界當過用人主管的求職教練。依職缺與履歷，產生指定數量的「新的」、這個職缺真的很可能被問的面試題目，"
+               "附為什麼會問與具體回答建議（繁體中文；tip 要指出拿履歷上的哪段經驗回答）。不要和既有題目重複。\n" + REALISM,
         user=json.dumps({"職缺": job, "履歷": resume or "（沒有履歷）", "既有題目": existing, "使用者需求": note or "（無）",
                          "領域": category or "不限", "數量": count}, ensure_ascii=False))
     res, seen = [], list(existing)
@@ -134,7 +140,8 @@ async def extend_checklist(*, job: dict, resume: dict | None, existing: list[str
         return ChecklistMore(items=items[:count])
     out = await client.structured(
         purpose="prep_more", schema=ChecklistMore, tier="fast", prompt_version=PV_EXTEND, user_id=user_id, fake=fake,
-        system="你是求職教練。依職缺與履歷，產生指定數量的「新的」面試前準備事項（繁體中文、每項 ≤ 30 字）。不要和既有項目重複。",
+        system="你是在台灣業界當過用人主管的求職教練。依職缺與履歷，產生指定數量的「新的」面試前準備事項"
+               "（繁體中文、每項 ≤ 30 字，要具體可執行，例如整理哪個專案的哪個數字；不要「了解公司文化」這種泛泛的事）。不要和既有項目重複。",
         user=json.dumps({"職缺": job, "履歷": resume or "（沒有履歷）", "既有項目": existing, "使用者需求": note or "（無）",
                          "數量": count}, ensure_ascii=False))
     res, seen = [], list(existing)

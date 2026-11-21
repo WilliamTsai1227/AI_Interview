@@ -19,7 +19,7 @@ from app.modules.membership import quota
 from app.modules.reports import service as reports
 
 router = APIRouter(prefix="/me", tags=["account"])
-DEFAULT_PREFS = {"default_length": "standard", "default_persona": "warm", "default_language": "zh", "voice_speed": 1.15,
+DEFAULT_PREFS = {"default_length": "standard", "default_persona": "warm", "default_language": "zh", "voice_speed": 1.0,
                  "desired_roles": [], "desired_locations": []}
 
 
@@ -27,7 +27,7 @@ class Prefs(BaseModel):
     default_length: Literal["quick", "standard", "deep"] | None = None
     default_persona: Literal["warm", "real", "tough"] | None = None
     default_language: Literal["zh", "en", "mixed"] | None = None
-    voice_speed: Literal[1.0, 1.15, 1.3] | None = None      # Ava 說話速度（前端播放速率）
+    voice_speed: Literal[1.0, 1.15, 1.3] | None = None      # Ava 說話速度（前端播放速率；變速會有電子音，預設 1.0）
     desired_roles: list[Tag] | None = Field(default=None, max_length=10)
     desired_locations: list[Tag] | None = Field(default=None, max_length=10)
 

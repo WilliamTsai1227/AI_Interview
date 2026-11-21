@@ -27,6 +27,8 @@ function bindShell() {
   $("#backdrop").onclick = closeDrawer;
   $("#sSearch").onclick = () => { closeDrawer(); openSearch(); };
   $("#themeBtn").onclick = () => setTheme(isDark() ? "light" : "dark");
+  // 鍵盤使用者：不用每頁先 Tab 過整個側欄（網址用 # 切頁，所以用按鈕而不是 <a href="#main">）
+  $("#skipBtn").onclick = () => $("#view").focus();
   $("#meBtn").onclick = (e) => openMenu(e.currentTarget, [
     { header: true, label: S.me.user.display_name, sub: S.me.user.email },
     { icon: "file", label: "履歷", v: "resume" },

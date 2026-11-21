@@ -6,14 +6,27 @@ import { closeModal, openModal } from "../ui.js";
 import { openJob } from "./job.js";
 
 export function openSearch() {
-  const res = h("div", { class: "mbody", style: "padding:8px" });
-  const inp = h("input", { class: "inp", style: "border:0;padding:6px 4px;font-size:1rem", placeholder: feature("job_search") ? "搜尋面試報告、目標職缺、職缺⋯" : "搜尋面試報告、目標職缺⋯", "aria-label": "搜尋" });
+  const res = h("div", { class: "mbody", style: "padding:8px", role: "listbox", "aria-label": "搜尋結果" });
+  const inp = h("input", { class: "inp", style: "border:0;padding:6px 4px;font-size:1rem", placeholder: feature("job_search") ? "搜尋面試報告、我的職缺、職缺⋯" : "搜尋面試報告、我的職缺⋯", "aria-label": "搜尋" });
   const head = h("div", { class: "mhead", style: "padding:8px 12px 8px 18px" },
     h("span", { style: "color:var(--ink-3)" }, icon("search", 18)), inp,
     h("button", { class: "ib", type: "button", "aria-label": "關閉", onclick: closeModal }, icon("x")));
   const s = openModal({ head, cls: "sm" });
   s.querySelector(".mbody").replaceWith(res);
-  let timer = null, seq = 0;
+  let timer = null, seq = 0, active = -1;
+  const results = () => [...res.querySelectorAll(".sres")];
+  const mark = (i) => {
+    const list = results();
+    if (!list.length) return;
+    active = (i + list.length) % list.length;
+    list.forEach((b, j) => { b.classList.toggle("on", j === active); b.setAttribute("aria-selected", String(j === active)); });
+    list[active].scrollIntoView({ block: "nearest" });
+  };
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); mark(active + 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); mark(active - 1); }
+    else if (e.key === "Enter" && active >= 0) { e.preventDefault(); results()[active]?.click(); }
+  });
   const draw = async (q) => {
     const my = ++seq;
     const ql = q.toLowerCase();
@@ -26,8 +39,9 @@ export function openSearch() {
       jobs = (j?.items || []).map((x) => ({ ic: "brief", t: `${x.company_name}・${x.title}`, r: x.match_score != null ? `${x.match_score}%` : "", job: x.id }));
     } catch { /* 離線時只顯示目標職缺 */ }
     if (my !== seq) return;
+    active = -1;
     const all = [...targets, ...reports, ...jobs].slice(0, 12);
-    replace(res, all.length ? all.map((x) => h("button", { class: "sres", type: "button", onclick: () => {
+    replace(res, all.length ? all.map((x) => h("button", { class: "sres", type: "button", role: "option", onclick: () => {
       closeModal();
       if (x.job) openJob(x.job); else location.hash = x.href;
     } }, icon(x.ic), h("span", { class: "t" }, x.t), h("span", { class: "faint" }, x.r)))

@@ -5,7 +5,7 @@ import { jobType, openJob } from "../components/job.js";
 import { dots, h, icon, replace } from "../dom.js";
 import { errorToast, logo, setHead } from "../ui.js";
 
-const TABS = [["all", "全部"], ["target", "目標職缺"], ["foreign", "外商"], ["remote", "遠端"], ["hybrid", "混合辦公"], ["match80", "契合度 80%+"]];
+const TABS = [["all", "全部"], ["target", "我的職缺"], ["foreign", "外商"], ["remote", "遠端"], ["hybrid", "混合辦公"], ["match80", "契合度 80%+"]];
 const st = { tab: "all", q: "" };
 
 export async function render(view, _arg, ctx) {
@@ -26,7 +26,7 @@ export async function render(view, _arg, ctx) {
     replace(grid, r.items.length ? r.items.map((j) => h("button", { class: "job", type: "button", onclick: () => openJob(j.id, { onChange: load }) },
       logo(j.logo_text, 52), h("span", { class: "bd" }, h("b", null, j.title),
         h("span", { class: "s" }, [j.company_name, (j.city || j.location_text || "").slice(0, 3), jobType(j).split("・")[1] || jobType(j)].filter(Boolean).join("・")),
-        h("span", { class: "m" }, [j.match_score != null ? `${j.match_score}% 契合` : "上傳履歷看契合度", j.target_id ? "目標職缺" : null].filter(Boolean).join("・")))))
+        h("span", { class: "m" }, [j.match_score != null ? `${j.match_score}% 契合` : "上傳履歷看契合度", j.target_id ? "已在我的職缺" : null].filter(Boolean).join("・")))))
       : h("p", { class: "muted", style: "padding:20px 14px;grid-column:1/-1" }, "找不到符合的職缺，換個關鍵字試試看。"));
   }
 

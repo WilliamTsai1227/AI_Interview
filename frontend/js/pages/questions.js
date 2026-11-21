@@ -1,49 +1,34 @@
-// 題庫生成：先列目標職缺 → 單一職缺的面試題庫（生成、追問規則、預設追問、排序、編輯、刪除）。
+// 題庫：職缺頁的「題庫」分頁（生成、追問規則、預設追問、排序、編輯、刪除）。沒有指定職缺時 router 會導到「我的職缺」。
 import { del, get, patch, post, put } from "../api.js";
-import { addTargetMenuItems, onAddTargetPick } from "../components/jd.js";
+import { jobHead } from "../components/jobhead.js";
 import { dots, h, icon, onEnter, replace, skel, trackComposition } from "../dom.js";
-import { CATS, DIFF, feature, fuLabel, loadTargets, pickTarget, S } from "../store.js";
-import { errorToast, logo, openMenu, setHead, toast } from "../ui.js";
+import { CATS, DIFF, fuLabel, loadTargets, pickTarget } from "../store.js";
+import { setLeaveGuard } from "../router.js";
+import { confirmBox, errorToast, openMenu, setHead, toast } from "../ui.js";
 
 export async function render(view, tid, ctx) {
-  return tid ? bank(view, tid, ctx) : targetList(view, ctx);
-}
-
-async function targetList(view, ctx) {
-  setHead("book", "題庫生成");
-  const wrap = h("div", { class: "wrap doc" });
-  view.append(wrap);
-  await loadTargets().catch(() => {});
-  if (!ctx.isCurrent()) return;
-  const tg = S.targets || [];
-  replace(wrap, h("h1", null, "題庫生成"),
-    h("p", { class: "muted", style: "margin-top:6px" }, "選一個目標職缺，Ava 會依你的履歷和這個職缺幫你出題。每個目標職缺有自己的面試題庫。"),
-    h("div", { style: "margin-top:20px" },
-      tg.map((t) => h("a", { class: "hrow", href: `#questions/${t.id}` }, logo(t.job.company_name.slice(0, 1).toUpperCase()),
-        h("span", { class: "bd" }, h("b", null, `${t.job.company_name}・${t.job.title}`),
-          h("span", { class: "m" }, `${t.question_set.status === "preparing" ? "Ava 出題中⋯" : t.question_set.item_count ? `${t.question_set.item_count} 題` : "還沒有題目"}${t.match_score != null ? `・契合度 ${t.match_score}%` : ""}`)),
-        h("span", { class: "ch" }, icon("right")))),
-      tg.length ? null : h("p", { class: "muted", style: "padding:14px 12px" }, feature("job_search") ? "還沒有目標職缺。先從職缺庫加入，或貼上你想應徵的職缺。" : "還沒有目標職缺。先貼上你想應徵的職缺。"),
-      h("button", { class: "addrow", type: "button", onclick: (e) => openMenu(e.currentTarget, addTargetMenuItems(), onAddTargetPick) }, icon("plus"), "新增目標職缺")));
+  return bank(view, tid, ctx);
 }
 
 async function bank(view, tid, ctx) {
   pickTarget(tid);
-  setHead("book", "題庫生成", null, [h("button", { class: "hbtn", type: "button", onclick: () => { location.hash = "#new"; } },
-    icon("mic"), h("span", { class: "hide-m" }, "用這組題目面試"))]);
+  setHead("target", "我的職缺");
   const wrap = h("div", { class: "wrap doc" }, h("div", { class: "center-load" }, dots()));
   view.append(wrap);
   const g = { cats: new Set(), diff: "medium", n: 5, gen: null };
   let target, data, editing = null, adding = false, poll = null;
+  // 正在編輯或新增題目、而且有打字：離開前先確認
+  setLeaveGuard(() => [...wrap.querySelectorAll(".qrow textarea")].some((ta) => ta.value.trim() && ta.value.trim() !== (ta.dataset.orig || "")));
 
   async function load() {
     [target, data] = await Promise.all([get(`/targets/${tid}`), get(`/targets/${tid}/questions`)]);
   }
   try { await load(); } catch (e) {
-    if (ctx.isCurrent()) replace(wrap, h("h1", null, "找不到這個目標職缺"), h("p", null, h("a", { href: "#questions", class: "linkb" }, "回到題庫生成")));
+    if (ctx.isCurrent()) replace(wrap, h("h1", null, "找不到這個職缺"), h("p", null, h("a", { href: "#targets", class: "linkb" }, "回到我的職缺")));
     return;
   }
   if (!ctx.isCurrent()) return;
+  setHead("target", target.job.company_name);
 
   const items = () => data.items;
   const note = trackComposition(h("textarea", { id: "gNote", rows: 1, placeholder: "想加強什麼？例如：多問一些帶人和 Code Review 的問題", "aria-label": "生成需求",
@@ -71,7 +56,7 @@ async function bank(view, tid, ctx) {
             g.gen = null;
             await load();
             if (r.status === "failed") toast("Ava 這次沒有出題成功，請再試一次");
-            else toast(r.created_item_count ? `新增了 ${r.created_item_count} 題到 ${target.job.company_name} 面試題庫${r.skipped_duplicates ? `，有 ${r.skipped_duplicates} 題和現有題目重複，已略過` : ""}` : "面試題庫裡已經有這些題目了");
+            else toast(r.created_item_count ? `新增了 ${r.created_item_count} 題到題庫${r.skipped_duplicates ? `，有 ${r.skipped_duplicates} 題和現有題目重複，已略過` : ""}` : "題庫裡已經有這些題目了");
             draw();
             return;
           }
@@ -118,7 +103,7 @@ async function bank(view, tid, ctx) {
 
   function row(q, i) {
     if (editing === q.id) {
-      const ta = h("textarea", { rows: 3, "aria-label": "題目內容", value: q.text });
+      const ta = h("textarea", { rows: 3, "aria-label": "題目內容", value: q.text, dataset: { orig: q.text } });
       setTimeout(() => ta.focus());
       return h("div", { class: "qrow" }, h("span", { class: "no" }, i + 1), h("div", { class: "bd" }, ta,
         h("div", { class: "row", style: "margin-top:8px" },
@@ -150,7 +135,11 @@ async function bank(view, tid, ctx) {
         h("button", { class: "ib sm", type: "button", "aria-label": "上移", disabled: i === 0, onclick: () => move(i, -1) }, icon("arrUp")),
         h("button", { class: "ib sm", type: "button", "aria-label": "下移", disabled: i === items().length - 1, onclick: () => move(i, 1) }, icon("arrDn")),
         h("button", { class: "ib sm", type: "button", "aria-label": "編輯", onclick: () => { editing = q.id; draw(); } }, icon("pencil")),
-        h("button", { class: "ib sm", type: "button", "aria-label": "刪除", onclick: () => act(() => del(`/targets/${tid}/questions/${q.id}`), "已刪除") }, icon("trash"))));
+        h("button", { class: "ib sm", type: "button", "aria-label": "刪除", onclick: async () => {
+          const ok = await confirmBox({ title: "刪除這一題？", text: `「${q.text.slice(0, 40)}${q.text.length > 40 ? "⋯" : ""}」和它的預設追問都會從題庫刪除，無法復原。過去的面試報告不受影響。`,
+            ok: "刪除", danger: true });
+          if (ok) act(() => del(`/targets/${tid}/questions/${q.id}`), "已刪除");
+        } }, icon("trash"))));
   }
 
   function addRow() {
@@ -179,11 +168,9 @@ async function bank(view, tid, ctx) {
     const preparing = data.status === "preparing";
     const loading = g.gen || data.pending_generation;
     replace(wrap,
-      h("a", { class: "linkb", href: "#questions", style: "margin:0 0 18px -6px" }, icon("left", 14), "所有目標職缺"),
-      h("div", { class: "eyebrow" }, target.job.title),
-      h("h1", null, `${target.job.company_name} 面試題庫`),
-      h("p", { class: "muted", style: "margin-top:6px" }, "告訴 Ava 你想加強什麼，她會依你的履歷和這個職缺出題。題目存在這個職缺的面試題庫，「新面試」選這個職缺時會照順序提問。"),
-      h("div", { class: "composer", style: "margin-top:22px" }, note,
+      jobHead({ ...target, question_set: { ...target.question_set, item_count: items().length } }, "questions"),
+      h("p", { class: "muted" }, "練習這個職缺時，Ava 會照這個順序提問。想加強什麼就告訴她，她會依你的履歷和這個職缺再出幾題。"),
+      h("div", { class: "composer", style: "margin-top:16px" }, note,
         h("div", { class: "c-bar" },
           h("button", { class: "pill", type: "button", id: "gCat", onclick: (e) => catMenu(e.currentTarget) }, icon("sliders"), h("span", { class: "lbl" }, catLbl), icon("chev")),
           h("button", { class: "pill", type: "button", onclick: (e) => openMenu(e.currentTarget, [{ title: "難度" }, ...Object.entries(DIFF).map(([k, l]) => ({ label: l, v: k, checked: g.diff === k }))], (v) => { g.diff = v; draw(); }) },

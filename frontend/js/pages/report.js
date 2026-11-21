@@ -4,13 +4,24 @@ import { dots, h, highlight, icon, replace, skel } from "../dom.js";
 import { playUrl } from "../interview/player.js";
 import { renderSide } from "../shell.js";
 import { fmtDate, loadMe, PERSONAS, pickTarget } from "../store.js";
-import { backLink, confirmBox, errorToast, openMenu, setHead, toast } from "../ui.js";
+import { backLink, confirmBox, copyText, errorToast, openMenu, setHead, toast } from "../ui.js";
 
 export async function render(view, sid, ctx) {
   return sid ? detail(view, sid, ctx) : list(view, ctx);
 }
 
 const durText = (sec) => (sec ? `${Math.max(1, Math.round(sec / 60))} 分鐘` : "");
+
+/** 一場面試報告一列（報告列表、職缺頁的「報告」分頁共用）。showJob：同一個職缺的列表不用再寫職缺名稱。 */
+export function reportRow(x, { showJob = true } = {}) {
+  const meta = `${fmtDate(x.ended_at)}・${x.answered_count} 題・${PERSONAS[x.persona]?.name || ""}${x.duration_sec ? `・${durText(x.duration_sec)}` : ""}`;
+  return h("a", { class: "hrow", href: `#report/${x.id}` },
+    h("span", { class: "bd" }, h("b", null, showJob ? x.job_label : meta), showJob ? h("span", { class: "m" }, meta) : null),
+    h("span", { class: "hs" }, x.report_status === "ready"
+      ? [h("b", { class: "num" }, x.overall_score ?? "-"), h("small", null, x.delta_vs_prev != null ? `${x.delta_vs_prev >= 0 ? "+" : ""}${x.delta_vs_prev}` : "首次")]
+      : h("span", { class: "proc" }, dots(), "評分中")),
+    h("span", { class: "ch" }, icon("right")));
+}
 
 async function list(view, ctx) {
   setHead("report", "面試報告");
@@ -30,17 +41,10 @@ async function list(view, ctx) {
     if (!items.length) { replace(box, h("p", { class: "muted", style: "padding:20px 12px" }, "找不到符合的面試報告。")); return; }
     const weekAgo = Date.now() - 7 * 86400000;
     const groups = [["最近 7 天", items.filter((x) => new Date(x.ended_at) >= weekAgo)], ["更早", items.filter((x) => new Date(x.ended_at) < weekAgo)]];
-    replace(box, groups.filter(([, xs]) => xs.length).map(([g, xs]) => [h("div", { class: "grp-h" }, g), xs.map((x) =>
-      h("a", { class: "hrow", href: `#report/${x.id}` },
-        h("span", { class: "bd" }, h("b", null, x.job_label),
-          h("span", { class: "m" }, `${fmtDate(x.ended_at)}・${x.answered_count} 題・${PERSONAS[x.persona]?.name || ""}${x.duration_sec ? `・${durText(x.duration_sec)}` : ""}`)),
-        h("span", { class: "hs" }, x.report_status === "ready"
-          ? [h("b", { class: "num" }, x.overall_score ?? "-"), h("small", null, x.delta_vs_prev != null ? `${x.delta_vs_prev >= 0 ? "+" : ""}${x.delta_vs_prev}` : "首次")]
-          : h("span", { class: "proc" }, dots(), "評分中")),
-        h("span", { class: "ch" }, icon("right"))))]));
+    replace(box, groups.filter(([, xs]) => xs.length).map(([g, xs]) => [h("div", { class: "grp-h" }, g), xs.map((x) => reportRow(x))]));
   };
   let timer = null;
-  const input = h("input", { id: "hq", placeholder: "搜尋職缺或公司", "aria-label": "搜尋面試報告", oninput: () => {
+  const input = h("input", { id: "hq", type: "search", autocomplete: "off", placeholder: "搜尋職缺或公司⋯", "aria-label": "搜尋面試報告", oninput: () => {
     clearTimeout(timer);
     timer = setTimeout(async () => {
       const q = input.value.trim();
@@ -89,7 +93,7 @@ function evalBlock(ev, transcript, { copyable = true, onRetry } = {}) {
     h("div", null, h("div", { class: "sub-h" }, "改善建議"), h("ul", { class: "ticks warn" }, ev.improvements.map((x) => h("li", null, x))))));
   if (ev.better_answer) {
     out.push(h("div", { class: "codebox" }, h("div", { class: "cb-h" }, icon("speak"), "可以這樣說", h("span", { class: "sp" }),
-      copyable ? h("button", { class: "ib sm", type: "button", "aria-label": "複製建議說法", onclick: () => { navigator.clipboard?.writeText(ev.better_answer); toast("已複製"); } }, icon("copy")) : null),
+      copyable ? h("button", { class: "ib sm", type: "button", "aria-label": "複製建議說法", onclick: () => copyText(ev.better_answer) }, icon("copy")) : null),
     h("div", { class: "cb-b" }, ev.better_answer)));
   }
   return out;
@@ -140,11 +144,20 @@ async function detail(view, sid, ctx) {
       try { await post(`/interviews/${sid}/questions/${qid}/re-evaluate`); toast("已重新排入評分"); load(); } catch (e) { errorToast(e); }
     };
     const m = r.metrics;
+    const nextActions = (style) => h("div", { class: "row", style },
+      h("a", { class: "btn pri", href: "#new", onclick: () => pickTarget(s.target_id) }, icon("redo"), "再練一次"),
+      h("button", { class: "btn out", type: "button", onclick: async () => {
+        try {
+          const x = await post(`/interviews/${sid}/report/add-to-set`, {});
+          toast(x.added ? `${x.added} 題已加入題庫最前面，下次練習會先問` : "這些題目已經在題庫裡，已移到最前面");
+        } catch (e) { errorToast(e); }
+      } }, icon("plus"), "弱項加入題庫"));
     replace(wrap, backLink("#report", "所有面試報告"),
       h("div", { class: "eyebrow" }, meta), h("h1", null, s.job_label),
       h("div", { class: "big" }, h("b", { class: "num" }, r.overall_score ?? "-"),
         h("span", null, `/ 100${r.delta_vs_prev != null ? `・比上次 ${r.delta_vs_prev >= 0 ? "+" : ""}${r.delta_vs_prev} 分` : "・第一次練習"}`)),
       r.summary ? h("p", { class: "muted", style: "margin-top:16px" }, r.summary) : null,
+      nextActions("margin-top:16px"),
       h("div", { class: "row", style: "margin-top:18px" },
         m.filler_count != null ? h("span", { class: "pill" }, `贅詞 ${m.filler_count} 次`) : null,
         m.avg_answer_sec ? h("span", { class: "pill" }, `平均每題 ${Math.floor(m.avg_answer_sec / 60)}:${String(m.avg_answer_sec % 60).padStart(2, "0")}`) : null,
@@ -152,7 +165,7 @@ async function detail(view, sid, ctx) {
       r.focus_areas.length ? [h("h2", null, "下次練習的重點"), h("ul", null, r.focus_areas.map((x) => h("li", null, x)))] : null,
       h("h2", null, "五個面向"),
       h("div", { class: "tbl-w" }, h("table", null,
-        h("thead", null, h("tr", null, h("th", null, "面向"), h("th", { class: "hide-m" }, "看什麼"), h("th", { style: "width:36%" }, "分數"), h("th", { class: "n" }, "分"))),
+        h("thead", null, h("tr", null, h("th", null, "面向"), h("th", { class: "hide-m" }, "看什麼"), h("th", { style: "width:36%" }, h("span", { class: "sr-only" }, "分數長條")), h("th", { class: "n" }, "分數"))),
         h("tbody", null, r.dimensions.map((d) => h("tr", null, h("td", null, d.label), h("td", { class: "muted hide-m" }, d.hint),
           h("td", null, h("div", { class: "bar" }, h("i", { style: `width:${d.score ?? 0}%` }))), h("td", { class: "n num" }, d.score ?? "-")))))),
       h("h2", null, "逐題回顧"),
@@ -173,14 +186,7 @@ async function detail(view, sid, ctx) {
             h("blockquote", null, f.question_text),
             f.status === "answered" ? [answerBlock(sid, f.answer), evalBlock(f.evaluation, f.answer?.transcript, { copyable: false, onRetry: retry(f.question_id) })] : null)));
       }),
-      h("div", { class: "row", style: "margin-top:28px" },
-        h("button", { class: "btn pri", type: "button", onclick: () => { pickTarget(s.target_id); location.hash = "#new"; } }, icon("redo"), "再練一次"),
-        h("button", { class: "btn out", type: "button", onclick: async () => {
-          try {
-            const x = await post(`/interviews/${sid}/report/add-to-set`, {});
-            toast(x.added ? `${x.added} 題已加入 ${s.company_name} 面試題庫最前面，下次面試會優先練` : "這些題目已經在面試題庫裡，已移到最前面");
-          } catch (e) { errorToast(e); }
-        } }, icon("plus"), "弱項加入面試題庫")));
+      nextActions("margin-top:28px"));
   };
 
   await load();

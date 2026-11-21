@@ -19,7 +19,8 @@ from app.core.errors import AppError
 from app.core.security import CurrentUser, current_user
 
 # 面試開始後的收尾工作：只受軟上限（入口）控制，不受硬上限切斷
-FINISHING_PURPOSES = frozenset({"followup", "stt_quick", "stt", "tts", "evaluate", "report", "realtime"})
+FINISHING_PURPOSES = frozenset({"avatar", "live_feedback", "followup", "stt_quick", "stt", "tts", "evaluate", "report", "realtime",
+                                "live_brief", "live", "live_segment"})
 
 _STATUS_SQL = """
 WITH u AS (

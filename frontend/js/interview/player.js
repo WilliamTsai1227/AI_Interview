@@ -2,9 +2,13 @@
 // play() 回傳 Promise<{ blocked?: true }>；自動播放被擋時 blocked，由呼叫端顯示「播放」按鈕。
 
 let current = null;   // { stop() }
-let rate = 1.15;      // Ava 說話速度：TTS 本身偏慢，用播放速率微調（瀏覽器會保持音高）
+let rate = 1;         // Ava 說話速度（播放速率）。語速主要靠 TTS 指示；變速播放會讓人聲有電子感，所以預設不加速
+let output = null;    // 擬真人像：每個要播的 <audio> 先交給它（導去對嘴，改由人像播出）
 
 export function setRate(r) { rate = Number(r) || 1; }
+
+/** 設定（或用 null 取消）擬真人像的聲音出口。 */
+export function setOutput(fn) { output = fn; }
 
 export function stopAll() {
   try { current?.stop(); } catch { /* ignore */ }
@@ -42,7 +46,9 @@ function speakBrowser(text, lang) {
 const prepared = new Map();   // url → 預先開始下載的 Audio（追問串流：接話播放時就先緩衝）
 
 function makeAudio(src) {
-  const a = new Audio(src);
+  const a = new Audio();
+  if (output) a.crossOrigin = "anonymous";    // 要導去擬真人像（Web Audio）：跨網域音檔（S3 已開 CORS）要用 CORS 讀，否則會變靜音
+  a.src = src;
   a.preload = "auto";
   a.playbackRate = rate;
   a.defaultPlaybackRate = rate;
@@ -67,6 +73,7 @@ async function playAudio(audio) {
   });
   try {
     audio.playbackRate = rate;
+    if (output && audio.crossOrigin === "anonymous" && !audio.routed) { audio.routed = true; output(audio); }
     await audio.play();
   } catch (e) {
     return e.name === "NotAllowedError" ? { blocked: true } : { error: true };

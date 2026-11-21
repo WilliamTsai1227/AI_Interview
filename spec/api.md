@@ -36,7 +36,7 @@
 | `persona` | `warm` / `real` / `tough` | 溫和引導 / 真實模擬 / 壓力面試 |
 | `language` | `zh` / `en` / `mixed` | 中文 / 英文 / 中英混合 |
 | `difficulty` | `basic` / `medium` / `advanced` | 基礎 / 中等 / 進階 |
-| `voice_mode` | `scripted` / `realtime` | 由後端依方案與 Realtime 可用性決定，**使用者不需要選** |
+| `voice_mode` | `scripted` / `realtime` / `live` | 新面試頁的「方式」：依題目（`scripted`，Realtime 可用時由後端升級為 `realtime`）／ Live 對談（`live`） |
 
 ### 1.2 認證
 
@@ -175,6 +175,10 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 | | GET | `/interviews/active` | 未結束（含暫停中）的面試 | 新面試橫幅、側欄 |
 | | GET | `/interviews/{id}` | 場次狀態（重新整理、繼續用） | 面試進行中 |
 | | POST | `/interviews/{id}/realtime/connect` | Realtime WebRTC SDP 交換（只限 `realtime`） | 面試進行中 |
+| | POST | `/interviews/{id}/live/connect` | GPT‑Live WebRTC SDP 交換（只限 `live`） | Live 面試・開始／繼續對談 |
+| | POST | `/interviews/{id}/live/turns` | 存對話段落（只限 `live`） | Live 面試進行中（每 3 秒） |
+| | GET | `/interviews/{id}/feedback` | 已回答題目的評分（面試畫面右側欄） | 面試中每 4 秒 |
+| | POST | `/interviews/{id}/avatar/connect` | 擬真人像（Simli）的 session token | 面試開始、繼續時 |
 | | POST | `/interviews/{id}/start` | 開始，取得第一題 | |
 | | POST | `/interviews/{id}/questions/{qid}/playback-finished` | 主題目播放完成 | |
 | | POST | `/interviews/{id}/questions/{qid}/answers` | 開始作答 | 點麥克風 |
@@ -791,9 +795,26 @@ PDF 第 `n` 頁（從 0 開始，最多前 20 頁）的 WebP 圖片，約 2 倍�
   "started_at": "…",
   "elapsed_sec": 214,
   "paused_at": null,
-  "resume_deadline": null
+  "resume_deadline": null,
+  "live": null
 }
 ```
+
+`live` 只在 `voice_mode = live` 時有值：
+
+```json
+"live": {
+  "brief_ready": true,             // 面試官簡報已產生（status 會同時變成 ready）
+  "time_limit_sec": 900,           // 快速 480／標準 900／深入 1500
+  "wrap_up_sec": 90,               // 剩這麼多秒時請 Ava 收尾
+  "wrap_up_cue": "時間快到了：把目前的話題收尾，請候選人反問，然後說結語。",
+  "turn_count": 12, "next_seq": 12, // 已存的對話段數；重新連線時 seq 從 next_seq 接著編
+  "tools": true,                   // 有設定委派模型：Ava 會呼叫 mark_topic_done／end_interview
+  "topics": [ { "id": "t1", "title": "自我介紹", "category": "自我介紹" } ]
+}
+```
+
+Live 場次沒有逐題的 `current_question`，`phase` 固定為 `idle`；`progress` 要等結束、切題後才有值。
 
 `cues` 是預先合成的接話短句（依語言與風格，跨場次快取），前端在使用者按停止的**同時**播放一句 `acks`，遮住上傳與追問判斷的等待時間，不需要等 API 回應。`realtime` 模式也會帶 `cues`，作為 Realtime 失敗時的備援。
 
@@ -823,6 +844,7 @@ PDF 第 `n` 頁（從 0 開始，最多前 20 頁）的 WebP 圖片，約 2 倍�
   "length_mode": "standard",
   "persona": "warm",
   "language": "zh",
+  "voice_mode": "scripted",       // 選填：scripted（預設）或 live
   "recording_consent": true
 }
 ```
@@ -834,7 +856,8 @@ PDF 第 `n` 頁（從 0 開始，最多前 20 頁）的 WebP 圖片，約 2 倍�
 3. 依 `length_mode` 決定主題目數：`quick` 3、`standard` 5、`deep` 8。從題組**依順序取前 N 題**。
 4. **題組題數不足時自動補題**（AI 依履歷＋職缺生成，並寫回題組），不讓使用者卡在「題數不足」。
 5. 題組仍在生成中：回 `409 RESOURCE_NOT_READY`（前端在生成中本來就會停用按鈕）。
-6. `voice_mode` 由後端決定：方案允許且 Realtime 可用時為 `realtime`，否則 `scripted`（MVP 一律 `scripted`）。
+6. `voice_mode`：使用者選 `live` 就是 Live 對談（所有方案開放）；選 `scripted` 時，Realtime 可用才由後端升級為 `realtime`（目前一律 `scripted`）。
+   - `live`：題組前 N 題只當「種子」存進 `live_brief.seeds`，**不建立 `session_questions`**（`questions` 回空陣列）；排 `prepare_live` 產生面試官簡報，完成後 `status = ready`。
 7. 在同一交易：建立場次、寫入職缺與履歷快照、複製題目到 `session_questions`、排 TTS 工作（主題目＋開場白；接話短句已有快取就沿用）；把本次的長度／風格／語言寫回 `users.preferences`、更新 `target_jobs.last_practiced_at`。
 8. 已有未結束（含暫停中）的場次：回 `409 ACTIVE_SESSION_EXISTS`，`details.session_id` 讓前端顯示「回到那場面試／結束它並開始新的」。
 9. 用量超過方案限制回 `403 PLAN_LIMIT_REACHED`。
@@ -1048,6 +1071,68 @@ mode = adaptive 且 k < followup_target        → Follow-up Decider 判斷要�
 
 若結束時正在 `answering`，前端先送出 `complete`（保留這題）再呼叫 `end`；若無法完成，該 attempt 標記 `interrupted`，不納入評分。未作答的主題目在報告中顯示「未作答」。`realtime` 模式前端關閉 WebRTC。
 
+`live`：前端先關閉 GPT‑Live（`session.close`）並送完剩下的對話段落再呼叫 `end`。候選人有說過話就 `completed`，報告先是 `processing`，後端排 `segment_live` 把逐字稿切成題目後才逐題評分；只有面試官說話則 `aborted`。
+
+### 10.15 `POST /interviews/{id}/live/connect`（只限 `voice_mode = live`）
+
+前端建立 `RTCPeerConnection`、加入麥克風 track 與 data channel `oai-events`、產生 SDP offer（等 ICE 收集完成），交給後端代為向 GPT‑Live 建立對談。開始、暫停後繼續、斷線重連都要重新呼叫。需要 `status = in_progress`（先呼叫 `start` 或 `resume`）。
+
+```json
+// Request
+{ "sdp": "v=0\r\no=- …" }
+// 200
+{ "sdp": "v=0\r\n…", "live_session_id": "live_…", "time_limit_sec": 900, "elapsed_sec": 312, "wrap_up_sec": 90 }
+```
+
+後端送給 `POST /v1/live/sessions` 的 session：`model = LIVE_MODEL`、`instructions`（面試官簡報、職缺、履歷、風格、語言、規則）、`input`（第一次：developer「開始面試」；之後：最近 30 段對話＋developer「歡迎回來，接著剛才的話題」）、`audio.output.voice`（有設定 `LIVE_VOICE` 時）、`delegation`（有設定 `LIVE_DELEGATE_MODEL` 時，帶 `mark_topic_done`、`end_interview` 兩個工具）。
+
+| 錯誤 | 說明 |
+|---|---|
+| `503 LIVE_UNAVAILABLE` | 沒有 OpenAI 金鑰（開發模式）或 GPT‑Live 連不上；前端顯示「重試」 |
+| `409 LIVE_TIME_UP` | 已超過時間上限 2 分鐘；前端直接結束面試 |
+| `409 STATE_CONFLICT` | 不是 live 場次或不在進行中 |
+
+### 10.16 `POST /interviews/{id}/live/turns`（只限 `voice_mode = live`）
+
+前端把 GPT‑Live 的雙方字幕依「換人說話」整理成段落，每 3 秒、暫停、結束前各送一次。同一個 `seq` 重送不會重複寫入。
+
+```json
+// Request
+{ "turns": [ { "seq": 0, "role": "interviewer", "text": "你好，我是 Ava⋯", "started_ms": 0, "ended_ms": 4200 },
+             { "seq": 1, "role": "candidate", "text": "我是小明⋯", "started_ms": 4800, "ended_ms": 52000 } ],
+  "usage_seconds": 312.4 }   // 選填：session.closed 的計費秒數，記到 llm_calls
+// 204
+```
+
+只接受 `in_progress`、`paused` 的場次（暫停後補送的段落也收）；結束後回 `409 STATE_CONFLICT`。
+存檔後，新答完的段落（面試官說話 → 候選人回答 → 面試官又開口，回答至少 15 字）各排一個 `live_feedback` 工作。
+
+### 10.17 `GET /interviews/{id}/feedback`
+
+面試畫面右側的「即時評分」。依題目模式（以及 Live 結束切完題之後）回正式評分（`evaluations`）；Live 面試中回 `live_feedback` 的參考分數，`provisional = true`。
+
+```json
+// 200
+{ "provisional": false,
+  "items": [ { "id": "…", "label": "第 1 題・自我介紹", "title": "請用兩分鐘介紹你自己⋯",
+               "status": "done",            // pending | done | failed
+               "score": 68, "strengths": ["⋯"], "improvements": ["⋯"],
+               "tip": "可以這樣說：⋯" } ] }   // 正式評分是 better_answer；Live 參考分數是一句提醒
+```
+
+
+### 10.18 `POST /interviews/{id}/avatar/connect`
+
+擬真人像（Simli）。後端用 `SIMLI_API_KEY` 向 Simli 換 5 分鐘內要使用的 session token 與 ICE 伺服器；瀏覽器用 P2P WebRTC 直連 Simli（訊號走 `wss://api.simli.ai`，CSP 只在有設定時放行）。場次的 `avatar` 欄位是 `"simli"` 時前端才呼叫。
+
+```json
+// 200
+{ "provider": "simli", "session_token": "…", "ice_servers": [ { "urls": ["turn:…"], "username": "…", "credential": "…" } ] }
+```
+
+- 只接受 `ready`、`in_progress` 的場次；Live 的 Simli 連線最長到時間上限＋5 分鐘，依題目最長 1 小時。
+- 每場最多 20 次（重新整理、暫停後繼續都算），超過回 `429 RATE_LIMITED`。
+- 沒有設定或 Simli 失敗回 `503 AVATAR_UNAVAILABLE`；前端改用插畫人像。
 ---
 
 ## 11. Reports（面試報告）
@@ -1055,6 +1140,8 @@ mode = adaptive 且 k < followup_target        → Follow-up Decider 判斷要�
 ### `GET /interviews`（報告列表）
 
 `?limit=20&cursor=…&q=Northwind`
+
+`target_id`（選填）：只列這個職缺的報告（職缺頁的「報告」分頁），`summary` 也只算這些。
 
 ```json
 {

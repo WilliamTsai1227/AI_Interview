@@ -20,19 +20,22 @@ def _label(job: dict) -> str:
     return "・".join(x for x in (job.get("company_name"), job.get("title")) if x)
 
 
-async def list_(user_id: UUID, q: str | None, limit: int, offset: int) -> dict:
+async def list_(user_id: UUID, q: str | None, limit: int, offset: int, target_id: UUID | None = None) -> dict:
+    """面試報告列表；target_id：只列這個職缺的報告（職缺頁的「報告」分頁）。summary 也只算這些。"""
     async with db.connection() as conn:
         summary = await conn.fetchrow(
             """SELECT count(*) AS total, round(avg(r.overall_score) FILTER (WHERE r.status = 'ready')) AS avg_score,
                       max(r.overall_score) FILTER (WHERE r.status = 'ready') AS best_score
-                 FROM interview_reports r JOIN interview_sessions s ON s.id = r.session_id WHERE s.user_id = $1""", user_id)
+                 FROM interview_reports r JOIN interview_sessions s ON s.id = r.session_id
+                WHERE s.user_id = $1 AND ($2::uuid IS NULL OR s.target_job_id = $2)""", user_id, target_id)
         rows = await conn.fetch(
             """SELECT s.id, s.ended_at, s.target_job_id, s.job_snapshot, s.persona, s.duration_sec, r.status AS report_status,
                       r.overall_score, r.delta_vs_prev,
                       (SELECT count(*) FROM session_questions m WHERE m.session_id = s.id AND m.kind = 'main' AND m.status = 'answered') AS answered_count
                  FROM interview_sessions s JOIN interview_reports r ON r.session_id = s.id
                 WHERE s.user_id = $1 AND ($2::text IS NULL OR (s.job_snapshot->>'company_name') || ' ' || (s.job_snapshot->>'title') ILIKE '%' || $2 || '%')
-                ORDER BY s.ended_at DESC NULLS LAST LIMIT $3 OFFSET $4""", user_id, q, limit + 1, offset)
+                  AND ($5::uuid IS NULL OR s.target_job_id = $5)
+                ORDER BY s.ended_at DESC NULLS LAST LIMIT $3 OFFSET $4""", user_id, q, limit + 1, offset, target_id)
     items = [{"id": str(r["id"]), "ended_at": r["ended_at"], "target_id": str(r["target_job_id"]),
               "job_label": _label(r["job_snapshot"] or {}), "answered_count": r["answered_count"], "persona": r["persona"],
               "duration_sec": r["duration_sec"], "report_status": r["report_status"], "overall_score": r["overall_score"],

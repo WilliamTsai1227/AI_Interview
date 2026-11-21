@@ -38,13 +38,13 @@ export async function openJob(jobId, { onChange } = {}) {
       pickTarget(tid);
       closeModal();
       location.hash = where === "new" ? "#new" : `#${where}/${tid}`;
-      if (!j.target_id) toast("已加入目標職缺，Ava 正在出題");
+      if (!j.target_id) toast("已加入我的職缺，Ava 正在出題");
     } catch (e) { errorToast(e); }
   };
   const tags = h("div", { class: "row", style: "justify-content:center;margin-top:12px" },
     j.match_score != null ? h("span", { class: "tagx" }, `${j.match_score}% 契合`) : null,
     h("span", { class: "tagx" }, jobType(j)), j.salary_text ? h("span", { class: "tagx" }, j.salary_text) : null,
-    j.target_id ? h("span", { class: "tagx" }, "目標職缺") : null);
+    j.target_id ? h("span", { class: "tagx" }, "已在我的職缺") : null);
   openModal({ title: "職缺詳情", cls: "sm", body: [
     h("div", { style: "text-align:center" }, logo(j.logo_text, 72),
       h("h2", { style: "font-size:1.4rem;font-weight:600;margin-top:14px" }, j.title),
@@ -58,7 +58,7 @@ export async function openJob(jobId, { onChange } = {}) {
       h("div", { class: "row", style: "margin-top:14px" }, j.tags.map((t) => h("span", { class: "tagx" }, t)))),
     h("div", { class: "row", style: "margin-top:24px;justify-content:center" },
       h("button", { class: "btn pri", type: "button", onclick: () => go("new") }, icon("mic"), "練習這個職缺"),
-      h("button", { class: "btn out", type: "button", onclick: () => go("questions") }, icon("book"), "面試題庫"),
+      h("button", { class: "btn out", type: "button", onclick: () => go("questions") }, icon("book"), "題庫"),
       h("button", { class: "btn out", type: "button", onclick: () => go("prep") }, icon("bulb"), "面試建議")),
     j.target_id
       ? h("div", { style: "text-align:center;margin-top:14px" },
@@ -68,11 +68,11 @@ export async function openJob(jobId, { onChange } = {}) {
             await del(`/targets/${j.target_id}`);
             await loadTargets();
             closeModal();
-            toast("已移出目標職缺，面試題庫會保留，重新加入就能找回");
+            toast("已從我的職缺移出，題庫會保留，重新加入就能找回");
             onChange?.();
           } catch (e) { errorToast(e); }
-        } }, "移出目標職缺"))
+        } }, "從我的職缺移出"))
       : h("p", { class: "faint", style: "text-align:center;margin-top:14px" },
-        "練習後會自動加入目標職缺，Ava 會先幫你出好題目。職缺庫只有摘要，到原始職缺頁複製完整內容貼上，題目會更準。"),
+        "練習後會自動加入我的職缺，Ava 會先幫你出好題目。職缺庫只有摘要，到原始職缺頁複製完整內容貼上，題目會更準。"),
   ] });
 }

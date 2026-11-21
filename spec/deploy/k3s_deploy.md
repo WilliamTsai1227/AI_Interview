@@ -152,6 +152,26 @@ echo 'export KUBECONFIG=~/.kube/k3s.yaml' >> ~/.zshrc
 source ~/.zshrc
 ```
 
+**出現 `zsh: permission denied: /Users/<你>/.zshrc`**
+
+代表 `~/.zshrc` 的擁有者是 root，不是你（以前用 `sudo` 建立或編輯過這個檔案就會這樣）。先確認：
+
+```bash
+ls -l ~/.zshrc
+# -rw-r--r--  1 root  staff  446 ... /Users/william/.zshrc   ← 擁有者是 root，你只能讀
+```
+
+把擁有者改回自己（只要做一次，需要輸入密碼），再寫入：
+
+```bash
+sudo chown "$(whoami)":staff ~/.zshrc
+echo 'export KUBECONFIG=~/.kube/k3s.yaml' >> ~/.zshrc
+source ~/.zshrc
+```
+
+- `sudo echo '...' >> ~/.zshrc` 沒有用：`>>` 寫檔是由你自己的 shell 做的，sudo 只讓 `echo` 用 root 跑，寫檔時一樣被拒絕。
+- 不建議用 `echo '...' | sudo tee -a ~/.zshrc` 硬寫：檔案還是 root 的，之後每次改都要 sudo。
+
 > 如果你還有別的叢集（例如 Docker Desktop、雲端 EKS），不想互相蓋掉，就維持「每次部署前才 `export`」，或用 `kubectl config view --flatten` 合併成同一個 `~/.kube/config`。`deploy.sh` 開頭會印出它要部署的叢集位址（`==> 部署到 https://127.0.0.1:6443`），部署前看一眼，確認不是連錯叢集。
 
 ---
@@ -316,6 +336,7 @@ docker compose up -d
 | 現象 | 原因與解法 |
 |---|---|
 | `zsh: command not found: kubectl` | 還沒裝 kubectl，見 2.1。裝完開新終端機。 |
+| 寫入 `~/.zshrc` 出現 `zsh: permission denied` | 檔案擁有者是 root（以前用 sudo 改過）。`sudo chown "$(whoami)":staff ~/.zshrc` 改回自己，見 2.4。`sudo echo ... >> ~/.zshrc` 沒用，因為寫檔的是你自己的 shell。 |
 | `kubectl get nodes` 回 `connection refused`／`The connection to the server localhost:8080 was refused` | 沒設 `KUBECONFIG`（會退回預設的 8080）。執行 `export KUBECONFIG=~/.kube/k3s.yaml`。 |
 | `dial tcp 127.0.0.1:6443: connect: connection refused` | VM 沒開。`limactl list`，不是 Running 就 `limactl start k3s`；剛啟動時等約 30 秒。 |
 | `kubectl` 連到錯的叢集 | `echo $KUBECONFIG`、`kubectl config current-context`。`deploy.sh` 開頭會印出目標位址。 |

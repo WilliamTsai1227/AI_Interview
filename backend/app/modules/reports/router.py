@@ -19,8 +19,8 @@ class AddToSetIn(BaseModel):
 
 @router.get("")
 async def list_(q: str | None = None, limit: int = Query(20, ge=1, le=50), cursor: str | None = None,
-                user: CurrentUser = Depends(current_user)):
-    return await service.list_(user.id, (q or "").strip() or None, limit, int(cursor) if cursor and cursor.isdigit() else 0)
+                target_id: UUID | None = None, user: CurrentUser = Depends(current_user)):
+    return await service.list_(user.id, (q or "").strip() or None, limit, int(cursor) if cursor and cursor.isdigit() else 0, target_id)
 
 
 @router.get("/{sid}/report")

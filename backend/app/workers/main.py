@@ -23,6 +23,7 @@ from app.core import db, redis, storage
 from app.core.config import settings
 from app.core.migrate import ensure_partitions
 from app.modules.career import service as career
+from app.modules.interviews import live
 from app.modules.interviews import service as interviews
 from app.modules.jobs import service as jobs
 from app.modules.preps import service as preps
@@ -47,6 +48,9 @@ HANDLERS = {
     "extend_prep": preps.handle_extend,
     "build_career_plan": career.handle_build,
     "synthesize_tts": interviews.handle_tts,
+    "prepare_live": live.handle_prepare,
+    "segment_live": live.handle_segment,
+    "live_feedback": live.handle_feedback,
     "transcribe_attempt": pipeline.handle_transcribe,
     "evaluate_attempt": pipeline.handle_evaluate,
     "build_report": pipeline.handle_build_report,
