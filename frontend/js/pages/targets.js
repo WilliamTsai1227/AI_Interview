@@ -170,10 +170,9 @@ async function detail(view, tid, ctx) {
     const tags = [t.match_score != null ? h("span", { class: "tagx" }, `${t.match_score}% 契合`) : null,
       j.source !== "user" ? h("span", { class: "tagx" }, jobType(j)) : null, j.salary_text ? h("span", { class: "tagx" }, j.salary_text) : null].filter(Boolean);
     const extra = [tags.length ? h("div", { class: "row", style: "margin-top:8px" }, tags) : null,
-      raw ? h("div", { class: "faint", style: "margin-top:6px" },
-        h("button", { class: "linkb", type: "button", style: "display:inline-flex;text-decoration:underline;margin-left:-6px", onclick: showRaw }, "查看或編輯原文"),
-        "・",
-        h("button", { class: "linkb", type: "button", style: "display:inline-flex;text-decoration:underline", onclick: editLink },
+      raw ? h("div", { class: "row faint", style: "margin:6px 0 0 -6px;gap:2px 10px" },
+        h("button", { class: "linkb", type: "button", style: "text-decoration:underline", onclick: showRaw }, "查看或編輯原文"),
+        h("button", { class: "linkb", type: "button", style: "text-decoration:underline", onclick: editLink },
           j.source_url ? "修改職缺網址" : "加上職缺網址"))
         : h("div", { style: "margin-top:6px" }, sourceLine(j), sourceButton(j))];
     replace(wrap,

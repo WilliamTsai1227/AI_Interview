@@ -129,7 +129,7 @@ async function detail(view, tid, ctx) {
             catch (e) { errorToast(e); }
           }) }, icon("file"), h("b", null, b.resume?.filename || "選擇履歷"), icon("chev"))
         : [h("button", { class: "btn out sm", type: "button", onclick: () => openSettings("resume", { onChanged: async () => { await loadResumes(); await load(); draw(); } }) }, icon("upload"), "上傳履歷"),
-          h("span", { class: "hint" }, "上傳後可以看到你的優勢與落差")])),
+          h("span", { class: "hint" }, "上傳後 Ava 會比對你的經歷，列出你的優勢與落差")])),
       h("div", { class: "basis-f" },
         h("span", { class: "faint" }, analyzing ? "Ava 正在讀取職缺內容和你的履歷⋯"
           : b.stale ? "職缺或履歷有更新，建議重新分析。" : `上次分析：${fmtDate(b.analyzed_at)}。職缺或履歷有更新時，重新分析一次。`),
@@ -143,14 +143,15 @@ async function detail(view, tid, ctx) {
           : [h("div", { class: "center-cta" }, dots(), h("p", { class: "muted" }, "Ava 正在比對職缺內容和你的履歷，通常不到 30 秒。")), skel(3)]);
       return;
     }
-    const score = prep.match_score;
+    const hasResume = !!b.resume;
+    const score = hasResume ? prep.match_score : null;        // 沒有履歷時契合度沒有根據，不顯示
     replace(wrap, back, basis,
       score != null ? h("div", { class: "big" }, h("b", { class: "num" }, `${score}%`), h("span", null, `契合度・${prep.verdict_title || ""}`)) : null,
-      prep.verdict_text ? h("p", { class: "muted", style: "margin-top:14px" }, prep.verdict_text) : null,
+      hasResume && prep.verdict_text ? h("p", { class: "muted", style: "margin-top:14px" }, prep.verdict_text) : null,
       h("div", { class: "grid2" },
-        h("div", null, h("h2", null, "你的優勢"), prep.strengths.length ? h("ul", { class: "ticks" }, prep.strengths.map((t) => h("li", null, t)))
-          : h("p", { class: "faint" }, "上傳履歷後可以看到你的優勢。")),
-        h("div", null, h("h2", null, "需要補強"), h("ul", { class: "ticks warn" }, prep.gaps.map((t) => h("li", null, t))))),
+        hasResume ? h("div", null, h("h2", null, "你的優勢"), prep.strengths.length ? h("ul", { class: "ticks" }, prep.strengths.map((t) => h("li", null, t)))
+          : h("p", { class: "faint" }, "這份履歷和職缺的重疊不多，先看右邊要補強的地方。")) : null,
+        h("div", { style: hasResume ? null : "grid-column:1 / -1" }, h("h2", null, hasResume ? "需要補強" : "這個職缺最要準備的"), h("ul", { class: "ticks warn" }, prep.gaps.map((t) => h("li", null, t))))),
       prep.directions.length ? [h("h2", null, "高機率會問的方向"),
         h("div", { class: "tbl-w" }, h("table", null, h("tbody", null, prep.directions.map((d) => h("tr", null, h("td", null, d.label),
           h("td", { style: "width:36%" }, h("div", { class: "bar", "aria-hidden": "true" }, h("i", { style: `width:${d.probability}%` }))),

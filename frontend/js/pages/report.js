@@ -144,11 +144,20 @@ async function detail(view, sid, ctx) {
       try { await post(`/interviews/${sid}/questions/${qid}/re-evaluate`); toast("已重新排入評分"); load(); } catch (e) { errorToast(e); }
     };
     const m = r.metrics;
+    const nextActions = (style) => h("div", { class: "row", style },
+      h("a", { class: "btn pri", href: "#new", onclick: () => pickTarget(s.target_id) }, icon("redo"), "再練一次"),
+      h("button", { class: "btn out", type: "button", onclick: async () => {
+        try {
+          const x = await post(`/interviews/${sid}/report/add-to-set`, {});
+          toast(x.added ? `${x.added} 題已加入題庫最前面，下次練習會先問` : "這些題目已經在題庫裡，已移到最前面");
+        } catch (e) { errorToast(e); }
+      } }, icon("plus"), "弱項加入題庫"));
     replace(wrap, backLink("#report", "所有面試報告"),
       h("div", { class: "eyebrow" }, meta), h("h1", null, s.job_label),
       h("div", { class: "big" }, h("b", { class: "num" }, r.overall_score ?? "-"),
         h("span", null, `/ 100${r.delta_vs_prev != null ? `・比上次 ${r.delta_vs_prev >= 0 ? "+" : ""}${r.delta_vs_prev} 分` : "・第一次練習"}`)),
       r.summary ? h("p", { class: "muted", style: "margin-top:16px" }, r.summary) : null,
+      nextActions("margin-top:16px"),
       h("div", { class: "row", style: "margin-top:18px" },
         m.filler_count != null ? h("span", { class: "pill" }, `贅詞 ${m.filler_count} 次`) : null,
         m.avg_answer_sec ? h("span", { class: "pill" }, `平均每題 ${Math.floor(m.avg_answer_sec / 60)}:${String(m.avg_answer_sec % 60).padStart(2, "0")}`) : null,
@@ -177,14 +186,7 @@ async function detail(view, sid, ctx) {
             h("blockquote", null, f.question_text),
             f.status === "answered" ? [answerBlock(sid, f.answer), evalBlock(f.evaluation, f.answer?.transcript, { copyable: false, onRetry: retry(f.question_id) })] : null)));
       }),
-      h("div", { class: "row", style: "margin-top:28px" },
-        h("a", { class: "btn pri", href: "#new", onclick: () => pickTarget(s.target_id) }, icon("redo"), "再練一次"),
-        h("button", { class: "btn out", type: "button", onclick: async () => {
-          try {
-            const x = await post(`/interviews/${sid}/report/add-to-set`, {});
-            toast(x.added ? `${x.added} 題已加入題庫最前面，下次練習會先問` : "這些題目已經在題庫裡，已移到最前面");
-          } catch (e) { errorToast(e); }
-        } }, icon("plus"), "弱項加入題庫")));
+      nextActions("margin-top:28px"));
   };
 
   await load();

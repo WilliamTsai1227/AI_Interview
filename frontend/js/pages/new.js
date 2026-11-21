@@ -76,7 +76,13 @@ export async function render(view, _arg, ctx) {
         else { S.resumeSel = v === "_none" ? null : v; draw(); }
       }) }, icon("file"), h("b", null, resumeSel ? resumeSel.filename : "不使用履歷"), icon("chev"))
       : [h("button", { class: "btn out sm", type: "button", onclick: () => openSettings("resume", { onChanged: refresh }) }, icon("upload"), "上傳履歷"),
-        h("span", { class: "hint" }, "選填。沒有履歷也能練，題目會只依職缺出")]));
+        h("span", { class: "hint" }, "建議上傳：Ava 會針對你履歷上的專案問細節，評分和建議也會更準")]));
+    // 新手引導：還沒有職缺或履歷時，標出「貼職缺 → 上傳履歷 → 開始練習」走到哪一步
+    const stepsDone = [has, resumes.length > 0, false];
+    const cur = stepsDone.indexOf(false);
+    const steps = !has || !resumes.length ? h("ol", { class: "steps", "aria-label": "開始前的步驟" },
+      ["貼上職缺", "上傳履歷（建議）", "開始練習"].map((label, i) => h("li", { class: stepsDone[i] ? "done" : i === cur ? "cur" : "",
+        "aria-current": i === cur ? "step" : null }, h("span", { class: "n", "aria-hidden": "true" }, stepsDone[i] ? icon("check", 12) : String(i + 1)), label))) : null;
 
     const preview = h("div", { class: "qprev" },
       h("div", { class: "qprev-h" }, h("span", null, live ? `Ava 會從這些主題聊起（${n} 個，不一定照順序）` : `本次題目（${n} 題）`),
@@ -123,6 +129,7 @@ export async function render(view, _arg, ctx) {
       h("h1", { class: "hello" }, has ? "準備好就開始" : "先告訴 Ava 你想應徵哪個職缺"),
       h("p", null, !has ? "貼上職缺內容，Ava 會依職缺和你的履歷出題，一分鐘內就能開始練習。"
         : live ? "Ava 會先讀過你的履歷和職缺，像真人面試官一樣跟你自由對談、即時追問。" : "Ava 會依你的履歷和職缺，一題一題用語音問你。"),
+      steps,
       h("div", { class: "setup" }, jobRow, resumeRow, has ? [summaryRow, st.more ? optionRows : null] : null),
       h("div", { class: "start" }, go,
         h("div", { class: "faint" }, has ? [h("button", { class: "linkb", type: "button", onclick: () => openJd() }, icon("plus"), "貼上新職缺"), h("span", null, "・")] : null,
