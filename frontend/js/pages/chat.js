@@ -4,9 +4,11 @@ import { api, get, post, sse, uploadFile, uuid } from "../api.js";
 import { $, clear, dots, h, icon, replace } from "../dom.js";
 import { play, prepare, setRate, stopAll } from "../interview/player.js";
 import { Recorder, requestMic } from "../interview/recorder.js";
+import { fullscreenBtn, stage } from "../interview/stage.js";
 import { renderSide } from "../shell.js";
 import { fmtClock, LANGS, loadMe, MODES, PERSONAS, S } from "../store.js";
-import { closeModal, confirmBox, errorToast, openModal, setHead, toast } from "../ui.js";
+import { closeModal, confirmBox, copyText, errorToast, openModal, setHead, toast } from "../ui.js";
+import { render as renderLive } from "./live.js";
 
 let devMode = null;   // 後端沒有 OpenAI 金鑰：用瀏覽器語音辨識產生字幕
 async function isDev() {
@@ -18,8 +20,10 @@ async function isDev() {
 
 export async function render(view, sid, ctx) {
   if (!sid) { location.hash = "#new"; return; }
-  const chatBox = h("div", { class: "chat", id: "chat" });
-  view.append(chatBox);
+  const first = await get(`/interviews/${sid}`).catch(() => null);
+  if (first?.voice_mode === "live") return renderLive(view, sid, ctx);
+  const ui = stage(view, sid);
+  const chatBox = ui.chatBox;
   const dock = $("#dock");
   const st = {
     s: null, local: "loading", stream: null, rec: null, attempt: null, ack: null, ackPlaying: null, clock: null,
@@ -27,10 +31,10 @@ export async function render(view, sid, ctx) {
   };
   const alive = () => ctx.isCurrent() && !st.left;
   const lang = () => st.s?.language || "zh";
-  setRate(S.me?.preferences?.voice_speed ?? 1.15);
+  setRate(S.me?.preferences?.voice_speed ?? 1);
 
   // ---------- 畫面 ----------
-  const scrollEnd = () => { const v = $("#view"); v.scrollTop = v.scrollHeight; };
+  const scrollEnd = ui.scrollEnd;
   const sys = (text) => { chatBox.append(h("div", { class: "sysm" }, text)); scrollEnd(); };
 
   function aiMsg(label, text, speech) {
@@ -54,7 +58,7 @@ export async function render(view, sid, ctx) {
       }),
       acts: () => el.append(h("div", { class: "acts" },
         speech ? h("button", { class: "ib sm", type: "button", "aria-label": "重播這題", onclick: () => play(speech, lang()) }, icon("speak")) : null,
-        h("button", { class: "ib sm", type: "button", "aria-label": "複製題目", onclick: () => { navigator.clipboard?.writeText(text); toast("已複製題目"); } }, icon("copy")))),
+        h("button", { class: "ib sm", type: "button", "aria-label": "複製題目", onclick: () => copyText(text, "已複製題目") }, icon("copy")))),
     };
   }
 
@@ -77,6 +81,7 @@ export async function render(view, sid, ctx) {
     const s = st.s;
     const done = !s || ["completed", "aborted"].includes(s.status);
     setHead("chat", `${s?.job?.company_name || ""} 模擬面試`, s ? badge() : null, [
+      fullscreenBtn(),
       h("span", { class: "faint num hide-m", style: "display:inline-flex;align-items:center;gap:5px;margin-right:4px" }, icon("clock", 14),
         h("span", { id: "ivT" }, fmtClock(s?.elapsed_sec || 0))),
       done ? null : h("button", { class: "hbtn", type: "button", onclick: () => pause() }, icon("pause"), h("span", { class: "hide-m" }, "暫停")),
@@ -98,7 +103,7 @@ export async function render(view, sid, ctx) {
     const done = s && ["completed", "aborted"].includes(s.status);
     const prog = h("div", { class: "prog" }, Array.from({ length: total }, (_, i) =>
       h("i", { class: done || i < cur - 1 ? "d" : i === cur - 1 ? "c" : "" })));
-    let left = null, mid = [], btn = null, tip = "題目會依面試題庫順序提問，每題回答都會錄音存檔。";
+    let left = null, mid = [], btn = null, tip = "題目會依題庫順序提問，每題回答都會錄音存檔。";
     const L = st.local;
     if (L === "loading" || L === "preparing") { mid = [dots(), L === "preparing" ? "Ava 準備中⋯" : "載入中⋯"]; btn = h("button", { class: "micbtn", type: "button", disabled: true }, icon("mic")); }
     else if (L === "paused") { mid = ["已暫停・計時停止"]; btn = h("button", { class: "btn pri sm", type: "button", onclick: () => resume() }, "繼續"); tip = "暫停期間不計時；24 小時內都能回來繼續。"; }
@@ -130,7 +135,13 @@ export async function render(view, sid, ctx) {
       devMode && L === "recording" ? h("div", { class: "devnote" }, "開發模式：沒有設定 OpenAI 金鑰，回答文字來自瀏覽器語音辨識") : null));
   }
 
-  const setLocal = (L) => { st.local = L; drawDock(); };
+  const AVATAR = { speaking: "speaking", recording: "listening", uploading: "thinking", loading: "thinking", preparing: "thinking" };
+  const setLocal = (L) => {
+    st.local = L;
+    ui.setState(AVATAR[L] || "idle");
+    if (L === "recording" || L === "done") ui.setCaption("");
+    drawDock();
+  };
 
   function startClock() {
     clearInterval(st.clock);
@@ -195,13 +206,19 @@ export async function render(view, sid, ctx) {
     st.s = r.session;
     await loadMe(); renderSide();
     head(); startClock(); startHeartbeat();
+    ui.feedback.active(true);
+    if (s.avatar) await ui.startAvatar();           // 擬真人像：連不上就用插畫人像
+    if (!alive()) return;
     await askCurrent(r.intro);
   }
 
   async function continueFromPhase() {
     const s = st.s;
     startClock(); startHeartbeat();
+    ui.feedback.active(true);
     if (!(await ensureMic())) { setLocal("error"); return; }
+    if (s.avatar) await ui.startAvatar();
+    if (!alive()) return;
     const q = s.current_question;
     if (s.phase === "asking") return askCurrent();
     if (s.phase === "answering" && s.current_attempt) {
@@ -214,6 +231,7 @@ export async function render(view, sid, ctx) {
     const m = aiMsg(questionLabel(q), q.text, q);
     m.tx.textContent = q.text;
     m.acts();
+    ui.setQuestion(questionLabel(q), q.text);
     updateBadge();
     setLocal("ready");
   }
@@ -225,6 +243,8 @@ export async function render(view, sid, ctx) {
     setLocal("speaking");
     const text = intro ? `${intro.text}\n\n${q.text}` : q.text;
     const m = aiMsg(questionLabel(q), text, q);
+    ui.setQuestion(questionLabel(q), q.text);
+    ui.setCaption(text);
     const typing = m.type();
     if (intro) await speak(intro);
     await speak(q);
@@ -328,6 +348,7 @@ export async function render(view, sid, ctx) {
 
   async function afterComplete(r) {
     st.s = r.session;
+    ui.feedback.refresh();
     if (r.next.type !== "completed") prepare(st.s.current_question);   // 接話還在播，追問語音先開始串流
     if (st.answerEl) st.answerEl.textContent = r.attempt?.quick_transcript || "（已儲存你的回答）";
     st.answerEl = null;
@@ -337,7 +358,7 @@ export async function render(view, sid, ctx) {
   }
 
   async function handleNext(next) {
-    if (!alive()) return;
+    if (!alive() || st.ending) return;
     if (next.type === "completed") return finished(true, next.outro);
     return askCurrent();
   }
@@ -354,6 +375,7 @@ export async function render(view, sid, ctx) {
     st.s = r.session;
     if (r.next.type !== "completed") {
       prepare(st.s.current_question);
+      ui.setCaption(st.s.cues.skip_ack.text);
       const m = aiMsg(null, st.s.cues.skip_ack.text);
       const typing = m.type();
       await play(st.s.cues.skip_ack, lang());
@@ -366,16 +388,21 @@ export async function render(view, sid, ctx) {
   async function finished(live, outro) {
     clearInterval(st.clock);
     clearInterval(st.hb);
+    ui.feedback.active(false);
+    ui.feedback.refresh();      // 還在評分的題目會繼續更新到評完
+    ui.setQuestion("面試結束", st.s.status === "completed" ? "每題的分數與改善建議都在下面；完整報告評完就能查看。" : "這場沒有回答內容，不會產生報告。");
     head();
     const s = st.s;
     if (live && outro) {
       setLocal("speaking");
       const text = s.status === "completed" ? outro.text : "今天的面試到這裡結束。這次沒有回答的題目，所以不會產生報告。";
       const m = aiMsg(null, text);
+      ui.setCaption(text);
       const typing = m.type();
       await play(s.status === "completed" ? outro : { text }, lang());
       await typing;
     }
+    ui.stopAvatar();
     await loadMe(); renderSide();
     if (s.status === "completed") reportCard();
     setLocal("done");
@@ -405,6 +432,7 @@ export async function render(view, sid, ctx) {
   async function pause() {
     if (!st.s || st.s.status !== "in_progress") return;
     stopAll();
+    ui.stopAvatar();                                // 暫停時不佔用擬真人像（依分鐘計費）
     if (st.local === "recording") { clearInterval(st.recTimer); st.rec.cancel(); st.answerEl?.remove(); st.answerEl = null; }
     try {
       const r = await post(`/interviews/${sid}/pause`, { expected_version: st.s.state_version, reason: "user" });
@@ -434,13 +462,26 @@ export async function render(view, sid, ctx) {
     return continueFromPhase();
   }
 
+  /** 回答還在上傳：等它送完（最多 90 秒），結束時這題才會一起評分。 */
+  async function waitUpload() {
+    for (let i = 0; i < 450 && st.local === "uploading" && alive(); i++) await new Promise((r) => setTimeout(r, 200));
+  }
+
   async function endInterview() {
     const s = st.s;
-    const answered = s.progress.answered;
-    const ok = await confirmBox({ title: "結束這場面試？",
-      text: answered ? `已回答的 ${answered} 題會產生報告，還沒回答的 ${s.progress.total_main - answered} 題不會評分。` : "你還沒有回答任何題目，結束後不會產生報告。",
-      ok: answered ? "結束並產生報告" : "結束面試", cancel: "繼續面試" });
+    const sending = st.local === "uploading";
+    const failed = st.local === "upload_failed";
+    const answered = s.progress.answered + (sending && s.current_question?.kind === "main" ? 1 : 0);   // 追問不另算一題
+    const left = Math.max(0, s.progress.total_main - answered);
+    let text;
+    if (failed) text = "剛才那題上傳失敗，還沒存下來。按「重新上傳」送出後再結束，這題才會評分。";
+    else if (!answered) text = "你還沒有回答任何題目，結束後不會產生報告。";
+    else text = `${sending ? "剛才那題還在上傳，會等它傳完再結束。" : ""}已回答的 ${answered} 題會產生報告${left ? `，還沒回答的 ${left} 題不會評分` : ""}。`;
+    const ok = await confirmBox({ title: "結束這場面試？", text,
+      ok: failed ? "不送了，直接結束" : answered ? "結束並產生報告" : "結束面試", cancel: failed ? "回去重新上傳" : "繼續面試" });
     if (!ok) return;
+    st.ending = true;                 // 上傳完成後不再播下一題
+    if (sending) { toast("等剛才的回答上傳完⋯"); await waitUpload(); }
     stopAll();
     if (st.local === "recording") { clearInterval(st.recTimer); st.rec.cancel(); }
     try {
@@ -450,7 +491,7 @@ export async function render(view, sid, ctx) {
       await loadMe();
       if (r.report) { location.hash = `#report/${sid}`; toast("面試已結束，Ava 正在評分"); }
       else { location.hash = "#new"; toast("面試已結束，沒有回答的題目不會產生報告"); }
-    } catch (e) { errorToast(e); }
+    } catch (e) { st.ending = false; errorToast(e); }
   }
 
   // ---------- 啟動 ----------
@@ -478,6 +519,7 @@ export async function render(view, sid, ctx) {
     st.reportStop?.();
     try { st.rec?.cancel(); } catch { /* ignore */ }
     st.stream?.getTracks().forEach((t) => t.stop());
+    ui.destroy();
     dock.hidden = true;
     clear(dock);
     if (st.s?.status === "in_progress" && !st.ended) {

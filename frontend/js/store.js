@@ -1,7 +1,9 @@
 // 全域狀態：目前使用者、目標職缺快取、介面偏好。伺服器才是真實來源，這裡只是快取。
 import { get } from "./api.js";
 
-export const MODES = { quick: { n: 3, name: "快速", sub: "3 題・約 8 分鐘" }, standard: { n: 5, name: "標準", sub: "5 題・約 15 分鐘" }, deep: { n: 8, name: "深入", sub: "8 題・約 25 分鐘" } };
+export const MODES = { quick: { n: 3, min: 8, name: "快速", sub: "3 題・約 8 分鐘" }, standard: { n: 5, min: 15, name: "標準", sub: "5 題・約 15 分鐘" }, deep: { n: 8, min: 25, name: "深入", sub: "8 題・約 25 分鐘" } };
+// 面試方式：依題目（逐題按麥克風作答）／ Live 對談（GPT-Live 自由對談，可以隨時插話）
+export const VOICE_MODES = { scripted: { name: "依題目", sub: "照題庫一題一題問，按麥克風作答" }, live: { name: "Live 對談", sub: "像真人面試一樣自由對談、即時追問，可以隨時插話" } };
 export const PERSONAS = { warm: { name: "溫和引導", sub: "適合第一次練習" }, real: { name: "真實模擬", sub: "像正式面試一樣" }, tough: { name: "壓力面試", sub: "會追問細節" } };
 export const LANGS = { zh: "中文", en: "English", mixed: "中英混合" };
 export const CATS = ["自我介紹", "技術深度", "系統設計", "團隊合作", "情境題", "動機與規劃"];
@@ -38,18 +40,18 @@ export const resumesFull = () => !!S.resumeMax && (S.resumes || []).length >= S.
 
 /** 功能開關（後端 FEATURE_* 環境變數，經 /me 回傳）。 */
 export const feature = (name) => !!S.me?.features?.[name];
-export const prefs = () => S.me?.preferences || { default_length: "standard", default_persona: "warm", default_language: "zh" };
+export const prefs = () => ({ default_length: "standard", default_persona: "warm", default_language: "zh", default_voice_mode: "scripted", ...S.me?.preferences });
 export const shortName = () => {
   const n = (S.me?.user?.display_name || "").trim();
   return n ? n.slice(-1) : "?";
 };
 
-export function fmtDate(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const p = (x) => String(x).padStart(2, "0");
-  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
+const DT = new Intl.DateTimeFormat("zh-TW", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+const DAY = new Intl.DateTimeFormat("zh-TW", { year: "numeric", month: "numeric", day: "numeric" });
+/** 11/21 21:16 */
+export function fmtDate(iso) { return iso ? DT.format(new Date(iso)) : ""; }
+/** 2026/11/21 */
+export function fmtDay(iso) { return iso ? DAY.format(new Date(iso)) : ""; }
 export function ago(iso) {
   if (!iso) return "";
   const days = Math.floor((Date.now() - new Date(iso)) / 86400000);

@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#212121" media="(prefers-color-scheme: dark)">
   <title>AI Interview</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230d0d0d' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M4 10v4M8 6v12M12 9v6M16 4v16M20 10v4'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/css/app.css">
@@ -10,6 +12,7 @@
   <script type="module" src="/js/main.js"></script>
 </head>
 <body>
+  <button class="skip" id="skipBtn" type="button">跳到主要內容</button>
   <div class="app" id="app" hidden>
     <aside class="side" id="side" aria-label="側邊欄">
       <div class="side-top">
@@ -32,7 +35,7 @@
         <div class="row" id="hRight" style="gap:4px;flex-wrap:nowrap"></div>
         <button class="ib" id="themeBtn" type="button" aria-label="切換深色/淺色"></button>
       </header>
-      <div class="view" id="view"></div>
+      <div class="view" id="view" tabindex="-1"></div>
       <div class="dock" id="dock" hidden></div>
     </div>
   </div>

@@ -1,18 +1,18 @@
-// 設定：一般／履歷／求職意向／MCP 連接器／帳號。
+// 設定：一般／履歷／連接 Notion（MCP 連接器）／帳號。
 import { del, get, patch, post, uploadFile } from "../api.js";
 import { h, icon, replace } from "../dom.js";
 import { renderSide, setTheme } from "../shell.js";
-import { fmtSize, LANGS, loadMe, loadResumes, MODES, PERSONAS, prefs, resumesFull, S } from "../store.js";
+import { fmtDay, fmtSize, LANGS, loadMe, loadResumes, MODES, PERSONAS, prefs, resumesFull, S } from "../store.js";
 import { closeModal, confirmBox, errorToast, openModal, toast } from "../ui.js";
 import { openResumePreview } from "./resumePreview.js";
 
-const TABS = [["general", "一般", "gear"], ["resume", "履歷", "file"], ["goal", "求職意向", "target"],
-  ["mcp", "MCP 連接器", "share"], ["account", "帳號", "user"]];
+// 「求職意向」改在「能力落差分析」頁填寫，這裡不再放一個只有跳轉按鈕的分頁
+const TABS = [["general", "一般", "gear"], ["resume", "履歷", "file"], ["mcp", "連接 Notion", "link"], ["account", "帳號", "user"]];
 let current = "general";
 let changed = null;
 
-function select(options, value, onChange) {
-  return h("select", { class: "selx", onchange: (e) => onChange(e.target.value) },
+function select(options, value, onChange, label) {
+  return h("select", { class: "selx", "aria-label": label, onchange: (e) => onChange(e.target.value) },
     options.map(([v, label]) => h("option", { value: v, selected: v === value }, label)));
 }
 
@@ -27,15 +27,15 @@ function general() {
   const p = prefs();
   return [
     h("div", { class: "srow" }, h("span", null, "主題"),
-      select([["", "跟隨系統"], ["dark", "深色"], ["light", "淺色"]], S.theme || "", (v) => setTheme(v || null))),
+      select([["", "跟隨系統"], ["dark", "深色"], ["light", "淺色"]], S.theme || "", (v) => setTheme(v || null), "主題")),
     h("div", { class: "srow" }, h("span", null, "預設面試長度"),
-      select(Object.entries(MODES).map(([k, m]) => [k, `${m.name} ${m.n} 題`]), p.default_length, (v) => savePrefs({ default_length: v }))),
+      select(Object.entries(MODES).map(([k, m]) => [k, `${m.name} ${m.n} 題`]), p.default_length, (v) => savePrefs({ default_length: v }), "預設面試長度")),
     h("div", { class: "srow" }, h("span", null, "預設面試語言"),
-      select(Object.entries(LANGS), p.default_language, (v) => savePrefs({ default_language: v }))),
+      select(Object.entries(LANGS), p.default_language, (v) => savePrefs({ default_language: v }), "預設面試語言")),
     h("div", { class: "srow" }, h("span", null, "預設面試官風格"),
-      select(Object.entries(PERSONAS).map(([k, x]) => [k, x.name]), p.default_persona, (v) => savePrefs({ default_persona: v }))),
+      select(Object.entries(PERSONAS).map(([k, x]) => [k, x.name]), p.default_persona, (v) => savePrefs({ default_persona: v }), "預設面試官風格")),
     h("div", { class: "srow" }, h("span", null, "Ava 說話速度"),
-      select([["1", "一般"], ["1.15", "稍快（建議）"], ["1.3", "快"]], String(p.voice_speed ?? 1.15), (v) => savePrefs({ voice_speed: Number(v) }))),
+      select([["1", "一般（最自然）"], ["1.15", "稍快"], ["1.3", "快"]], String(p.voice_speed ?? 1), (v) => savePrefs({ voice_speed: Number(v) }), "Ava 說話速度")),
     h("div", { class: "srow" }, h("span", null, "回答錄音保留"), h("span", { class: "sv" }, "180 天（逐字稿與評分會保留）")),
   ];
 }
@@ -77,7 +77,7 @@ async function resume(body, rerender) {
   const rows = list.map((r) => h("div", { class: "file" }, h("span", { class: "fi" }, icon("file")),
     h("button", { type: "button", class: "file-open", title: "預覽履歷", onclick: () => preview(r) },
       h("span", { style: "font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, r.filename),
-      h("span", { class: "faint" }, `${fmtSize(r.size_bytes)}・${new Date(r.created_at).toLocaleDateString("zh-TW")}${r.is_primary ? "・主要履歷" : ""}・${PARSE[r.parse_status]}`)),
+      h("span", { class: "faint" }, `${fmtSize(r.size_bytes)}・${fmtDay(r.created_at)}${r.is_primary ? "・主要履歷" : ""}・${PARSE[r.parse_status]}`)),
     h("button", { class: "ib sm", type: "button", "aria-label": "預覽履歷", title: "預覽", onclick: () => preview(r) }, icon("eye")),
     r.is_primary ? null : h("button", { class: "btn ghost sm", type: "button", onclick: async () => {
       try { await patch(`/resumes/${r.id}`, { is_primary: true }); await loadMe(); toast("已設為主要履歷"); changed?.(); rerender(); } catch (e) { errorToast(e); }
@@ -121,21 +121,13 @@ function pollParse(id, rerender, n = 0) {
   }, 1500);
 }
 
-function goal() {
-  return [
-    h("p", { class: "faint", style: "padding-top:12px" }, "求職意向（職務、產業、薪資、地點、工時）、自我介紹、作品集和分析用的履歷，現在都集中在「求職準備」填寫：選一份履歷和想應徵的職缺，Ava 會分析你還差多少。"),
-    h("div", { class: "row", style: "margin-top:14px" },
-      h("a", { class: "btn pri sm", href: "#career", onclick: () => closeModal() }, icon("brief"), "前往求職準備")),
-  ];
-}
-
 const MCP_DESC = { notion: "匯出面試建議、題庫和報告到 Notion，也能讀取你的準備筆記。" };
 
 async function mcp(body) {
   replace(body, h("div", { class: "center-load" }, "載入中⋯"));
   const res = await get("/mcp-connectors");
   if (!res.enabled) {
-    replace(body, h("p", { class: "faint", style: "padding-top:12px" }, "MCP 連接器尚未開放。"));
+    replace(body, h("p", { class: "faint", style: "padding-top:12px" }, "連接功能尚未開放。"));
     return;
   }
   const status = (c) => !c.connected ? "尚未連接"
@@ -177,11 +169,11 @@ function account() {
     h("div", { class: "srow" }, h("span", null, "方案"),
       h("span", { class: "sv" }, [me.membership?.plan_name || (me.user.plan === "pro" ? "Plus" : "Free"),
         me.usage.interviews_limit == null ? "面試不限次數" : `本月剩 ${Math.max(0, me.usage.interviews_limit - me.usage.interviews_used)} 場`,
-        me.membership?.plan_expires_at ? `${new Date(me.membership.plan_expires_at).toLocaleDateString()} 到期` : null].filter(Boolean).join("・"))),
+        me.membership?.plan_expires_at ? `${fmtDay(me.membership.plan_expires_at)} 到期` : null].filter(Boolean).join("・"))),
     h("div", { class: "srow" }, h("span", null, "本月 AI 額度"),
       h("span", { class: "sv" }, me.usage.tokens_limit == null ? "不限"
         : `已用 ${Math.min(100, Math.round((me.usage.tokens_used / Math.max(1, me.usage.tokens_limit)) * 100))}%`
-          + (me.membership?.resets_at ? `・${new Date(me.membership.resets_at).toLocaleDateString()} 重置` : ""))),
+          + (me.membership?.resets_at ? `・${fmtDay(me.membership.resets_at)} 重置` : ""))),
     h("div", { class: "srow" }, h("span", null, "刪除所有面試紀錄與錄音"),
       h("button", { class: "btn out sm danger", type: "button", onclick: async () => {
         if (!(await confirmBox({ title: "刪除所有面試紀錄？", text: "所有面試報告、逐字稿和錄音都會刪除，無法復原。", ok: "全部刪除", danger: true }))) return;
@@ -194,9 +186,9 @@ function account() {
 
 function deleteAccount() {
   const hasPw = S.me.user.has_password;
-  const pw = hasPw ? h("input", { class: "inp", type: "password", placeholder: "輸入密碼確認", "aria-label": "密碼" })
+  const pw = hasPw ? h("input", { class: "inp", type: "password", placeholder: "輸入密碼確認", "aria-label": "密碼", autocomplete: "current-password" })
     : h("input", { class: "inp", type: "text", placeholder: "輸入 DELETE 確認", "aria-label": "確認文字", autocomplete: "off" });
-  const err = h("div", { class: "form-err", style: "margin-top:8px" });
+  const err = h("div", { class: "form-err", role: "alert", style: "margin-top:8px" });
   openModal({ title: "刪除帳號？", cls: "sm", body: [
     h("p", { class: "muted", style: "margin-bottom:12px" }, "帳號、履歷、面試紀錄與錄音都會刪除，無法復原。"), pw, err,
     h("div", { class: "row", style: "justify-content:flex-end;margin-top:18px" },
@@ -217,12 +209,12 @@ export function openSettings(tab = "general", { onChanged } = {}) {
   const draw = () => {
     if (tab === "resume") resume(body, () => openSettings("resume")).catch(errorToast);
     else if (tab === "mcp") mcp(body).catch(errorToast);
-    else replace(body, tab === "goal" ? goal() : tab === "account" ? account() : general());
+    else replace(body, tab === "account" ? account() : general());
   };
   openModal({ title: "設定", bodyStyle: "padding:0", onClose: () => { current = null; },
     body: [h("div", { class: "set" },
-      h("nav", { class: "set-tabs" }, TABS.map(([k, n, ic]) =>
-        h("button", { type: "button", class: tab === k ? "on" : "", onclick: () => openSettings(k) }, icon(ic), n))),
+      h("nav", { class: "set-tabs", "aria-label": "設定分類" }, TABS.map(([k, n, ic]) =>
+        h("button", { type: "button", class: tab === k ? "on" : "", "aria-current": tab === k ? "page" : null, onclick: () => openSettings(k) }, icon(ic), n))),
       body)] });
   draw();
 }

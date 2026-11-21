@@ -53,3 +53,7 @@ ICONS.google = { w: null, fill: "none", els: [
   ["path", { fill: "#FBBC05", d: "M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" }],
   ["path", { fill: "#EA4335", d: "M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" }],
 ] };
+ICONS.expand = { w: 1.75, fill: null, els: [["path", { d: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" }]] };
+ICONS.shrink = { w: 1.75, fill: null, els: [["path", { d: "M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" }]] };
+ICONS.camera = { w: 1.75, fill: null, els: [["rect", { x: "3", y: "6", width: "13", height: "12", rx: "2" }], ["path", { d: "m16 10 5-3v10l-5-3" }]] };
+ICONS.link = { w: 1.75, fill: null, els: [["path", { d: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" }], ["path", { d: "M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" }]] };

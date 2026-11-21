@@ -5,13 +5,13 @@ import { openSettings } from "../components/settings.js";
 import { h, icon, replace, skel } from "../dom.js";
 import { requestMic } from "../interview/recorder.js";
 import { renderSide } from "../shell.js";
-import { DIFF, EST, feature, fuExpected, LANGS, loadMe, loadResumes, loadTargets, MODES, PERSONAS, pickTarget, prefs, S } from "../store.js";
+import { DIFF, EST, feature, fuExpected, LANGS, loadMe, loadResumes, loadTargets, MODES, PERSONAS, pickTarget, prefs, S, VOICE_MODES } from "../store.js";
 import { confirmBox, errorToast, openMenu, seg, setHead, toast } from "../ui.js";
 
 export async function render(view, _arg, ctx) {
   setHead(null, "新面試");
   const p = prefs();
-  const st = { mode: p.default_length, persona: p.default_persona, lang: p.default_language, questions: null, busy: false };
+  const st = { mode: p.default_length, persona: p.default_persona, lang: p.default_language, voice: p.default_voice_mode, questions: null, busy: false };
   let poll = null;
   const root = h("div", { class: "setup-wrap" });
   view.append(root);
@@ -53,10 +53,11 @@ export async function render(view, _arg, ctx) {
     const resumeSel = S.resumeSel !== undefined ? resumes.find((r) => r.id === S.resumeSel) || null
       : resumes.find((r) => r.id === t?.resume?.id) || resumes.find((r) => r.is_primary) || null;
     const act = S.me?.active_interview;
+    const live = st.voice === "live";
 
     const jobRow = h("div", { class: "su-row" }, h("span", { class: "k" }, "職缺"), h("div", { class: "v" }, has
       ? h("button", { class: "picker", type: "button", onclick: (e) => openMenu(e.currentTarget, [
-        { title: "目標職缺" },
+        { title: "我的職缺" },
         ...tg.map((x) => ({ label: x.job.company_name, sub: `${x.job.title}・${x.question_set.status === "preparing" ? "出題中" : `${x.question_set.item_count} 題`}`, v: x.id, checked: x.id === t.id })),
         { sep: true }, ...addTargetMenuItems()], async (v) => {
         if (v === "jd" || v === "jobs") return onAddTargetPick(v);
@@ -78,40 +79,56 @@ export async function render(view, _arg, ctx) {
         h("span", { class: "hint" }, "選填。沒有履歷也能練，題目會只依職缺出")]));
 
     const preview = h("div", { class: "qprev" },
-      h("div", { class: "qprev-h" }, h("span", null, `本次題目（${n} 題）`),
-        h("a", { href: `#questions/${t?.id}` }, "編輯面試題庫", icon("right", 14))),
+      h("div", { class: "qprev-h" }, h("span", null, live ? `Ava 會從這些主題聊起（${n} 個，不一定照順序）` : `本次題目（${n} 題）`),
+        h("a", { href: `#questions/${t?.id}` }, "編輯題庫", icon("right", 14))),
       preparing || st.questions === null
         ? [...skel(2, "height:20px;margin:10px 0"), h("div", { class: "faint" }, "Ava 正在依職缺和履歷出題⋯")]
         : h("ol", null, list.map((q, i) => {
           const f = q.followup;
-          const ft = f.mode === "fixed" ? `＋追問 ${f.count}` : f.mode === "planned" ? `＋追問 ${f.planned.length}` : f.mode === "adaptive" ? "＋可能追問" : "";
+          const ft = live ? "" : f.mode === "fixed" ? `＋追問 ${f.count}` : f.mode === "planned" ? `＋追問 ${f.planned.length}` : f.mode === "adaptive" ? "＋可能追問" : "";
           return h("li", null, h("span", { class: "n" }, i + 1), h("span", null, q.text), h("span", { class: "c" }, `${q.category}${ft ? `・${ft}` : ""}`));
         }), short > 0 ? h("li", { class: "auto" }, h("span", { class: "n" }, list.length + 1), h("span", null, `還差 ${short} 題，開始時 Ava 會自動補上`)) : null));
 
+    // 方式、長度、風格、語言平常收成一行摘要（多數人用預設就好），開始按鈕才不會被擠到畫面外
+    const summary = [VOICE_MODES[st.voice].name,
+      live ? `${MODES[st.mode].name} ${MODES[st.mode].min} 分鐘` : `${MODES[st.mode].name} ${n} 題（約 ${mins} 分鐘）`,
+      PERSONAS[st.persona].name, LANGS[st.lang] === "English" ? "英文" : LANGS[st.lang]].join("・");
+    const summaryRow = h("div", { class: "su-row" }, h("span", { class: "k" }, "設定"), h("div", { class: "v" },
+      h("span", null, summary),
+      h("button", { class: "linkb su-more", type: "button", "aria-expanded": String(!!st.more), "aria-controls": "suOpts",
+        onclick: () => { st.more = !st.more; draw(); } }, st.more ? "收合" : "更改", icon("chev", 14))));
+    const optionRows = h("div", { id: "suOpts" }, [
+      h("div", { class: "su-row" }, h("span", { class: "k" }, "方式"), h("div", { class: "v" },
+        seg(Object.entries(VOICE_MODES).map(([k, m]) => [k, m.name]), st.voice, (v) => { st.voice = v; draw(); }, "面試方式"),
+        h("span", { class: "hint" }, VOICE_MODES[st.voice].sub))),
+      h("div", { class: "su-row" }, h("span", { class: "k" }, "長度"), h("div", { class: "v" },
+        seg(Object.entries(MODES).map(([k, m]) => [k, live ? `${m.name} ${m.min} 分` : `${m.name} ${m.n}`]), st.mode, (v) => { st.mode = v; draw(); }, "面試長度"),
+        h("span", { class: "hint" }, live ? `約 ${MODES[st.mode].min} 分鐘，時間到 Ava 會收尾` : `約 ${mins} 分鐘（含追問）`))),
+      h("div", { class: "su-row" }, h("span", { class: "k" }, "風格"), h("div", { class: "v" },
+        seg(Object.entries(PERSONAS).map(([k, x]) => [k, x.name.slice(0, 2)]), st.persona, (v) => { st.persona = v; draw(); }, "面試官風格"),
+        h("span", { class: "hint" }, PERSONAS[st.persona].sub))),
+      h("div", { class: "su-row" }, h("span", { class: "k" }, "語言"), h("div", { class: "v" },
+        seg(Object.entries(LANGS).map(([k, v]) => [k, v === "English" ? "英文" : v]), st.lang, (v) => { st.lang = v; draw(); }, "面試語言")))]);
+
     const go = h("button", { class: "btn pri xl", type: "button", disabled: !has || preparing || st.busy, onclick: () => start(t, resumeSel) },
-      icon("mic"), st.busy ? "準備中⋯" : "開始面試");
+      icon("mic"), st.busy ? "準備中⋯" : live ? "開始 Live 面試" : "開始面試");
 
     replace(root,
       act ? h("div", { class: "banner" }, h("span", { class: "live-dot" }),
         h("span", { class: "t" }, h("b", null, act.status === "paused" ? "你有一場暫停中的面試" : "你有一場進行中的面試"),
-          h("span", { class: "faint", style: "display:block" }, `${act.company_name}・已回答 ${act.answered} 題，停在第 ${act.current_main_no} 題`)),
+          h("span", { class: "faint", style: "display:block" }, act.voice_mode === "live" ? `${act.company_name}・Live 對談`
+            : `${act.company_name}・已回答 ${act.answered} 題，停在第 ${act.current_main_no} 題`)),
         h("button", { class: "btn out sm", type: "button", onclick: () => endActive(act) }, "結束並產生報告"),
         h("a", { class: "btn pri sm", href: `#chat/${act.id}` }, "繼續面試")) : null,
       h("h1", { class: "hello" }, has ? "準備好就開始" : "先告訴 Ava 你想應徵哪個職缺"),
-      h("p", null, has ? "Ava 會依你的履歷和職缺，一題一題用語音問你。" : "貼上職缺內容，Ava 會依職缺和你的履歷出題，一分鐘內就能開始練習。"),
-      h("div", { class: "setup" }, jobRow, resumeRow, has ? [
-        h("div", { class: "su-row" }, h("span", { class: "k" }, "長度"), h("div", { class: "v" },
-          seg(Object.entries(MODES).map(([k, m]) => [k, `${m.name} ${m.n}`]), st.mode, (v) => { st.mode = v; draw(); }),
-          h("span", { class: "hint" }, `約 ${mins} 分鐘（含追問）`))),
-        h("div", { class: "su-row" }, h("span", { class: "k" }, "風格"), h("div", { class: "v" },
-          seg(Object.entries(PERSONAS).map(([k, x]) => [k, x.name.slice(0, 2)]), st.persona, (v) => { st.persona = v; draw(); }),
-          h("span", { class: "hint" }, PERSONAS[st.persona].sub))),
-        h("div", { class: "su-row" }, h("span", { class: "k" }, "語言"), h("div", { class: "v" },
-          seg(Object.entries(LANGS).map(([k, v]) => [k, v === "English" ? "英文" : v]), st.lang, (v) => { st.lang = v; draw(); }))),
-        preview] : null),
+      h("p", null, !has ? "貼上職缺內容，Ava 會依職缺和你的履歷出題，一分鐘內就能開始練習。"
+        : live ? "Ava 會先讀過你的履歷和職缺，像真人面試官一樣跟你自由對談、即時追問。" : "Ava 會依你的履歷和職缺，一題一題用語音問你。"),
+      h("div", { class: "setup" }, jobRow, resumeRow, has ? [summaryRow, st.more ? optionRows : null] : null),
       h("div", { class: "start" }, go,
         h("div", { class: "faint" }, has ? [h("button", { class: "linkb", type: "button", onclick: () => openJd() }, icon("plus"), "貼上新職缺"), h("span", null, "・")] : null,
-          h("span", null, "開始前會請你允許使用麥克風，每題回答都會錄音存檔"))));
+          h("span", null, live ? "開始前會請你允許使用麥克風，對談內容會轉成文字存檔，用來逐題評分"
+            : "開始前會請你允許使用麥克風，每題回答都會錄音存檔"))),
+      has ? h("div", { class: "setup" }, preview) : null);
   }
 
   async function start(t, resumeSel) {
@@ -122,7 +139,7 @@ export async function render(view, _arg, ctx) {
     if (!stream) { st.busy = false; draw(); return; }
     stream.getTracks().forEach((x) => x.stop());     // 面試頁會重新取得；這裡只確認權限
     try {
-      const body = { target_id: t.id, length_mode: st.mode, persona: st.persona, language: st.lang, recording_consent: true };
+      const body = { target_id: t.id, length_mode: st.mode, persona: st.persona, language: st.lang, voice_mode: st.voice, recording_consent: true };
       if (S.resumeSel !== undefined) body.resume_id = resumeSel ? resumeSel.id : null;
       const r = await post("/interviews", body);
       await loadMe();
@@ -138,16 +155,19 @@ export async function render(view, _arg, ctx) {
 
   async function askReplace(act, then) {
     const ok = await confirmBox({ title: "你有一場暫停中的面試",
-      text: `${act.company_name} 停在第 ${act.current_main_no} 題。一次只能進行一場面試，要先把它結束嗎？${act.answered ? `已回答的 ${act.answered} 題會產生報告。` : ""}`,
+      text: act.voice_mode === "live" ? `${act.company_name} 的 Live 對談還沒結束。一次只能進行一場面試，要先把它結束嗎？已經聊過的內容會產生報告。`
+        : `${act.company_name} 停在第 ${act.current_main_no} 題。一次只能進行一場面試，要先把它結束嗎？${act.answered ? `已回答的 ${act.answered} 題會產生報告。` : ""}`,
       ok: "結束它，開始新的", cancel: "回到那場面試" });
     if (!ok) { location.hash = `#chat/${act.id}`; return; }
     try { await post(`/interviews/${act.id}/end`, { reason: "user_ended" }); await loadMe(); renderSide(); then(); } catch (e) { errorToast(e); }
   }
 
   async function endActive(act) {
+    const liveAct = act.voice_mode === "live";
     const ok = await confirmBox({ title: "結束這場面試？",
-      text: act.answered ? `已回答的 ${act.answered} 題會產生報告，還沒回答的題目不會評分。` : "你還沒有回答任何題目，結束後不會產生報告。",
-      ok: act.answered ? "結束並產生報告" : "結束面試", cancel: "先不要" });
+      text: liveAct ? "Ava 會把已經聊過的內容整理成逐題評分；還沒開始對談就不會產生報告。"
+        : act.answered ? `已回答的 ${act.answered} 題會產生報告，還沒回答的題目不會評分。` : "你還沒有回答任何題目，結束後不會產生報告。",
+      ok: liveAct || act.answered ? "結束並產生報告" : "結束面試", cancel: "先不要" });
     if (!ok) return;
     try {
       const r = await post(`/interviews/${act.id}/end`, { reason: "user_ended" });

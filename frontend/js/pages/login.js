@@ -22,7 +22,7 @@ export async function renderLogin(root, onDone) {
     const err = h("div", { class: "form-err", role: "alert" }, firstError);
     firstError = "";
     const name = h("input", { class: "inp", type: "text", placeholder: "怎麼稱呼你（選填）", autocomplete: "name", "aria-label": "名稱" });
-    const email = h("input", { class: "inp", type: "email", placeholder: "Email", autocomplete: "email", required: true, "aria-label": "Email" });
+    const email = h("input", { class: "inp", type: "email", placeholder: "Email", autocomplete: "email", spellcheck: "false", autocapitalize: "off", required: true, "aria-label": "Email" });
     const pw = h("input", { class: "inp", type: "password", placeholder: mode === "login" ? "密碼" : "密碼（至少 8 碼）",
       autocomplete: mode === "login" ? "current-password" : "new-password", required: true, "aria-label": "密碼" });
     const btn = h("button", { class: "btn pri", type: "submit" }, mode === "login" ? "登入" : "建立帳號");
@@ -47,7 +47,7 @@ export async function renderLogin(root, onDone) {
     } },
       h("div", { class: "brand" }, icon("brand"), "AI Interview"),
       h("h1", null, mode === "login" ? "歡迎回來" : "建立帳號"),
-      h("p", { class: "sub" }, "針對你的目標職缺，一題一題練習語音面試。"),
+      h("p", { class: "sub" }, "針對你想應徵的職缺，一題一題練習語音面試。"),
       google ? [h("a", { class: "btn google", href: "/api/v1/auth/google/start" }, icon("google"), "使用 Google 繼續"),
         h("div", { class: "or" }, "或使用 Email")] : null,
       mode === "register" ? name : null, email, pw, err, btn,
