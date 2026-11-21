@@ -5,9 +5,10 @@ from pydantic import BaseModel, Field
 
 from app.ai import client, text
 from app.ai.agents.questions import REALISM
+from app.ai.knowledge import ai_system_design as asd
 
-PV_ANALYZE = "prep_v2"
-PV_EXTEND = "prep_more_v2"
+PV_ANALYZE = "prep_v3"
+PV_EXTEND = "prep_more_v3"
 
 
 class Direction(BaseModel):
@@ -41,7 +42,9 @@ ANALYZE_SYSTEM = """你是在台灣業界當過用人主管的求職教練。比
   why 說明為什麼會問（例如「幾乎每場都問」「職缺第一項核心技能」「履歷上 X 專案的數字很亮眼」）；
   tip 要具體到「拿履歷上的哪段經驗回答、要講出哪個重點」，不要空泛的「用 STAR」「保持自信」。
 - checklist：3–5 項面試前真的做得到的準備（例如「把 X 專案的延遲數字與量測方式整理成一句話」），
-  不要「了解公司文化」這種泛泛的事（不要和既有項目重複）。"""
+  不要「了解公司文化」這種泛泛的事（不要和既有項目重複）。
+- 有「AI 系統設計參考」時：likely_questions 至少一題是這家公司情境的 AI 系統設計題，tip 提醒照解題步驟回答（先問需求、估算、評估與監控）；
+  checklist 可以加一項「用解題步驟練一次 ○○ 系統設計」。"""
 
 
 def _fake_analyze(job: dict, resume: dict | None, existing_q: list[str], existing_c: list[str]) -> AnalyzeOut:
@@ -74,7 +77,8 @@ async def analyze(*, job: dict, resume: dict | None, existing_questions: list[st
                   user_id=None) -> AnalyzeOut:
     user = json.dumps({"職缺": {k: job.get(k) for k in ("company_name", "title", "about", "summary", "duties", "requirements", "tags", "salary_text", "description")},
                        "履歷": resume or "（沒有履歷）", "既有可能題目": existing_questions,
-                       "既有準備清單": existing_checklist}, ensure_ascii=False)
+                       "既有準備清單": existing_checklist,
+                       **({"AI 系統設計參考": ref} if (ref := asd.context(job)) else {})}, ensure_ascii=False)
     out = await client.structured(purpose="prep", schema=AnalyzeOut, system=ANALYZE_SYSTEM, user=user,
                                   tier="reasoning", prompt_version=PV_ANALYZE, user_id=user_id,
                                   fake=lambda: _fake_analyze(job, resume, existing_questions, existing_checklist))
@@ -122,6 +126,7 @@ async def extend_likely(*, job: dict, resume: dict | None, existing: list[str], 
         system="你是在台灣業界當過用人主管的求職教練。依職缺與履歷，產生指定數量的「新的」、這個職缺真的很可能被問的面試題目，"
                "附為什麼會問與具體回答建議（繁體中文；tip 要指出拿履歷上的哪段經驗回答）。不要和既有題目重複。\n" + REALISM,
         user=json.dumps({"職缺": job, "履歷": resume or "（沒有履歷）", "既有題目": existing, "使用者需求": note or "（無）",
+                         **({"AI 系統設計參考": ref} if (ref := asd.context(job, 3)) else {}),
                          "領域": category or "不限", "數量": count}, ensure_ascii=False))
     res, seen = [], list(existing)
     for it in out.items:

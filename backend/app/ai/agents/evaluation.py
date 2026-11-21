@@ -4,8 +4,9 @@ import json
 from pydantic import BaseModel, Field
 
 from app.ai import client, text
+from app.ai.knowledge import ai_system_design as asd
 
-PV_EVAL = "eval_v1"
+PV_EVAL = "eval_v2"
 PV_REPORT = "report_v1"
 DIM_KEYS = ["structure", "depth", "fluency", "job_fit", "confidence"]
 
@@ -31,7 +32,9 @@ class EvalOut(BaseModel):
 EVAL_SYSTEM = """你是嚴謹但友善的面試教練，評估考生「這一題」的口語回答（繁體中文回饋）。
 - 只根據這一題的回答評分；若是追問，主題目與前面的回答只作為上下文。
 - evidence 與 highlight 必須是逐字稿中一字不差的原句。
-- improvements 要具體可執行；better_answer 以考生的經驗為基礎改寫，口語、自然。"""
+- improvements 要具體可執行；better_answer 以考生的經驗為基礎改寫，口語、自然。
+- 有「AI 系統設計評分重點」時：對照解題步驟，改善建議要指出缺了哪一步（例如沒先問需求、沒估算、沒講評估或監控）；
+  數字（GPU 數量、價格）只看推導過程合不合理，不因為和你知道的數字不同就扣分。"""
 
 
 def _clamp(v: int) -> int:
@@ -65,8 +68,8 @@ class EvalResult(BaseModel):
 
 
 async def evaluate(*, question: str, rubric: dict | None, transcript: str, job: dict, resume: dict | None,
-                   context: list[dict], language: str, duration_ms: int | None, user_id=None,
-                   session_id=None) -> EvalResult:
+                   context: list[dict], language: str, duration_ms: int | None, category: str | None = None,
+                   user_id=None, session_id=None) -> EvalResult:
     t = (transcript or "").strip()
     if len(t) < 5:
         empty = EvalOut(score=0, dimensions=Dimensions(structure=0, depth=0, fluency=0, job_fit=0, confidence=0),
@@ -75,7 +78,8 @@ async def evaluate(*, question: str, rubric: dict | None, transcript: str, job: 
         return EvalResult(out=empty, needs_review=True, review_reason="錄音幾乎沒有聲音或內容")
     user = json.dumps({"題目": question, "評分規準": rubric or {}, "上下文（主題目與前面的追問）": context,
                        "職缺摘要": {k: job.get(k) for k in ("company_name", "title", "requirements")},
-                       "履歷背景": resume or "（無）", "考生回答逐字稿": t, "回答秒數": (duration_ms or 0) // 1000},
+                       "履歷背景": resume or "（無）", "考生回答逐字稿": t, "回答秒數": (duration_ms or 0) // 1000,
+                       **({"AI 系統設計評分重點": g} if (g := asd.eval_guide(job, category)) else {})},
                       ensure_ascii=False)
     out = await client.structured(purpose="evaluate", schema=EvalOut, system=EVAL_SYSTEM, user=user,
                                   tier="reasoning", prompt_version=PV_EVAL, user_id=user_id, session_id=session_id,
