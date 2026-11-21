@@ -70,6 +70,8 @@ erDiagram
     target_jobs ||--o{ interview_sessions : "練習"
     question_sets |o--o{ interview_sessions : "題目來源"
     interview_sessions ||--o{ session_questions : "實際問的題目（快照）"
+    interview_sessions ||--o{ session_turns : "Live 對談逐字稿"
+    interview_sessions ||--o{ live_feedback : "Live 面試中的參考評分"
     session_questions |o--o{ session_questions : "主題目底下的追問"
     question_set_items |o--o{ session_questions : "複製自主題目"
     question_set_followups |o--o{ session_questions : "複製自預設追問"
@@ -100,7 +102,7 @@ erDiagram
         text length_mode "quick|standard|deep"
         text persona "warm|real|tough"
         text language "zh|en|mixed"
-        text voice_mode "scripted|realtime"
+        text voice_mode "scripted|realtime|live"
         text status "preparing|ready|in_progress|paused|completed|aborted"
         text phase "idle|asking|awaiting_answer|answering|finalizing|done"
         uuid current_question_id FK
@@ -435,7 +437,9 @@ erDiagram
 | | `question_set_followups` | 主題目底下的預設追問（追問規則 = planned 時使用） | 題庫生成・預設追問 |
 | | `question_generations` | 一次 AI 生成工作與參數 | 題庫生成・輸入框 |
 | 面試 | `interview_sessions` | 一場面試、狀態機（可暫停、24 小時內繼續） | 新面試、面試進行中 |
-| | `session_questions` | 該場**實際使用**的主題目與追問（快照） | 進度、題目 |
+| | `session_questions` | 該場**實際使用**的主題目與追問（快照）；Live 場次在結束後由逐字稿切出 | 進度、題目 |
+| | `session_turns` | Live 對談的逐字稿（一段一段的發言） | Live 面試、切題 |
+| | `live_feedback` | Live 面試中每段回答的參考評分（快速模型） | 面試畫面右側「即時評分」 |
 | | `answer_attempts` | 每次作答：音訊、即時與最終逐字稿（重錄會產生新的一筆） | 逐字稿 |
 | 評分 | `evaluations` | 逐題評分與建議（主題目、追問各自一筆） | 報告・逐題回顧 |
 | | `question_group_scores` | 每道主題目的整組分數（主題目＋追問） | 報告・整組分數 |
@@ -830,7 +834,7 @@ CREATE TABLE interview_sessions (
   length_mode             text NOT NULL CHECK (length_mode IN ('quick','standard','deep')),
   persona                 text NOT NULL CHECK (persona IN ('warm','real','tough')),
   language                text NOT NULL CHECK (language IN ('zh','en','mixed')),
-  voice_mode              text NOT NULL CHECK (voice_mode IN ('scripted','realtime')),  -- MVP 一律 scripted；realtime 為 P3
+  voice_mode              text NOT NULL CHECK (voice_mode IN ('scripted','realtime','live')),  -- live：使用者選的 GPT-Live 自由對談；realtime 為 P3
   voice_mode_degraded_at  timestamptz,       -- realtime 降級為 scripted 的時間
   status                  text NOT NULL DEFAULT 'preparing'
                           CHECK (status IN ('preparing','ready','in_progress','paused','completed','aborted')),
@@ -842,7 +846,8 @@ CREATE TABLE interview_sessions (
   job_snapshot            jsonb NOT NULL,
   resume_snapshot         jsonb NOT NULL,    -- 只放出題與評分需要的結構化欄位
   planned_question_count  smallint NOT NULL,
-  realtime_call_id        text,              -- realtime 模式最近一次 WebRTC 連線的識別碼（除錯用）
+  realtime_call_id        text,              -- realtime／live 最近一次 WebRTC 連線的識別碼（除錯用）
+  live_brief              jsonb,             -- 只在 live：面試官簡報 {seeds, must_haves, highlights, concerns, topics}
   recording_consent_at    timestamptz,
   last_heartbeat_at       timestamptz,
   paused_at               timestamptz,       -- 使用者按暫停、離開頁面或斷線超過 2 分鐘；24 小時內可繼續
@@ -870,7 +875,7 @@ CREATE TABLE session_questions (
   followup_no      int  NOT NULL DEFAULT 0,  -- 主題目 0，追問 1、2…
   followup_mode    text CHECK (followup_mode IN ('none','fixed','planned','adaptive')),  -- 只在主題目：開始面試時的快照
   followup_target  smallint,                 -- 只在主題目：fixed＝要問的次數；planned＝預設追問數；adaptive＝上限
-  followup_source  text CHECK (followup_source IN ('fixed_ai','fixed_fallback','planned','adaptive_ai')),  -- 只在追問
+  followup_source  text CHECK (followup_source IN ('fixed_ai','fixed_fallback','planned','adaptive_ai','live')),  -- 只在追問；live＝從逐字稿切出
   source_followup_id uuid REFERENCES question_set_followups(id) ON DELETE SET NULL,  -- planned 追問的來源
   planned_followups jsonb,                   -- 只在主題目、planned：開始面試時複製的預設追問快照 [{"id","text"}]（0002）
   category         text NOT NULL,
@@ -893,6 +898,36 @@ CREATE TABLE session_questions (
 );
 -- 計算「這道主題目已問幾個追問」用
 CREATE INDEX ix_session_questions_parent ON session_questions(parent_id) WHERE parent_id IS NOT NULL;
+
+-- Live 對談的逐字稿：前端把 GPT-Live 的雙方字幕整理成段落送上來；結束後切成 session_questions／answer_attempts 評分
+CREATE TABLE session_turns (
+  session_id  uuid NOT NULL REFERENCES interview_sessions(id) ON DELETE CASCADE,
+  seq         int  NOT NULL,                 -- 前端編號，重送同一段不會重複寫入
+  role        text NOT NULL CHECK (role IN ('interviewer','candidate')),
+  text        text NOT NULL,
+  started_ms  int,                           -- 這段話在該次連線中的開始／結束時間（重新連線會從 0 算）
+  ended_ms    int,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (session_id, seq)
+);
+
+-- Live 面試中的參考評分：每段回答答完（Ava 又開口）就用快速模型評一次；正式分數仍是結束後切題的 evaluations
+CREATE TABLE live_feedback (
+  session_id   uuid NOT NULL REFERENCES interview_sessions(id) ON DELETE CASCADE,
+  seq          int  NOT NULL,                -- 這段回答第一句的 seq
+  answer_seqs  int[] NOT NULL,
+  question     text NOT NULL,                -- Ava 這段說的話（原文）
+  answer       text NOT NULL,
+  status       text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','done','skipped','failed')),
+  title        text,                         -- 這題在問什麼（一句話）
+  score        smallint CHECK (score BETWEEN 0 AND 100),
+  strengths    jsonb,
+  improvements jsonb,
+  tip          text,                         -- 下一題可以馬上用上的提醒
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  finished_at  timestamptz,
+  PRIMARY KEY (session_id, seq)
+);
 
 CREATE TABLE answer_attempts (
   id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),

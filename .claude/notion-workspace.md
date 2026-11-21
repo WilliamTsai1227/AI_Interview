@@ -8,7 +8,7 @@
 
 | 區塊 | 頁面 | 頁面下的 inline 資料庫 | 對應 skill |
 |---|---|---|---|
-| 產品規劃 | https://app.notion.com/p/4192dbee50808007bbcdeebb491a53b6 | 4 個 | `/notion-product` |
+| 產品規劃 | https://app.notion.com/p/4192dbee50808007bbcdeebb491a53b6 | 5 個 | `/notion-product` |
 | 系統設計 | https://app.notion.com/p/3f52dbee508080388c8ef0a08cf657b6 | 6 個 | `/notion-design` |
 | 系統開發 | https://app.notion.com/p/3f62dbee508080f3a37bc4aaee31aed2 | 3 個 | `/notion-dev` |
 | 系統測試 | https://app.notion.com/p/4192dbee5080805e9df8e02743f4b837 | 4 個 | `/notion-test` |
@@ -25,6 +25,7 @@
 | 產品規劃 | 使用者回饋 | `collection://4192dbee-5080-8060-a77f-000bd76f7dda` | `Name` | — | 一則或一類真實使用者回饋一列；不可捏造 |
 | 產品規劃 | 競品分析 | `collection://4192dbee-5080-8013-ba41-000b63f2a20d` | `Name` | — | 一個競品一列 |
 | 產品規劃 | 行銷 | `collection://4192dbee-5080-805b-abd6-000b7d3a5074` | `Name` | — | 一個行銷主題／管道／活動一列 |
+| 產品規劃 | 未來待做 | `collection://41f2dbee-5080-8160-9eb3-000bff3e015c` | `Name` | `狀態`（待評估／規劃中／進行中／已完成／不做）、`優先順序`（高／中／低）、`類型`（新功能／改善／技術債）、`相關功能`（多選：出題／面試建議／模擬面試／報告／求職準備）、`提出日期` | 之後可能要做的功能與改善，一個項目一列；內文：痛點、想法、跟現有功能的關係、Claude 建議（風險、優先順序理由）、下一步 |
 | 系統設計 | API | `collection://4192dbee-5080-80e7-91a5-000bf619e7e0` | `Name` | — | 一個 API 種類一列（`00 通用約定`、`Auth：…`、`Interviews：…`）；每個種類頁面裡有 inline 資料庫「API 列表」，一支 API 一列（見 `/notion-design`） |
 | 系統設計 | 背景任務＆Redis | `collection://3f62dbee-5080-80c9-b653-000bbb245176` | `Name` | — | 背景工作、佇列、outbox、Redis 用法（一個主題一列） |
 | 系統設計 | PostgreSQL設計 | `collection://3f52dbee-5080-8046-a860-000b4c7dfc56` | `Name` | — | 一張資料表一列（標題就是表名，例 `users`），另有一列 `00 總覽`（全部表的 ER 圖、外鍵、索引） |

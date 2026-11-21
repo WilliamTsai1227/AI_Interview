@@ -1,6 +1,6 @@
 # AI Interview — 各功能系統流程圖
 
-> 版本：v0.4・所有圖皆為 Mermaid 格式・語音改為串接式（MVP）＋ Realtime API（P3），不使用 GPT‑Live
+> 版本：v0.5・所有圖皆為 Mermaid 格式・逐題面試用串接式（MVP）＋ Realtime API（P3）；使用者可另選 GPT‑Live 自由對談（§27）
 > v0.4：履歷與錄音直接上傳到物件儲存（§3、§12、§16）、四種追問規則（§15）、職缺 ETL（§25）、准入控制與 OpenAI 限流（§26）
 > 相關文件：[architecture.md](architecture.md)・[api.md](api.md)・[postgresql.md](postgresql.md)
 
@@ -32,6 +32,7 @@
 24. [使用者完整旅程](#24-使用者完整旅程)
 25. [職缺 ETL 與定期檢查](#25-職缺-etl-與定期檢查)
 26. [准入控制與 OpenAI 限流](#26-准入控制與-openai-限流)
+27. [Live 即時對談（GPT‑Live）](#27-live-即時對談gptlive)
 
 ---
 
@@ -1011,3 +1012,57 @@ flowchart TD
     B --> T
     W -. "面試中逾時" .-> G["降級：fixed → 通用追問；adaptive → 不追問；面試不中斷"]
 ```
+
+## 27. Live 即時對談（GPT‑Live）
+
+使用者在新面試頁選「Live 對談」。和逐題模式的差別：**由 GPT‑Live 自己決定何時說話、可以被打斷**，所以面試官要知道的事在開始前準備好；結束後才把對話切成題目評分。設計見 [architecture.md §6.10](architecture.md)。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as 使用者
+    participant FE as 前端 pages/live.js
+    participant API as FastAPI
+    participant W as Worker
+    participant AI as OpenAI（推理模型）
+    participant GL as GPT‑Live
+
+    U->>FE: 方式選「Live 對談」→ 開始 Live 面試（先取得麥克風權限）
+    FE->>API: POST /interviews { voice_mode: live }
+    API->>API: 題庫前 N 題存成 live_brief.seeds（不建立 session_questions）
+    API->>W: prepare_live
+    W->>AI: Interview Brief：讀職缺＋履歷＋種子 → 必考能力、履歷亮點／疑點、議程
+    W->>API: live_brief 寫回，status = ready
+    FE->>API: 輪詢到 ready，顯示「Ava 準備聊：…」
+    U->>FE: 開始對談（使用者手勢，瀏覽器才允許播放聲音）
+    FE->>API: POST /start（phase 固定 idle）
+    FE->>FE: RTCPeerConnection＋麥克風 track＋data channel oai-events → offer（等 ICE）
+    FE->>API: POST /live/connect { sdp }
+    API->>GL: POST /v1/live/sessions { session: instructions＋input＋delegation, transport: webrtc }
+    GL-->>API: SDP answer
+    API-->>FE: sdp、時間上限
+    GL-->>U: Ava 打招呼、請自我介紹
+    loop 對談
+        U->>GL: 直接說話（可以插話）
+        GL-->>FE: input／output_transcript.delta（雙方字幕）
+        FE->>FE: 換人說話就把上一段收尾
+        FE->>API: 每 3 秒 POST /live/turns（seq 去重）
+        opt 有委派模型
+            GL-->>FE: response.event：mark_topic_done → 更新進度條
+        end
+    end
+    FE->>GL: 剩 90 秒：session.instructions.append「請收尾、讓候選人反問、說結語」
+    alt Ava 呼叫 end_interview
+        FE->>FE: 等 3.5 秒讓結語說完
+    else 使用者按「結束面試」或超時 60 秒
+        FE->>FE: 直接結束
+    end
+    FE->>GL: session.close → session.closed（usage.seconds）
+    FE->>API: POST /live/turns（剩下的段落＋usage_seconds）
+    FE->>API: POST /end
+    API->>W: 候選人有說話 → completed，排 segment_live
+    W->>AI: Transcript Segmenter：逐字稿 → 主題目＋追問（只回 seq）
+    W->>W: 寫入 session_questions／answer_attempts（字幕即逐字稿）→ evaluate_attempt → build_report
+```
+
+暫停、斷線：前端先 `session.close` 並補送段落，再呼叫 `pause`；繼續時 `resume` → 重新 `live/connect`，後端帶回最近 30 段對話，Ava 用一句話歡迎回來、接著剛才的話題。WebRTC 斷線時顯示「重新連線」，對話不會遺失（已送出的段落都在 `session_turns`）。

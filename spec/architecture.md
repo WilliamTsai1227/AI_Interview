@@ -5,6 +5,8 @@
 >
 > **v0.3 變更**：即時語音改為「**串接式語音（MVP）＋ Realtime API（擬真升級）**」，不再使用 GPT‑Live。理由見 [§6.1](#61-語音技術選型)。後端不再為每場面試維持 sideband 長連線，也不再需要音訊閘門，API 程序變成無狀態、可水平擴充。
 >
+> **v0.5 變更（2026-11-21）**：新增使用者可選的 **Live 即時對談**（`voice_mode = live`，GPT‑Live 全雙工）。它不是取代串接式，而是另一種體驗：面試官先讀履歷與職缺寫好「面試簡報」，對談中自由追問、可以插話；結束後把逐字稿切成題目，沿用同一套評分與報告。見 [§6.10](#610-live-即時對談voice_mode--live)。
+>
 > **v0.4 變更**：資料存取改為**手寫 SQL**（§4.2.1）；追問改為每道主題目可設定的四種規則，次數由程式計數、追問各自評分、整組分數（§6.5）；履歷與錄音改為**直接上傳到物件儲存**（§6.9）；新增高併發設計（§9.4）與職缺 ETL（§12）。
 
 ---
@@ -67,7 +69,7 @@ UI 原型之外，上線還需要：**登入／註冊頁**、**第一次面試�
 | **進度永遠看得見** | 出題、分析、評分都顯示「Ava 正在⋯」與骨架；報告完成時通知，不必停在頁面等 | SSE、輪詢、通知 |
 | **危險操作先確認** | 結束面試（說明哪些題會評分）、刪除報告、刪除全部紀錄、刪除帳號 | `end`、`DELETE` |
 | **錯誤不擋路** | Realtime 連線失敗自動改用串接式語音；上傳失敗保留錄音重試；一次只能一場面試時給「繼續／結束」選擇而不是錯誤 | §6.6、§6.8 |
-| **語音模式不讓使用者選** | `scripted` / `realtime` 由後端依方案與可用性決定，使用者只感受到「Ava 在問我」 | `voice_mode` |
+| **面試方式讓使用者選，語音技術不用選** | 新面試頁選「依題目」或「Live 對談」（兩種體驗）；`scripted` / `realtime` 是同一種體驗的語音技術，由後端依可用性決定 | `voice_mode` |
 
 ### 2.3 已移除的設計與原因
 
@@ -80,7 +82,7 @@ UI 原型之外，上線還需要：**登入／註冊頁**、**第一次面試�
 | 個人檔案表單（經歷、技能、手機、薪資、作品集、大頭貼、完整度） | 與履歷重複，增加填寫負擔；題目與評分只需要履歷 |
 | 側欄的「最近面試」 | 改到「面試報告」頁統一瀏覽，側欄只留功能與目標職缺 |
 | 報告「分享」 | 報告含錄音與個人資料，MVP 不提供公開分享 |
-| GPT‑Live＋sideband＋音訊閘門 | 見 §6.1：全雙工對產品沒有幫助，卻需要大量機制壓住模型自行開口；改為串接式＋Realtime（關閉自動輪替） |
+| GPT‑Live＋sideband＋音訊閘門（用來壓住逐題模式） | 見 §6.1：用全雙工模型跑逐題流程，需要大量機制壓住模型自行開口；逐題改為串接式＋Realtime。GPT‑Live 改用在不需要壓住它的 Live 對談模式（§6.10） |
 
 ---
 
@@ -433,7 +435,7 @@ flowchart TD
 
 - **MVP 用串接式**（`voice_mode = scripted`）。核心賣點（依職缺出題、逐題改善建議）不需要全雙工，串接式最可控、最便宜，也最容易測試。
 - **P3 擬真升級用 Realtime API**（`voice_mode = realtime`），只把「接話」與「追問」交給 Realtime 的語音；主題目仍由 TTS 播放。
-- **GPT‑Live 暫不採用**。等到要做「可以隨時打斷、自由對談」的進階模式時再評估；屆時新增一個 `VoiceProvider` 實作即可，狀態機與 API 不變。
+- **GPT‑Live 用在 Live 對談模式**（v0.5，`voice_mode = live`）。上表的缺點是「拿全雙工模型跑逐題流程」才有的問題；Live 模式本來就要自由對談、可以打斷，所以讓模型自己輪替，不壓它。代價是題目、追問次數不再由程式控制，改成：開始前給面試官簡報與議程、時間由前端控制、結束後再把逐字稿切成題目評分。見 §6.10。
 
 > 計價與模型名稱以 OpenAI 官方文件與定價頁為準，上線前重新確認（見 §11）。
 
@@ -601,7 +603,9 @@ match main.followup_mode:
 | `scripted` | TTS 主題目＋預合成接話＋逐題錄音＋快速轉錄＋TTS 追問；不連即時語音模型 | **MVP 預設**；免費方案；Realtime 失敗時的降級 |
 | `realtime` | 同上，但接話與追問改由 Realtime API 的語音說出，回答時有即時字幕 | P3；付費方案 |
 
-兩種模式共用**同一套狀態機、同一套 API、同一套評分管線**，差別只在 `next` 回應給的是 `tts_url` 還是 Realtime 指示，以及前端是否建立 WebRTC。
+| `live` | GPT‑Live 全雙工自由對談：Ava 自己決定何時說話、可以被打斷；面試中不逐題錄音，結束後把逐字稿切成題目 | v0.5；**使用者在新面試頁選擇**，所有方案都開放 |
+
+`scripted` 與 `realtime` 共用**同一套狀態機、同一套 API、同一套評分管線**，差別只在 `next` 回應給的是 `tts_url` 還是 Realtime 指示，以及前端是否建立 WebRTC。`live` 只共用場次的 status（不走逐題 phase）與評分管線，見 §6.10。
 
 **Realtime 的控制方式**（模型不會自己開口，因此不需要音訊閘門）：
 
@@ -662,6 +666,40 @@ match main.followup_mode:
 
 好處：API 不用承受大檔案頻寬與記憶體，上傳失敗只需重試第 2 步；錄音在本機保留到 `complete` 成功為止，失敗不會遺失回答。
 
+### 6.10 Live 即時對談（`voice_mode = live`）
+
+**體驗**：像真人面試一樣聊——Ava 先打招呼、請你自我介紹，接著依議程聊、即時追問；你可以直接開口、插話，不用按麥克風。時間快到時 Ava 會收尾、讓你反問，然後說結語。結束後一樣拿到逐題評分與改善建議。
+
+**面試官怎麼知道要問什麼**：GPT‑Live 自己決定說話時機，後端沒辦法逐題餵題目，所以「面試官要知道的事」全部在開始前準備好：
+
+1. 建立場次時，題庫前 N 題當「種子」存進 `live_brief.seeds`，排 `prepare_live`。
+2. Worker 用推理模型讀職缺、履歷、種子，寫「面試官簡報」（`ai/agents/interviewer.py` `build_brief`）：
+   - **職缺必考能力**（3–5 項，每項寫怎樣的回答算有）
+   - **履歷亮點**：和職缺最相關、要深挖的 1–3 個專案或經歷
+   - **履歷疑點**：沒有數字的成果、寫了技能卻看不到實際使用、空窗、和職缺的落差（用好奇的口吻確認，不質問）
+   - **議程**：4–6 個主題，每個有開場問法、追問方向、分配時間；對應到種子題目時帶著它的評分規準
+   失敗時直接用種子題目當議程，不讓場次卡在準備中。
+3. 連線時把簡報、職缺、履歷、風格、語言、流程與規則組成 `instructions`（`interviewer.instructions`）。規則重點：一次只問一件事、每次最多兩三句、追問接在候選人剛說的內容上、面試中不評分不教答案、被打斷就停下來聽、不提自己是 AI。
+
+**連線**（後端不持有長連線）：
+
+| 步驟 | 說明 |
+|---|---|
+| `POST /interviews/{id}/start` | status → `in_progress`，phase 固定 `idle`；不播 TTS 開場白 |
+| `POST /interviews/{id}/live/connect {sdp}` | 後端組 session（`model`、`instructions`、`input`、`delegation`），以後端金鑰呼叫 `POST /v1/live/sessions`，回傳 SDP answer。第一次連線 `input` 只有一則 developer 訊息「開始面試」；暫停後重新連線時帶回最近 30 段對話＋「歡迎回來、接著剛才的話題」 |
+| 瀏覽器 ↔ GPT‑Live | 麥克風上行、Ava 語音下行；data channel `oai-events` 收雙方字幕 `session.input_transcript.delta`／`session.output_transcript.delta` |
+| `POST /interviews/{id}/live/turns` | 前端依「換人說話」把字幕整理成一段一段，每 3 秒送一次（`seq` 去重，可重送）；關閉時附 `usage_seconds` 記到 `llm_calls` |
+
+**時間與結束**：時間上限依長度（快速 8／標準 15／深入 25 分鐘）。剩 `LIVE_WRAP_UP_SEC`（預設 90 秒）時前端送 `session.instructions.append` 請 Ava 收尾；超過上限 60 秒自動結束。設定 `LIVE_DELEGATE_MODEL` 時用 Responses delegation 提供兩個工具：`mark_topic_done`（更新進度條）、`end_interview`（Ava 說完結語後前端自動結束）。
+
+**評分**（沿用既有管線）：`end` → `_finish`：候選人有說話就 `completed` 並排 `segment_live`；Transcript Segmenter 把逐字稿切成「主題目＋追問」（只回傳段落編號，原文由程式拼回，不會被改寫），寫成一般的 `session_questions`（追問 `followup_source = live`）與 `answer_attempts`（`final_transcript` 就是字幕、沒有錄音檔），再排 `evaluate_attempt` → `build_report`。切題失敗時退回「面試官一段＋候選人一段＝一題」。
+
+**面試中的即時評分**：`live/turns` 存檔後，每段答完的回答（Ava 又開口才算答完）排 `live_feedback`（interactive 佇列、快速模型），寫在 `live_feedback` 表；面試畫面右側 `GET /feedback` 每 4 秒讀一次。依題目模式不需要另外評：每題送出後 `transcribe_attempt` → `evaluate_attempt` 本來就在面試中進行，右側直接讀 `evaluations`。
+
+**暫停、斷線**：與 §6.8 相同進入暫停；暫停前送 `session.close` 並補送字幕。心跳照常，2 分鐘沒心跳自動暫停。
+
+**成本**：GPT‑Live 依秒計費（2026-11 官方定價 active $0.05／分鐘），委派模型另計 token。所有方案都開放，仍受每月面試次數與 token 額度控管；`live_brief`、`live`、`live_segment` 屬於收尾工作，不受硬上限切斷。
+
 ---
 
 ## 7. AI Agents 設計
@@ -676,15 +714,20 @@ match main.followup_mode:
 | **Prep Analyzer** | 加入目標職缺、換履歷、修改職缺、按「重新分析」 | **每次都重新讀取**職缺完整內容＋履歷解析結果（可無）＋現有可能題目與清單 | 契合度、評語、優勢、補強、高機率方向（含機率）；**新發現的**可能題目與清單項目 | 機率 0–100；新項目與既有項目 trigram 相似度 > 0.6 剔除；只附加不刪除 | 推理 |
 | **Prep Extender** | 可能題目／準備清單的「再多產生」 | 職缺完整內容、履歷、現有項目（含題組題目）、使用者輸入的需求、領域、數量 | 指定數量的新可能題目（原因＋建議）或新清單項目 | 去重；數量相符；只附加 | 快速 |
 | **Question Planner** | 加入目標職缺（初始 8 題）、題庫生成輸入框、開始面試時題數不足 | 履歷（可無）、職缺、題型、難度、題數、使用者輸入的需求、既有題目 | 題目陣列：類型、難度、題目、考察能力、預期要點、評分規準、出題理由 | 題數相符、類型覆蓋、與既有題去重（trigram 相似度 > 0.6 剔除）、長度 ≤ 120 字 | 推理 |
-| **Follow-up Writer** | `fixed` 規則、尚未問滿 | 題目、規準、**快速轉錄**文字、前面的追問與回答、風格 | `{ question, reason }`（一定要產生一題） | 長度 ≤ 80 字、不得重複前面追問；3 秒逾時改用通用追問 | 快速 |
-| **Follow-up Decider** | `adaptive` 規則、未達上限 | 題目、規準、**快速轉錄**文字、風格、已追問次數與上限 | `{ should_follow_up, question, reason }` | 程式檢查上限、長度 ≤ 80 字；3 秒逾時 = 不追問 | 快速 |
+| **Follow-up Writer** | `fixed` 規則、尚未問滿 | 題目、規準、**快速轉錄**文字、前面的追問與回答、**履歷重點**（技能、專案、成就）、風格 | `{ question, reason }`（一定要產生一題） | 長度 ≤ 80 字、不得重複前面追問；3 秒逾時改用通用追問 | 快速 |
+| **Follow-up Decider** | `adaptive` 規則、未達上限 | 題目、規準、**快速轉錄**文字、**履歷重點**、風格、已追問次數與上限 | `{ should_follow_up, question, reason }` | 程式檢查上限、長度 ≤ 80 字；3 秒逾時 = 不追問 | 快速 |
+| **Interview Brief**（Live） | 建立 Live 場次 | 職缺、履歷（可無）、種子題目、時間 | 職缺必考能力、履歷亮點、履歷疑點、議程（開場問法、追問方向、時間） | 議程對應種子題目時由程式帶回它的評分規準；失敗時用種子題目當議程 | 推理 |
+| **Live Feedback**（Live） | 面試中每段回答答完 | 面試官的話、候選人回答、職缺摘要 | 是否為面試問題、題目摘要、0–100 參考分數、優點、改善、一句提醒 | 寒暄等非問題標 skipped；失敗只標 failed 不重試（正式評分在結束後） | 快速 |
+| **Transcript Segmenter**（Live） | Live 場次結束 | 議程、雙方逐字稿（附 seq） | 題組：主題目＋追問，每題只給整理後的問題與候選人段落 seq | seq 必須是候選人段落、不得重複，回答原文由程式拼回；失敗時一段問一段答 | 推理 |
 | **Answer Evaluator** | 每題（主題目與每個追問各自）最終逐字稿完成 | 題目、規準、職缺摘要、必要履歷背景、完整逐字稿；追問另附主題目與先前回答作為脈絡 | 分數、五維度、證據原句、做得好、改善建議、可以這樣說、重點句 | **證據原句必須出現在逐字稿中**，否則剔除；逐字稿過短或品質差 → `needs_review` | 推理 |
 | **Report Aggregator** | 所有題目評分完成 | 各題評分與整組分數 | 總結評語、共同弱點、下次練習優先順序 | 整組分數與總分由程式加權計算，**不讓模型算分數** | 快速 |
 | **Job Extractor** | 職缺 ETL（§12） | 分類、地區等搜尋條件；Responses API `web_search` | 職缺陣列：公司、職稱、地點、條件重點、**原始網址** | JSON Schema、網址可連線、網域白名單、去重 | 推理 |
 | **Job Classifier** | ETL 抓回、使用者貼上職缺 | 職稱、條件 | 分類、資歷、信心分數、2–3 句摘要 | 分類必須在 `job_categories`；信心 < 0.7 → 送審 | 快速 |
 | **Job Auditor** | 每日 | 前一天上架的職缺抽樣＋被檢舉的職缺 | 疑似錯誤清單與原因 | 只產生報告寄給管理者，不自動修改 | 快速 |
 
-模型名稱全部透過環境變數設定（`LLM_MODEL_REASONING`、`LLM_MODEL_FAST`、`STT_MODEL_FAST`、`STT_MODEL`、`TTS_MODEL`、`TTS_VOICE`、`EMBEDDING_MODEL`、`REALTIME_MODEL`），不寫死在程式中。
+模型名稱全部透過環境變數設定（`LLM_MODEL_REASONING`、`LLM_MODEL_FAST`、`STT_MODEL_FAST`、`STT_MODEL`、`TTS_MODEL`、`TTS_VOICE`、`EMBEDDING_MODEL`、`REALTIME_MODEL`、`LIVE_MODEL`、`LIVE_VOICE`、`LIVE_DELEGATE_MODEL`），不寫死在程式中。
+
+**擬真人像（Simli）**：設定 `SIMLI_API_KEY`（與選填的 `SIMLI_FACE_ID`）就啟用。後端 `POST /interviews/{id}/avatar/connect` 換 session token 與 ICE 伺服器（金鑰不給前端）；瀏覽器用 SDK 的 P2P 模式直連 Simli。Ava 的聲音經本站的 AudioWorklet（`frontend/js/interview/pcm-worklet.js`，CSP 不允許 blob: 程式，所以不用 SDK 內建的 `listenTo*`）轉成 PCM16 16kHz 送出，原本的聲音靜音、改由 Simli 播出對好嘴的聲音。SDK 打包在 `frontend/js/vendor/simli-client.js`（`simli-client@3.2.0`，用 esbuild 從 `export const { SimliClient, LogLevel } = pkg` 入口打包成 ES module），只在啟用時動態載入。連不上或斷線時換回插畫人像。
 
 ### 7.1 評分輸出範例
 
