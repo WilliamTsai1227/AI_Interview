@@ -840,3 +840,55 @@ button.rv-issue:hover{background:var(--surface-2)}
   .rv-lacts{opacity:1}
 }
 @media (prefers-reduced-motion:reduce){.rv-card{animation:none}.rv-prog i{transition:none}}
+
+/* ---------- 能力落差分析（pages/career.js）：可以點的比對條件、離每個職缺多遠、分頁 ---------- */
+.hbtn.pri{background:var(--inv);color:var(--inv-ink)}
+.hbtn.pri:hover{background:var(--inv);opacity:.85}
+.hbtn:disabled{opacity:.4;cursor:default}
+.conds{margin-top:22px}
+.conds-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.cond{display:flex;align-items:flex-start;gap:10px;text-align:left;padding:12px 12px 12px 14px;border:1px solid var(--line-2);border-radius:14px;min-width:0;transition:background .12s,border-color .12s}
+.cond:hover{background:var(--hover);border-color:var(--ink-3)}
+.cond>svg{flex:none;margin-top:2px;color:var(--ink-2)}
+.cond>svg:last-child{margin-left:auto;color:var(--ink-3);opacity:.6}
+.cond:hover>svg:last-child{opacity:1}
+.cond .cv{display:flex;flex-direction:column;min-width:0}
+.cond .cv small{font-size:.75rem;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cond .cv b{font-weight:500;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cond.warn{border-style:dashed}
+.conds-f{margin-top:8px}
+.gap-hero{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:28px;align-items:center;margin-top:30px;padding-bottom:26px;border-bottom:1px solid var(--line)}
+.gap-hero .big{margin-top:0}
+.gh-score p{margin-top:12px;line-height:1.75}
+.gh-jobs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.gh-job{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr) 3.2em;align-items:center;gap:12px;width:100%;text-align:left;padding:8px 10px;border-radius:10px}
+.gh-job:hover{background:var(--hover)}
+.gj-name{display:flex;flex-direction:column;min-width:0}
+.gj-name b{font-weight:500;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gj-name small{font-size:.76rem;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gj-bar{height:10px;border-radius:999px;background:var(--surface);overflow:hidden}
+.gj-bar i{display:block;height:100%;border-radius:inherit;background:var(--inv);transform-origin:left;animation:gjgrow .7s cubic-bezier(.2,.7,.2,1)}
+@keyframes gjgrow{from{transform:scaleX(0)}}
+.gj-pct{font-weight:600;text-align:right}
+.gap-tabs{display:flex;gap:4px;margin-top:22px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.gap-tabs::-webkit-scrollbar{display:none}
+.gap-tabs button{display:inline-flex;align-items:center;gap:6px;padding:10px 12px;font-size:.92rem;color:var(--ink-2);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.gap-tabs button:hover{color:var(--ink)}
+.gap-tabs button.on{color:var(--ink);border-bottom-color:var(--ink);font-weight:500}
+.gap-tabs .cnt{font-size:.75rem;color:var(--ink-3);background:var(--surface);padding:0 7px;border-radius:999px}
+.gap-body{padding-top:4px}
+.gap-body>.grid2{margin-top:8px}
+.tagx.sev-high{color:var(--rec);border-color:color-mix(in srgb,var(--rec) 40%,transparent)}
+.next-step{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:28px;padding:14px 16px;border-radius:14px;background:var(--surface)}
+.next-step>div{display:flex;flex-direction:column}
+.next-step b{font-weight:500}
+.next-step .muted{font-size:.88rem}
+.modal.cond-modal{width:min(720px,100%)}
+.cform.in-modal h2:first-child{margin-top:4px}
+@media (max-width:560px){.conds-row{grid-template-columns:1fr}}
+@media (max-width:640px){
+  .gap-hero{grid-template-columns:1fr;gap:18px}
+  .gh-job{grid-template-columns:minmax(0,1fr) 3.2em;grid-template-areas:"n p" "b b";row-gap:6px}
+  .gj-name{grid-area:n}.gj-pct{grid-area:p}.gj-bar{grid-area:b}
+}
+@media (prefers-reduced-motion:reduce){.gj-bar i{animation:none}}
