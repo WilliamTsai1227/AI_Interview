@@ -559,7 +559,7 @@ CREATE UNIQUE INDEX uq_resumes_primary ON resumes(user_id) WHERE is_primary AND 
 
 **履歷修改**（[resume-revision.md](features/resume-revision.md)，migration 0017）：`resume_revisions` 一列是一次修改。
 卡片、回答、新版履歷、使用者的逐條決定都存成 jsonb（只有這個流程自己讀寫，不需要查詢內部欄位）；存成新履歷時在 `resumes` 新增一列，`saved_resume_id` 指過去。
-欄位見 [0017_resume_revisions.sql](../backend/migrations/0017_resume_revisions.sql)；0018 加上 `portfolio`（GitHub 讀取與審閱結果）與 `stage`（carding 時正在讀 GitHub 還是產生卡片）。
+欄位見 [0017_resume_revisions.sql](../backend/migrations/0017_resume_revisions.sql)；0018 加上 `portfolio`（GitHub 讀取與審閱結果）與 `stage`（carding 時正在讀 GitHub 還是產生卡片）；0019 加上 `review`（初篩檢查結果）與 `review_status`。
 
 ### 4.4 職缺
 

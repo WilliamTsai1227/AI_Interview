@@ -92,6 +92,11 @@ async def put_decisions(rid: UUID, body: DecisionsIn, user: CurrentUser = Depend
     return await service.put_decisions(user.id, rid, {k: v.model_dump() for k, v in body.decisions.items()})
 
 
+@router.post("/{rid}/review", status_code=202)
+async def review(rid: UUID, user: CurrentUser = Depends(require_tokens)):
+    return await service.start_review(user.id, rid)
+
+
 @router.get("/{rid}/docx")
 async def docx(rid: UUID, user: CurrentUser = Depends(current_user)):
     data, name = await service.docx_file(user.id, rid)

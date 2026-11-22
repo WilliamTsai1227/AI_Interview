@@ -278,3 +278,71 @@ def test_github_repos_lists_public_repos(client, monkeypatch):
     r = client.get(f"{API}/resume-revisions/github-repos", headers=user, params={"owner": "ghost"})
     assert r.status_code == 400 and "找不到這個 GitHub 帳號" in r.json()["error"]["message"]
     assert client.get(f"{API}/resume-revisions/github-repos", headers=user, params={"owner": "bad name!"}).status_code == 400
+
+
+# ---------- 刪減與初篩檢查 ----------
+def test_final_lines_remove_and_drop_empty_entry():
+    result = {"name": "小明", "headline": "", "contact": "", "sections": [{"title": "經歷", "entries": [
+        {"title": "舊公司", "meta": "2010", "lines": [{"id": "a", "text": "打工", "change": "remove", "original": "", "reason": "", "card": 3}]},
+        {"title": "學歷：台大", "meta": "", "lines": []}]}]}
+    doc = service.final_lines(result, {})
+    assert [e["title"] for e in doc["sections"][0]["entries"]] == ["學歷：台大"]        # 整段都刪掉 → 標題也拿掉
+    doc = service.final_lines(result, {"a": {"accept": False}})                       # 保留這條
+    assert doc["sections"][0]["entries"][0]["lines"] == ["打工"]
+
+
+def test_rule_checks_find_personal_info_and_placeholders():
+    from app.ai.knowledge import resume_screening as rs
+    doc = {"name": "小明", "headline": "", "contact": "0912-345-678", "sections": [{"title": "工作經歷", "entries": [
+        {"title": "工程師｜Acme", "meta": "", "lines": ["身分證 A123456789", "提升 [多少] 倍", "認真負責"]}]}]}
+    titles = [x["title"] for x in rs.rule_checks(doc, language="zh", length="one")]
+    assert "還有 1 個 [待補] 沒填" in titles and "沒有 Email" in titles and "有身分證字號" in titles
+    assert "有經歷沒寫期間" in titles and "有填充詞" in titles
+    assert rs.keywords_present(["FastAPI", "fastapi", "Kubernetes"], "用 FastAPI 開發") == [
+        {"keyword": "FastAPI", "present": True}, {"keyword": "Kubernetes", "present": False}]
+
+
+def test_revision_prune_cards_and_review(client, dev_ai):
+    since = dt.datetime.now(dt.timezone.utc)
+    user, uid = register(client, f"rev-{uuid.uuid4().hex[:8]}@example.com")
+    rid_resume = _resume(client, uid)
+    tid = client.post(f"{API}/targets", headers=user, json={"raw_text": JD}).json()["id"]
+    _drain(client, since)
+    rev = client.post(f"{API}/resume-revisions", headers=user, json={"resume_id": rid_resume, "target_ids": [tid]}).json()
+    _drain(client, since, ("build_revision_cards",))
+    rev = client.get(f"{API}/resume-revisions/{rev['id']}", headers=user).json()
+    kinds = [c["kind"] for c in rev["cards"]]
+    assert kinds[-1] == "trim" and kinds[-2] == "prune"            # 先補再刪，最後讓使用者自己說要刪什麼
+    prune = len(kinds) - 2
+    assert rev["cards"][prune]["quote"] == "負責訂單 API 開發" and [o["label"] for o in rev["cards"][prune]["options"]] == ["刪掉", "縮成一句", "保留"]
+
+    answers = {str(i): {"skipped": True} for i in range(len(kinds))}
+    answers[str(prune)] = {"choice": "刪掉"}
+    client.put(f"{API}/resume-revisions/{rev['id']}/answers", headers=user, json={"answers": answers})
+    client.post(f"{API}/resume-revisions/{rev['id']}/generate", headers=user)
+    _drain(client, since, ("build_revision",))
+    rev = client.get(f"{API}/resume-revisions/{rev['id']}", headers=user).json()
+    assert rev["status"] == "ready" and rev["review_status"] == "pending"     # 新版好了就排初篩檢查
+    removed = [ln for s in rev["result"]["sections"] for e in s["entries"] for ln in e["lines"] if ln["change"] == "remove"]
+    assert removed and removed[0]["text"] == "負責訂單 API 開發" and removed[0]["card"] == prune
+    d = client.get(f"{API}/resume-revisions/{rev['id']}/docx", headers=user)
+    import docx
+    assert "負責訂單 API 開發" not in "\n".join(p.text for p in docx.Document(io.BytesIO(d.content)).paragraphs)
+
+    _drain(client, since, ("review_revision",))
+    rev = client.get(f"{API}/resume-revisions/{rev['id']}", headers=user).json()
+    v = rev["review"]
+    assert rev["review_status"] == "ready" and not rev["review_stale"]
+    assert v["verdict"] in ("pass", "borderline", "reject") and 0 <= v["score_after"] <= 100
+    assert any(k["present"] is False for k in v["keywords"])                  # 職缺的 Kubernetes 履歷沒寫
+    assert any(i["perspective"] == "check" and i["title"] == "沒有 Email" for i in v["issues"])
+    assert any(i["line_id"] for i in v["issues"] if i["perspective"] != "check")   # 審閱指的那一條對應得到
+
+    # 改過之後提示重新檢查；重新檢查後不再過期
+    line = next(ln for s in rev["result"]["sections"] for e in s["entries"] for ln in e["lines"] if ln["change"] == "keep")
+    rev = client.put(f"{API}/resume-revisions/{rev['id']}/decisions", headers=user, json={"decisions": {line["id"]: {"text": "改過的內容"}}}).json()
+    assert rev["review_stale"]
+    rev = client.post(f"{API}/resume-revisions/{rev['id']}/review", headers=user).json()
+    assert rev["review_status"] == "pending"
+    _drain(client, since, ("review_revision",))
+    assert not client.get(f"{API}/resume-revisions/{rev['id']}", headers=user).json()["review_stale"]

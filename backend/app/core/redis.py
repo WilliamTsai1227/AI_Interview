@@ -45,6 +45,7 @@ LIMITS: dict[str, tuple[int, int]] = {          # action: (次數, 視窗秒數)
     "career_plan": (5, 3600) if not settings.is_dev else (50, 3600),
     "resume_revision": (10, 3600) if not settings.is_dev else (100, 3600),
     "github_list": (30, 3600),
+    "revision_review": (20, 3600) if not settings.is_dev else (200, 3600),
     "interview_create": (10, 86400) if not settings.is_dev else (200, 86400),
     "mcp_connect": (20, 3600),
 }

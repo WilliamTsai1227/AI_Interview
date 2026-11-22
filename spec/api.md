@@ -156,6 +156,7 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 | | PUT | `/resume-revisions/{id}/answers` | 存目前的回答（整份取代） | 履歷修改 |
 | | POST | `/resume-revisions/{id}/generate` | 答完 → 產生新版履歷；失敗時重試 | 履歷修改 |
 | | PUT | `/resume-revisions/{id}/decisions` | 逐條接受／還原／編輯 | 履歷修改 |
+| | POST | `/resume-revisions/{id}/review` | 重新做初篩檢查 | 履歷修改 |
 | | GET | `/resume-revisions/{id}/docx` | 下載 Word（套用目前的決定） | 履歷修改 |
 | | POST | `/resume-revisions/{id}/save` | 存成新的一份履歷 | 履歷修改 |
 | Targets | GET | `/targets` | 目標職缺列表（含題數、題組狀態、最近練習） | 目標職缺、側欄、題庫生成、面試建議、新面試・職缺選單 |
@@ -441,6 +442,14 @@ PDF 第 `n` 頁（從 0 開始，最多前 20 頁）的 WebP 圖片，約 2 倍�
   "decisions": { "s1e0l0": {"accept": false} }, "placeholders": 2, "saved_resume": null }
 ```
 `placeholders`：套用決定後還有幾個 `[待補]`。
+卡片的 `kind` 另外有 `prune`（帶 `quote`：要問的原文，選項固定是刪掉／縮成一句／保留）與 `trim`（最後一張，使用者自己說要刪哪裡）；
+`lines[].change` 另外有 `remove`（text 是原文；`accept: false` 代表保留這條）。
+
+初篩檢查：`review_status`（`pending`／`running`／`ready`／`failed`）、`review_stale`（改過履歷、要重新檢查）、
+`review`：`{ "verdict": "pass|borderline|reject", "verdict_reason", "first_impression", "score_before", "score_after", "strengths": [],
+"keywords": [{"keyword", "present"}], "issues": [{"perspective": "hr|manager|check", "severity": "high|medium|low", "title", "detail", "line_id"}] }`。
+新版產生後自動排一次。
+
 另外有 `stage`（`portfolio`／`cards`／`null`）與 `portfolio`：`[{ "url", "status": "ok|failed|skipped", "error", "name", "files_read", "purpose" }]`（只回摘要，完整審閱不回）。
 
 #### `GET /resume-revisions/github-repos?owner=帳號`
@@ -455,6 +464,9 @@ PDF 第 `n` 頁（從 0 開始，最多前 20 頁）的 WebP 圖片，約 2 倍�
 
 #### `PUT /resume-revisions/{id}/decisions`
 `{ "decisions": { "line_id": {"accept": true, "text": "改過的文字"} } }`，整份取代；只存還原或改過的。
+
+#### `POST /resume-revisions/{id}/review` → `202`
+只在 `ready` 可以呼叫；已經在檢查中就不重排。需要 token 額度；限流 `revision_review`（每小時 20 次）。
 
 #### `GET /resume-revisions/{id}/docx`、`POST /resume-revisions/{id}/save`
 都套用目前的決定。`save` 的 body 是 `{ "set_primary": false }`：產生 Word 存成新的一份履歷（原本那份不動），走一般的解析流程；超過履歷份數上限回 `409`。

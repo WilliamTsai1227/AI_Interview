@@ -18,7 +18,10 @@ const GOAL_NAME = Object.fromEntries(GOALS.map(([k, n]) => [k, n]));
 const STATUS = { carding: "Ava 正在準備問題", answering: "回答中", generating: "產生中", ready: "已完成", failed: "沒有成功" };
 const MAX_JOBS = 3;
 const POLL_MS = 2000;
-const TAG = { new: "新增", edit: "改寫" };
+const TAG = { new: "新增", edit: "改寫", remove: "刪除" };
+const PHASE = { gap: "職缺要求", quantify: "補上數字", clarify: "說清楚角色", missing: "可能漏寫的", portfolio: "GitHub 作品", prune: "可以刪減", trim: "想刪的部分" };
+const VERDICT = { pass: "大概率通過初篩", borderline: "邊緣，可能被刷", reject: "很可能被刷" };
+const WHO = { hr: "HR", manager: "用人主管", check: "格式檢查" };
 const jobName = (j) => `${j.company_name || "未知公司"}｜${j.title || "未命名職缺"}`;
 const answered = (a) => !!a && (a.skipped || !!a.choice || !!(a.text || "").trim());
 const PLACEHOLDER = /\[[^[\]\n]{1,40}\]/g;
@@ -292,7 +295,7 @@ async function revision(wrap, id, ctx, later) {
       return;
     }
     if (r.status === "answering") return drawCard();
-    return result(wrap, r, ctx, (x) => { r = x; });
+    return result(wrap, r, ctx, (x) => { r = x; }, later);
   }
 
   async function regen() {
@@ -345,9 +348,9 @@ async function revision(wrap, id, ctx, later) {
     }
     drawOpts();
     detail.hidden = !showDetail();
-    replace(wrap, card({ step: idx, total: n, phase: { gap: "職缺要求", quantify: "補上數字", clarify: "說清楚角色", missing: "可能漏寫的", portfolio: "GitHub 作品" }[c.kind],
+    replace(wrap, card({ step: idx, total: n, phase: PHASE[c.kind],
       context: c.context, question: c.question, back: idx ? () => { idx -= 1; drawCard(); } : null,
-      body: [c.options.length ? opts : null, detail, showDetail() && a.text.trim().length < 2 && c.options.length
+      body: [c.quote ? h("blockquote", { class: "rv-quote" }, c.quote) : null, c.options.length ? opts : null, detail, showDetail() && a.text.trim().length < 2 && c.options.length
         ? h("p", { class: "faint rv-hint" }, "可以只寫幾個字，Ava 會幫你整理成履歷的寫法；沒有數字就寫大概。") : null],
       foot: footBox }));
     drawFoot();
@@ -361,7 +364,7 @@ async function revision(wrap, id, ctx, later) {
     replace(wrap, card({ step: cards.length, total: cards.length, phase: "完成", question: "都問完了！",
       back: () => { idx = cards.length - 1; drawCard(); },
       body: [
-        h("p", { class: "muted" }, `你回答了 ${said} 題${skipped ? `、跳過 ${skipped} 題` : ""}。Ava 會把你的回答補進履歷、改寫成果；沒給的數字會留成 [待補] 讓你填，不會自己編。`),
+        h("p", { class: "muted" }, `你回答了 ${said} 題${skipped ? `、跳過 ${skipped} 題` : ""}。Ava 會把你的回答補進履歷、改寫成果、拿掉你選了刪掉的內容；沒給的數字會留成 [待補] 讓你填，不會自己編。寫好之後會再用 HR 和用人主管的角度做一次初篩檢查。`),
         r.jobs.length ? h("p", { class: "faint" }, `依職缺修改：${r.jobs.map(jobName).join("、")}`) : h("p", { class: "faint" }, "沒有選職缺：做整體改善。"),
       ],
       foot: [h("span"), h("button", { class: "btn pri", type: "button", onclick: () => regen() }, "產生新版履歷", icon("right"))] }));
@@ -378,19 +381,21 @@ function finalDoc(res, dec) {
     for (const e of s.entries) {
       const lines = [];
       for (const ln of e.lines) {
-        const d = dec[ln.id] || {};
-        let text;
-        if (d.accept === false) {
-          if (ln.change === "new") continue;
-          text = ln.change === "edit" ? ln.original : ln.text;
-        } else text = d.text || ln.text;
-        if (text.trim()) lines.push(text.trim());
+        const text = lineText(ln, dec[ln.id] || {});
+        if (text?.trim()) lines.push(text.trim());
       }
-      if (lines.length || e.title) entries.push({ title: e.title, meta: e.meta, lines });
+      if (lines.length || (e.title && !e.lines.length)) entries.push({ title: e.title, meta: e.meta, lines });
     }
     if (entries.length) sections.push({ title: s.title, entries });
   }
   return { ...res, sections };
+}
+
+/** 套用使用者的決定後要顯示的文字；null＝不出現（和後端 line_text 一致）。 */
+function lineText(ln, d) {
+  if (d.accept === false) return ln.change === "new" ? null : ln.change === "edit" ? ln.original : ln.text;
+  if (ln.change === "remove") return null;
+  return d.text || ln.text;
 }
 
 function plainText(doc) {
@@ -406,17 +411,80 @@ function plainText(doc) {
   return out.join("\n");
 }
 
-function result(wrap, r, ctx, setR) {
+function result(wrap, r, ctx, setR, later) {
   const res = r.result;
   let dec = { ...r.decisions };
   let editing = null;
-  const counts = { new: 0, edit: 0 };
+  const counts = { new: 0, edit: 0, remove: 0 };
   res.sections.forEach((s) => s.entries.forEach((e) => e.lines.forEach((l) => { if (counts[l.change] !== undefined) counts[l.change] += 1; })));
   const docBox = h("div", { class: "rv-doc" });
   const headBox = h("div");
+  const reviewBox = h("section", { class: "rv-review", "aria-live": "polite" });
 
   async function saveDec() {
-    try { const x = await put(`/resume-revisions/${r.id}/decisions`, { decisions: dec }); setR(x); r = x; drawHead(); } catch (e) { errorToast(e); }
+    try { const x = await put(`/resume-revisions/${r.id}/decisions`, { decisions: dec }); setR(x); r = x; drawHead(); drawReview(); } catch (e) { errorToast(e); }
+  }
+
+  // ---------- 初篩檢查 ----------
+  const reviewing = () => r.review_status === "pending" || r.review_status === "running";
+  function pollReview() {
+    if (!reviewing()) return;
+    later(async () => {
+      if (!ctx.isCurrent()) return;
+      try { const x = await get(`/resume-revisions/${r.id}`); setR(x); r = x; } catch { /* 下次再試 */ }
+      if (!reviewing()) drawReview();
+      pollReview();
+    });
+  }
+  async function rerun() {
+    try { const x = await post(`/resume-revisions/${r.id}/review`); setR(x); r = x; drawReview(); pollReview(); } catch (e) { errorToast(e); }
+  }
+  function jumpTo(lid) {
+    editing = lid;
+    drawDoc();
+    docBox.querySelector(`[data-lid="${lid}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+  function drawReview() {
+    if (!ctx.isCurrent()) return;
+    const v = r.review;
+    if (reviewing()) {
+      replace(reviewBox, h("div", { class: "rv-rv-wait" }, dots(), h("span", null, "Ava 正在用 HR 和用人主管的角度做初篩檢查⋯約 30 秒")));
+      return;
+    }
+    if (!v) {
+      replace(reviewBox, r.review_status === "failed" ? h("div", { class: "rv-rv-wait" }, h("span", null, "初篩檢查沒有成功。"),
+        h("button", { class: "btn out sm", type: "button", onclick: rerun }, icon("redo", 15), "再試一次")) : null);
+      return;
+    }
+    const issue = (x) => {
+      const body = [h("span", { class: `rv-sev ${x.severity}`, "aria-hidden": "true" }),
+        h("span", { class: "bd" }, h("b", null, x.title), h("small", null, x.detail)),
+        h("span", { class: "rv-who" }, WHO[x.perspective] || "")];
+      return h("li", null, x.line_id
+        ? h("button", { class: "rv-issue", type: "button", title: "跳到這一條編輯", onclick: () => jumpTo(x.line_id) }, ...body, icon("right", 14))
+        : h("div", { class: "rv-issue" }, ...body));
+    };
+    const delta = v.score_after - v.score_before;
+    replace(reviewBox,
+      h("div", { class: "rv-rv-h" },
+        h("div", null, h("h2", null, "初篩檢查"), h("p", { class: "faint" }, "用 HR 和用人主管的角度看新版履歷，判斷會不會在第一關被刷掉")),
+        h("button", { class: "btn out sm", type: "button", onclick: rerun }, icon("redo", 15), "重新檢查")),
+      r.review_stale ? h("p", { class: "rv-warn" }, icon("pencil", 14), "你改過履歷了，按「重新檢查」看看分數有沒有變。") : null,
+      h("div", { class: "rv-verdict" },
+        h("span", { class: `rv-badge ${v.verdict}` }, VERDICT[v.verdict] || v.verdict),
+        h("span", null, v.verdict_reason)),
+      h("div", { class: "rv-scores" },
+        h("div", null, h("small", null, "原履歷"), h("b", { class: "num" }, String(v.score_before))),
+        h("span", { class: "rv-arrow", "aria-hidden": "true" }, icon("right", 18)),
+        h("div", null, h("small", null, "新版"), h("b", { class: "num" }, String(v.score_after))),
+        delta ? h("span", { class: `rv-delta ${delta > 0 ? "up" : "down"} num` }, `${delta > 0 ? "+" : ""}${delta}`) : null),
+      h("p", { class: "rv-impr" }, h("b", null, "HR 前 6 秒的印象："), v.first_impression),
+      v.strengths.length ? h("p", { class: "rv-impr" }, h("b", null, "最有說服力："), v.strengths.join("；")) : null,
+      v.keywords.length ? h("div", { class: "rv-kw" }, h("b", null, `職缺關鍵字 ${v.keywords.filter((k) => k.present).length}/${v.keywords.length}`),
+        h("div", { class: "row" }, v.keywords.map((k) => h("span", { class: `rv-chip${k.present ? " on" : ""}`, title: k.present ? "履歷裡有寫" : "履歷裡沒寫到" },
+          k.present ? icon("check", 12) : null, k.keyword)))) : r.jobs.length ? null : h("p", { class: "faint" }, "沒有選職缺，所以沒有檢查職缺關鍵字。"),
+      v.issues.length ? h("div", null, h("b", { class: "rv-sub-h" }, "還要改的地方"), h("ul", { class: "rv-issues" }, v.issues.map(issue)))
+        : h("p", { class: "faint" }, "沒有發現需要改的地方。"));
   }
   const setDec = (lid, d) => {
     const next = { ...(dec[lid] || {}), ...d };
@@ -459,6 +527,7 @@ function result(wrap, r, ctx, setR) {
         h("div", { class: "rv-legend" },
           counts.new ? h("span", { class: "rv-tag new" }, `新增 ${counts.new} 條`) : null,
           counts.edit ? h("span", { class: "rv-tag edit" }, `改寫 ${counts.edit} 條`) : null,
+          counts.remove ? h("span", { class: "rv-tag remove" }, `刪除 ${counts.remove} 條`) : null,
           r.jobs.length ? h("span", { class: "faint" }, `依職缺：${r.jobs.map((j) => j.company_name).join("、")}`) : h("span", { class: "faint" }, "整體改善")),
         r.placeholders ? h("p", { class: "rv-warn" }, icon("pencil", 14), `還有 ${r.placeholders} 個 [待補]：點那一條右邊的編輯，填上實際的數字或內容。`) : null,
         h("div", { class: "row rv-acts" },
@@ -474,11 +543,11 @@ function result(wrap, r, ctx, setR) {
   function line(ln) {
     const d = dec[ln.id] || {};
     const off = d.accept === false;
-    const shown = off ? (ln.change === "edit" ? ln.original : ln.text) : d.text || ln.text;
+    const shown = lineText(ln, d) ?? ln.text;          // 拿掉的條目仍顯示原文（刪除線），才能還原
     if (editing === ln.id) {
       const ta = h("textarea", { class: "inp", rows: 2, maxlength: 1000 }, shown);
       setTimeout(() => { ta.focus(); const m = shown.search(PLACEHOLDER); if (m >= 0) ta.setSelectionRange(m, m + shown.match(PLACEHOLDER)[0].length); });
-      return h("li", { class: "rv-line editing" }, ta, h("div", { class: "row", style: "margin-top:6px" },
+      return h("li", { class: "rv-line editing", "data-lid": ln.id }, ta, h("div", { class: "row", style: "margin-top:6px" },
         h("button", { class: "btn pri sm", type: "button", onclick: () => setDec(ln.id, { accept: true, text: ta.value.trim() === ln.text ? undefined : ta.value.trim() }) }, "儲存"),
         h("button", { class: "linkb", type: "button", onclick: () => { editing = null; drawDoc(); } }, "取消")));
     }
@@ -490,16 +559,21 @@ function result(wrap, r, ctx, setR) {
     }
     marked.push(shown.slice(last));
     const changed = ln.change !== "keep";
-    return h("li", { class: `rv-line${changed && !off ? ` ${ln.change}` : ""}${off ? " off" : ""}` },
+    const removed = ln.change === "remove";
+    // 建議刪除的條目：「還原」就是保留這條；這種條目不給編輯（要改內容可以先保留，原文就是履歷上的寫法）
+    const undo = removed ? (off ? "改回刪除" : "保留這條") : off ? "改回建議" : "還原";
+    const editable = !removed && !(off && ln.change === "new");
+    return h("li", { class: `rv-line${changed && !off ? ` ${ln.change}` : ""}${off ? " off" : ""}`, "data-lid": ln.id },
       h("div", { class: "rv-lt" },
         h("span", { class: "tx" }, marked),
         h("span", { class: "rv-lacts" },
-          changed ? h("button", { class: "linkb", type: "button", onclick: () => setDec(ln.id, { accept: off, text: undefined }) }, off ? "改回建議" : "還原") : null,
-          off && ln.change === "new" ? null : h("button", { class: "ib sm", type: "button", "aria-label": "編輯這一條", onclick: () => { editing = ln.id; drawDoc(); } }, icon("pencil", 14)))),
+          changed ? h("button", { class: "linkb", type: "button", onclick: () => setDec(ln.id, { accept: off, text: undefined }) }, undo) : null,
+          editable ? h("button", { class: "ib sm", type: "button", "aria-label": "編輯這一條", onclick: () => { editing = ln.id; drawDoc(); } }, icon("pencil", 14)) : null)),
       changed && !off ? h("div", { class: "rv-why" },
         h("span", { class: `rv-tag ${ln.change}` }, TAG[ln.change]), ln.reason ? h("span", null, ln.reason) : null,
         ln.change === "edit" ? h("details", null, h("summary", null, "原文"), h("p", null, ln.original)) : null) : null,
-      off && ln.change === "new" ? h("div", { class: "rv-why" }, h("span", { class: "faint" }, "已拿掉這條新增的內容")) : null);
+      off && ln.change === "new" ? h("div", { class: "rv-why" }, h("span", { class: "faint" }, "已拿掉這條新增的內容")) : null,
+      off && removed ? h("div", { class: "rv-why" }, h("span", { class: "faint" }, "已保留，不刪除")) : null);
   }
 
   function drawDoc() {
@@ -514,7 +588,7 @@ function result(wrap, r, ctx, setR) {
   }
 
   const declined = (r.cards || []).some((c, i) => c.kind === "gap" && /沒有|學過/.test(r.answers[i]?.choice || ""));
-  replace(wrap, headBox, docBox,
+  replace(wrap, headBox, reviewBox, docBox,
     res.tips.length || declined ? h("section", { class: "rv-tips" }, h("h2", null, "還可以再補強"),
       h("ul", null, res.tips.map((t) => h("li", null, t))),
       declined ? h("p", { class: "faint" }, "有些職缺要求你還沒有實戰經驗，履歷不會寫成你會。", h("a", { href: "#career" }, "去能力落差分析排準備計畫"), "。") : null) : null,
@@ -524,5 +598,7 @@ function result(wrap, r, ctx, setR) {
         h("span", { class: "faint" }, e.status === "ok" ? `　讀了 ${e.files_read} 個檔案${e.purpose ? `：${e.purpose}` : ""}` : `　沒有讀到：${e.error || "不支援的網址"}`))))) : null,
     h("div", { class: "row", style: "justify-content:center;margin-top:32px" }, h("a", { class: "linkb", href: "#revise" }, icon("left", 14), "回到履歷修改")));
   drawHead();
+  drawReview();
   drawDoc();
+  pollReview();
 }

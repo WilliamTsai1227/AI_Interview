@@ -11,6 +11,7 @@ from uuid import UUID
 import structlog
 
 from app.ai.agents import revision as rv
+from app.ai.knowledge import resume_screening as rs
 from app.core import db, redis, storage
 from app.core.config import settings
 from app.core.errors import AppError, not_found
@@ -22,8 +23,10 @@ from app.workers.queue import enqueue, tx
 log = structlog.get_logger()
 MAX_TARGETS = 3
 MAX_CARDS = 10              # Ava 產生的卡片上限（GitHub 作品卡另外算，每個 repo 一張）
-CHANGES = ("keep", "edit", "new")
-KINDS = ("gap", "quantify", "missing", "clarify")
+CHANGES = ("keep", "edit", "new", "remove")
+KINDS = ("gap", "quantify", "missing", "clarify", "prune")
+KIND_ORDER = {k: i for i, k in enumerate(("gap", "quantify", "clarify", "missing", "prune"))}
+SEVERITY = {"high": 0, "medium": 1, "low": 2}
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PLACEHOLDER = re.compile(r"\[[^\[\]\n]{1,40}\]")
 
@@ -84,24 +87,23 @@ async def create(user_id: UUID, resume_id: UUID, target_ids: list[UUID], setup: 
 
 
 # ---------- 讀取 ----------
+def line_text(ln: dict, d: dict) -> str | None:
+    """這一條套用使用者的決定後要顯示的文字；None＝不出現在新版履歷。"""
+    if d.get("accept") is False:          # 還原：新增的拿掉、改寫的換回原文、建議刪掉的留下
+        return None if ln["change"] == "new" else ln["original"] if ln["change"] == "edit" else ln["text"]
+    if ln["change"] == "remove":
+        return None
+    return d.get("text") or ln["text"]
+
+
 def final_lines(result: dict, decisions: dict) -> dict:
-    """套用使用者的決定：還原的新增條目拿掉、還原的改寫換回原文、改過的用使用者的文字。回傳同結構、只剩 text 的新版履歷。"""
+    """套用使用者的決定，回傳同結構、只剩 text 的新版履歷。整段的每一條都刪掉時，那一段（標題）也拿掉。"""
     sections = []
     for s in result.get("sections") or []:
         entries = []
         for e in s["entries"]:
-            lines = []
-            for ln in e["lines"]:
-                d = decisions.get(ln["id"]) or {}
-                if d.get("accept") is False:
-                    if ln["change"] == "new":
-                        continue
-                    text = ln["original"] if ln["change"] == "edit" else ln["text"]
-                else:
-                    text = d.get("text") or ln["text"]
-                if text.strip():
-                    lines.append(text.strip())
-            if lines or e["title"]:
+            lines = [t.strip() for ln in e["lines"] if (t := line_text(ln, decisions.get(ln["id"]) or {})) and t.strip()]
+            if lines or (e["title"] and not e["lines"]):
                 entries.append({"title": e["title"], "meta": e["meta"], "lines": lines})
         if entries:
             sections.append({"title": s["title"], "entries": entries})
@@ -132,6 +134,8 @@ async def _out(conn: db.Connection, r) -> dict:
         "jobs": [{"company_name": j["company_name"], "title": j["title"]} for j in jobs],
         "cards": r["cards"], "answers": r["answers"], "result": r["result"], "decisions": r["decisions"],
         "placeholders": _placeholders(final) if final else 0,
+        "review": r["review"], "review_status": r["review_status"],
+        "review_stale": bool(final and r["review"] and r["review"].get("doc_hash") != _doc_hash(final)),
         "saved_resume": {"id": str(saved["id"]), "filename": saved["filename"], "parse_status": saved["parse_status"]} if saved else None,
         "created_at": r["created_at"], "finished_at": r["finished_at"],
     }
@@ -320,6 +324,23 @@ async def save(user_id: UUID, rid: UUID, set_primary: bool) -> dict:
     return await get(user_id, rid)
 
 
+def _doc_hash(doc: dict) -> str:
+    return hashlib.sha256(rs.doc_text(doc).encode()).hexdigest()[:16]
+
+
+async def start_review(user_id: UUID, rid: UUID) -> dict:
+    """重新做初篩檢查（使用者改過履歷之後）。"""
+    await redis.rate_limit("revision_review", str(user_id))
+    async with tx() as conn:
+        r = await _owned(conn, user_id, rid, lock=True)
+        if r["status"] != "ready":
+            raise AppError(409, "STATE_CONFLICT", "新版履歷還沒產生")
+        if r["review_status"] not in ("pending", "running"):
+            await conn.execute("UPDATE resume_revisions SET review_status = 'pending' WHERE id = $1", rid)
+            await enqueue(conn, "review_revision", {"revision_id": str(rid)}, queue="interactive", dedupe_key=f"revision_review:{rid}")
+        return await _out(conn, await conn.fetchrow("SELECT * FROM resume_revisions WHERE id = $1", rid))
+
+
 # ---------- worker ----------
 async def _inputs(conn: db.Connection, r) -> tuple[dict | None, str | None, list[dict]]:
     res = await conn.fetchrow("SELECT parsed_json, parsed_text FROM resumes WHERE id = $1", r["resume_id"]) if r["resume_id"] else None
@@ -358,14 +379,24 @@ async def handle_cards(payload: dict) -> None:
         out = await rv.build_cards(setup=r["setup"], parsed=parsed, raw=raw, jobs=jobs, portfolio=portfolio, user_id=r["user_id"])
     except Exception as e:
         return await _fail(rid, e)
-    cards = rv.portfolio_cards(portfolio)
+    found = []
     for c in out.cards[:MAX_CARDS]:
         kind = c.kind if c.kind in KINDS else "missing"
         if kind == "gap" and not jobs:          # 沒選職缺不該有缺口卡
             continue
-        opts = [{"label": o.label.strip()[:16], "opens_detail": o.opens_detail} for o in c.options[:4] if o.label.strip()]
-        cards.append({"kind": kind, "context": c.context.strip()[:80], "question": c.question.strip()[:100], "options": opts,
-                      "detail_prompt": c.detail_prompt.strip()[:80], "example": c.example.strip()[:100]})
+        if kind == "prune":                     # 刪減卡：一定要指出原文；選項固定
+            if not c.quote.strip():
+                continue
+            opts = [{"label": lb, "opens_detail": od} for lb, od in rv.PRUNE_OPTIONS]
+        else:
+            opts = [{"label": o.label.strip()[:16], "opens_detail": o.opens_detail} for o in c.options[:4] if o.label.strip()]
+        card = {"kind": kind, "context": c.context.strip()[:80], "question": c.question.strip()[:100], "options": opts,
+                "detail_prompt": c.detail_prompt.strip()[:80], "example": c.example.strip()[:100]}
+        if kind == "prune":
+            card["quote"] = c.quote.strip()[:120]
+        found.append(card)
+    found.sort(key=lambda c: KIND_ORDER[c["kind"]])          # 先補再刪
+    cards = rv.portfolio_cards(portfolio) + found + ([dict(rv.TRIM_CARD)] if found else [])
     if not cards:
         return await _fail(rid, RuntimeError("Ava 沒有想到要問的問題，請再試一次"))
     async with db.connection() as conn:
@@ -407,7 +438,59 @@ async def handle_build(payload: dict) -> None:
                                     portfolio=r["portfolio"], user_id=r["user_id"])
     except Exception as e:
         return await _fail(rid, e)
-    async with db.connection() as conn:
-        await conn.execute(
-            """UPDATE resume_revisions SET status = 'ready', result = $2, decisions = '{}', prompt_version = $3, finished_at = now()
+    async with tx() as conn:
+        done = await conn.execute(
+            """UPDATE resume_revisions SET status = 'ready', result = $2, decisions = '{}', prompt_version = $3, finished_at = now(),
+                      review = NULL, review_status = 'pending'
                 WHERE id = $1 AND status = 'generating'""", rid, _clean_result(out, len(r["cards"] or [])), rv.PV_RESUME)
+        if done != "UPDATE 0":                   # 新版好了就接著做初篩檢查（使用者先看到新版，檢查結果幾十秒後出現）
+            await enqueue(conn, "review_revision", {"revision_id": str(rid)}, queue="interactive", dedupe_key=f"revision_review:{rid}")
+
+
+def _quote_line(result: dict, decisions: dict, quote: str) -> str | None:
+    """審閱指出的那一條（逐字引用）→ line id，前端點了可以直接跳過去編輯。"""
+    q = re.sub(r"\s+", "", quote)
+    if len(q) < 4:
+        return None
+    for s in result["sections"]:
+        for e in s["entries"]:
+            for ln in e["lines"]:
+                t = re.sub(r"\s+", "", line_text(ln, decisions.get(ln["id"]) or {}) or "")
+                if t and (q in t or t in q):
+                    return ln["id"]
+    return None
+
+
+async def handle_review(payload: dict) -> None:
+    rid = UUID(payload["revision_id"])
+    async with db.connection() as conn:
+        r = await conn.fetchrow(
+            """UPDATE resume_revisions SET review_status = 'running' WHERE id = $1 AND status = 'ready'
+                  AND review_status IN ('pending','running') RETURNING *""", rid)
+        if not r:
+            return
+        parsed, raw, jobs = await _inputs(conn, r)
+    setup = r["setup"]
+    doc = final_lines(r["result"], r["decisions"])
+    rules = rs.rule_checks(doc, language=setup.get("language", "zh"), length=setup.get("length", "one"))
+    try:
+        out = await rv.review(setup=setup, parsed=parsed, raw=raw, jobs=jobs, doc=doc, rules=rules, user_id=r["user_id"])
+    except Exception as e:
+        log.warning("revision_review_failed", revision_id=str(rid), error=repr(e))
+        async with db.connection() as conn:
+            await conn.execute("UPDATE resume_revisions SET review_status = 'failed' WHERE id = $1", rid)
+        return
+    issues = [{"perspective": i.perspective if i.perspective in ("hr", "manager") else "hr",
+               "severity": i.severity if i.severity in SEVERITY else "medium", "title": i.title.strip()[:40], "detail": i.detail.strip()[:140],
+               "line_id": _quote_line(r["result"], r["decisions"], i.quote)} for i in out.issues[:8] if i.title.strip()]
+    issues += [{"perspective": "check", **x, "line_id": None} for x in rules]
+    issues.sort(key=lambda x: SEVERITY[x["severity"]])
+    review = {"verdict": out.verdict if out.verdict in rs.VERDICTS else "borderline", "verdict_reason": out.verdict_reason.strip()[:100],
+              "first_impression": out.first_impression.strip()[:120],
+              "score_before": max(0, min(100, out.score_before)), "score_after": max(0, min(100, out.score_after)),
+              "strengths": [x.strip()[:60] for x in out.strengths[:3] if x.strip()], "issues": issues,
+              "keywords": rs.keywords_present(out.keywords[:15], rs.doc_text(doc)) if jobs else [],
+              "doc_hash": _doc_hash(doc), "prompt_version": rv.PV_REVIEW}
+    async with db.connection() as conn:
+        await conn.execute("UPDATE resume_revisions SET review = $2, review_status = 'ready' WHERE id = $1 AND review_status = 'running'",
+                           rid, review)
