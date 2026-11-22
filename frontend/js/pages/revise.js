@@ -204,8 +204,12 @@ async function revision(wrap, id, ctx, later) {
     draw();
   });
 
+  let waiting = null;      // 目前顯示中的等待畫面（carding／generating）
   function draw() {
     if (!ctx.isCurrent()) return;
+    // 等待中每 2 秒查一次狀態：狀態沒變就不重畫，否則卡片的進場動畫會一直重播、畫面一直跳
+    if (r.status === waiting) return refresh();
+    waiting = r.status === "carding" || r.status === "generating" ? r.status : null;
     if (r.status === "carding") { replace(wrap, loadingCard("Ava 正在準備問題", r.jobs.length ? `正在比對你的履歷和 ${r.jobs.map((j) => j.company_name).join("、")} 的職缺要求⋯` : "正在看你的履歷哪裡可以寫得更好⋯")); return refresh(); }
     if (r.status === "generating") { replace(wrap, loadingCard("Ava 正在寫新版履歷", "依你的回答補進履歷、改寫成果，約 30–60 秒。")); return refresh(); }
     if (r.status === "failed") {
