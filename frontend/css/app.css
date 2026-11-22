@@ -892,3 +892,23 @@ button.rv-issue:hover{background:var(--surface-2)}
   .gj-name{grid-area:n}.gj-pct{grid-area:p}.gj-bar{grid-area:b}
 }
 @media (prefers-reduced-motion:reduce){.gj-bar i{animation:none}}
+
+/* ---------- 新手導覽（components/tour.js）：把目標挖空打亮，旁邊跳出說明框 ---------- */
+.tour{position:fixed;inset:0;z-index:90}
+.tour-spot{position:fixed;border-radius:12px;box-shadow:0 0 0 2px var(--bg),0 0 0 9999px var(--scrim);pointer-events:none;
+  transition:left .25s ease,top .25s ease,width .25s ease,height .25s ease}
+.tour.no-target .tour-spot{box-shadow:0 0 0 9999px var(--scrim)}
+.tour-pop{position:fixed;width:min(340px,calc(100vw - 24px));background:var(--pop);color:var(--ink);border-radius:16px;box-shadow:var(--shadow);
+  padding:16px 18px 14px;animation:pop .15s}
+.tour-pop[data-at="center"]{width:min(400px,calc(100vw - 24px));padding:22px 24px 18px}
+.tour-h{display:flex;align-items:center;justify-content:space-between;margin:-4px -8px 4px 0}
+.tour-n{font-size:.78rem;color:var(--ink-3)}
+.tour-pop h2{font-size:1.05rem;font-weight:600;line-height:1.4}
+.tour-pop[data-at="center"] h2{font-size:1.25rem}
+.tour-pop p{margin-top:6px;color:var(--ink-2);font-size:.92rem;line-height:1.7}
+.tour-f{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px}
+.tour-dots{display:flex;gap:5px}
+.tour-dots i{width:6px;height:6px;border-radius:50%;background:var(--line-2)}
+.tour-dots i.done{background:var(--ink-3)}
+.tour-dots i.on{width:18px;border-radius:999px;background:var(--ink)}
+@media (prefers-reduced-motion:reduce){.tour-spot{transition:none}.tour-pop{animation:none}}

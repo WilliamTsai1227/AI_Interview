@@ -4,6 +4,7 @@
 import { get, getBlob, post, put } from "../api.js";
 import { openJd } from "../components/jd.js";
 import { openSettings } from "../components/settings.js";
+import { tourRevise } from "../components/tours.js";
 import { dots, h, icon, replace } from "../dom.js";
 import { fmtDate, fmtDay, loadResumes, loadTargets, S } from "../store.js";
 import { copyText, errorToast, openMenu, seg, setHead, toast } from "../ui.js";
@@ -86,6 +87,7 @@ async function home(wrap, ctx) {
           h("small", { class: "faint" }, [fmtDate(x.created_at), x.resume, x.status === "answering" ? `已答 ${x.answered}/${x.card_count}` : STATUS[x.status]]
             .filter(Boolean).join("・"))),
         icon("right", 16))))) : null);
+  tourRevise();
 }
 
 // ---------- 階段 A：設定 ----------

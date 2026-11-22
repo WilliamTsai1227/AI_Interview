@@ -5,6 +5,7 @@ import { openJd } from "../components/jd.js";
 import { openJob } from "../components/job.js";
 import { openResumePreview } from "../components/resumePreview.js";
 import { openSettings } from "../components/settings.js";
+import { tourCareer } from "../components/tours.js";
 import { dots, h, icon, replace, skel } from "../dom.js";
 import { fmtDate, loadResumes, loadTargets, resumesFull, S } from "../store.js";
 import { closeModal, errorToast, logo, openMenu, openModal, setHead, toast } from "../ui.js";
@@ -472,6 +473,7 @@ export async function render(view, _arg, ctx) {
         : plan.status === "failed" ? h("div", { class: "err-box", style: "margin-top:20px" }, h("span", { class: "t" }, "Ava 這次沒有分析成功。"),
           h("button", { class: "btn out sm", type: "button", onclick: rerun }, "再試一次"))
           : planView());
+    if (plan.status === "ready") tourCareer();     // 第一次看到分析結果：介紹條件、重新分析、分頁
   }
 
   draw();

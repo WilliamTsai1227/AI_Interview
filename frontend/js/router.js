@@ -11,6 +11,7 @@ import * as questions from "./pages/questions.js";
 import * as report from "./pages/report.js";
 import * as revise from "./pages/revise.js";
 import * as targets from "./pages/targets.js";
+import { stopTour } from "./components/tour.js";
 import { closeDrawer, renderSide } from "./shell.js";
 import { feature, S } from "./store.js";
 import { closeMenu, closeModal, confirmBox } from "./ui.js";
@@ -67,7 +68,7 @@ export async function route(opts = {}) {
   const view = $("#view");
   const scroll = view.scrollTop;
   closeMenu();
-  if (!opts.keepScroll) { closeModal(); closeDrawer(); }
+  if (!opts.keepScroll) { closeModal(); closeDrawer(); stopTour(); }
   S.route = next;
   S.routeArg = arg || null;
   shown = location.hash;
