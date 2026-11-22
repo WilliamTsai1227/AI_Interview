@@ -4,6 +4,7 @@
 import { get } from "../api.js";
 import { dots, h, icon, replace } from "../dom.js";
 import { mobile } from "../shell.js";
+import { tourInterview } from "../components/tours.js";
 import { Avatar } from "./avatar.js";
 import { setOutput } from "./player.js";
 import { SimliAvatar } from "./simli.js";
@@ -94,6 +95,7 @@ export function stage(view, sid) {
   view.append(root);
   // 面試中的操作列（#dock）移到人像下面；離開時 router 會放回原位
   root.firstChild.append(document.getElementById("dock"));
+  tourInterview();        // 第一次進面試間：介紹人像、操作列、右側欄
 
   // 第一次在面試畫面點擊時進入全螢幕（瀏覽器只允許在使用者操作時切換）
   const enterOnce = () => { if (!mobile() && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {}); };

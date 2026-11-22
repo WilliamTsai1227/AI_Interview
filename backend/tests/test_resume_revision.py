@@ -180,3 +180,169 @@ def test_revision_rejects_unparsed_resume_and_other_users(client, dev_ai):
     assert client.get(f"{API}/resume-revisions/{rid}", headers=other).status_code == 404
     # 還沒完成不能下載、不能存
     assert client.get(f"{API}/resume-revisions/{rid}/docx", headers=user).status_code == 409
+
+
+# ---------- GitHub 作品 ----------
+REVIEW = {"purpose": "AI 模擬面試網站", "architecture": "FastAPI＋PostgreSQL＋arq worker", "tech_stack": ["Python", "FastAPI", "PostgreSQL"],
+          "skills": [{"skill": "背景工作", "evidence": "backend/app/workers/queue.py 用 outbox"}], "practices": ["有測試"],
+          "highlights": ["用 outbox＋arq 做可靠的背景工作"], "weaknesses": [], "maturity": "可上線的完整產品"}
+
+
+def _evidence(url: str) -> dict:
+    name = url.removeprefix("https://github.com/")
+    if name.endswith("private-thing"):
+        return {"url": url, "status": "failed", "error": "找不到這個 repo，可能是私人 repo 或網址打錯"}
+    return {"url": url, "status": "ok", "kind": "repo", "files_read": ["a.py", "b.py"], "readme_read": True, "commits_read": 3,
+            "repo": {"full_name": name, "url": url, "pushed_at": "2026-11-01T00:00:00Z", "languages": {"Python": 100}}, "analysis": REVIEW}
+
+
+def test_revision_reads_github_and_writes_projects(client, dev_ai, monkeypatch):
+    read = []
+
+    async def fake_read(links, user_id):
+        read.append(list(links))
+        return [_evidence(u) for u in links]
+    monkeypatch.setattr(service.career, "read_portfolio", fake_read)
+    since = dt.datetime.now(dt.timezone.utc)
+    user, uid = register(client, f"rev-{uuid.uuid4().hex[:8]}@example.com")
+    rid_resume = _resume(client, uid)
+
+    # 只收 GitHub repo 網址；同一個 repo 不同寫法算一個
+    bad = client.post(f"{API}/resume-revisions", headers=user, json={"resume_id": rid_resume, "portfolio_links": ["https://gitlab.com/a/b"]})
+    assert bad.status_code == 400 and bad.json()["error"]["code"] == "VALIDATION_ERROR"
+    bad = client.post(f"{API}/resume-revisions", headers=user, json={"resume_id": rid_resume, "portfolio_links": ["github.com/someone"]})
+    assert bad.status_code == 400
+    r = client.post(f"{API}/resume-revisions", headers=user, json={"resume_id": rid_resume, "portfolio_links": [
+        "github.com/me/ai-interview", "https://github.com/me/ai-interview/", "https://github.com/me/private-thing"]})
+    assert r.status_code == 202, r.text
+    rev = r.json()
+    assert rev["setup"]["portfolio_links"] == ["https://github.com/me/ai-interview", "https://github.com/me/private-thing"]
+    async def queue_of() -> str:
+        async with db.connection() as conn:
+            return await conn.fetchval("SELECT queue FROM background_jobs WHERE kind = 'build_revision_cards' AND payload->>'revision_id' = $1",
+                                       rev["id"])
+    assert client.portal.call(queue_of) == "default"         # 要先讀 GitHub：放逾時比較長的佇列
+
+    _drain(client, since, ("build_revision_cards",))
+    rev = client.get(f"{API}/resume-revisions/{rev['id']}", headers=user).json()
+    assert rev["status"] == "answering" and rev["stage"] is None
+    assert [p["status"] for p in rev["portfolio"]] == ["ok", "failed"] and rev["portfolio"][0]["files_read"] == 2
+    assert "analysis" not in rev["portfolio"][0]                 # 完整審閱不回給前端
+    first = rev["cards"][0]
+    assert first["kind"] == "portfolio" and first["repo"] == "me/ai-interview" and "AI 模擬面試網站" in first["context"]
+    assert sum(c["kind"] == "portfolio" for c in rev["cards"]) == 1          # 沒讀到的 repo 不出卡
+
+    answers = {str(i): {"skipped": True} for i in range(len(rev["cards"]))}
+    answers["0"] = {"choice": first["options"][0]["label"], "text": "有 50 位使用者"}
+    client.put(f"{API}/resume-revisions/{rev['id']}/answers", headers=user, json={"answers": answers})
+    client.post(f"{API}/resume-revisions/{rev['id']}/generate", headers=user)
+    _drain(client, since, ("build_revision",))
+    rev = client.get(f"{API}/resume-revisions/{rev['id']}", headers=user).json()
+    assert rev["status"] == "ready"
+    proj = next(s for s in rev["result"]["sections"] if s["title"] == "專案")
+    assert proj["entries"][0]["title"] == "ai-interview"
+    assert all(ln["change"] == "new" and ln["card"] == 0 for ln in proj["entries"][0]["lines"])
+    assert len(read) == 1                                         # 產生履歷時沿用讀過的結果，不重讀
+
+
+def test_revision_github_repo_not_added_when_declined(client, dev_ai, monkeypatch):
+    async def fake_read(links, user_id):
+        return [_evidence(u) for u in links]
+    monkeypatch.setattr(service.career, "read_portfolio", fake_read)
+    since = dt.datetime.now(dt.timezone.utc)
+    user, uid = register(client, f"rev-{uuid.uuid4().hex[:8]}@example.com")
+    rev = client.post(f"{API}/resume-revisions", headers=user,
+                      json={"resume_id": _resume(client, uid), "portfolio_links": ["github.com/me/ai-interview"]}).json()
+    _drain(client, since, ("build_revision_cards",))
+    rev = client.get(f"{API}/resume-revisions/{rev['id']}", headers=user).json()
+    answers = {str(i): {"skipped": True} for i in range(len(rev["cards"]))}
+    answers["0"] = {"choice": "不要放"}
+    client.put(f"{API}/resume-revisions/{rev['id']}/answers", headers=user, json={"answers": answers})
+    client.post(f"{API}/resume-revisions/{rev['id']}/generate", headers=user)
+    _drain(client, since, ("build_revision",))
+    rev = client.get(f"{API}/resume-revisions/{rev['id']}", headers=user).json()
+    assert all(s["title"] != "專案" for s in rev["result"]["sections"])
+
+
+def test_github_repos_lists_public_repos(client, monkeypatch):
+    async def fake_profile(owner):
+        if owner == "ghost":
+            raise service.github.ReadError("找不到這個 repo，可能是私人 repo 或網址打錯")
+        return {"repos": [{"name": "ai-interview", "url": f"https://github.com/{owner}/ai-interview", "description": "", "language": "Python",
+                           "stars": 3, "pushed_at": "2026-11-01T00:00:00Z"}]}
+    monkeypatch.setattr(service.github, "read_profile", fake_profile)
+    user, _ = register(client, f"rev-{uuid.uuid4().hex[:8]}@example.com")
+    r = client.get(f"{API}/resume-revisions/github-repos", headers=user, params={"owner": "https://github.com/me"})
+    assert r.status_code == 200 and r.json()["owner"] == "me" and r.json()["repos"][0]["name"] == "ai-interview"
+    assert client.get(f"{API}/resume-revisions/github-repos", headers=user, params={"owner": "@me"}).json()["owner"] == "me"
+    r = client.get(f"{API}/resume-revisions/github-repos", headers=user, params={"owner": "ghost"})
+    assert r.status_code == 400 and "找不到這個 GitHub 帳號" in r.json()["error"]["message"]
+    assert client.get(f"{API}/resume-revisions/github-repos", headers=user, params={"owner": "bad name!"}).status_code == 400
+
+
+# ---------- 刪減與初篩檢查 ----------
+def test_final_lines_remove_and_drop_empty_entry():
+    result = {"name": "小明", "headline": "", "contact": "", "sections": [{"title": "經歷", "entries": [
+        {"title": "舊公司", "meta": "2010", "lines": [{"id": "a", "text": "打工", "change": "remove", "original": "", "reason": "", "card": 3}]},
+        {"title": "學歷：台大", "meta": "", "lines": []}]}]}
+    doc = service.final_lines(result, {})
+    assert [e["title"] for e in doc["sections"][0]["entries"]] == ["學歷：台大"]        # 整段都刪掉 → 標題也拿掉
+    doc = service.final_lines(result, {"a": {"accept": False}})                       # 保留這條
+    assert doc["sections"][0]["entries"][0]["lines"] == ["打工"]
+
+
+def test_rule_checks_find_personal_info_and_placeholders():
+    from app.ai.knowledge import resume_screening as rs
+    doc = {"name": "小明", "headline": "", "contact": "0912-345-678", "sections": [{"title": "工作經歷", "entries": [
+        {"title": "工程師｜Acme", "meta": "", "lines": ["身分證 A123456789", "提升 [多少] 倍", "認真負責"]}]}]}
+    titles = [x["title"] for x in rs.rule_checks(doc, language="zh", length="one")]
+    assert "還有 1 個 [待補] 沒填" in titles and "沒有 Email" in titles and "有身分證字號" in titles
+    assert "有經歷沒寫期間" in titles and "有填充詞" in titles
+    assert rs.keywords_present(["FastAPI", "fastapi", "Kubernetes"], "用 FastAPI 開發") == [
+        {"keyword": "FastAPI", "present": True}, {"keyword": "Kubernetes", "present": False}]
+
+
+def test_revision_prune_cards_and_review(client, dev_ai):
+    since = dt.datetime.now(dt.timezone.utc)
+    user, uid = register(client, f"rev-{uuid.uuid4().hex[:8]}@example.com")
+    rid_resume = _resume(client, uid)
+    tid = client.post(f"{API}/targets", headers=user, json={"raw_text": JD}).json()["id"]
+    _drain(client, since)
+    rev = client.post(f"{API}/resume-revisions", headers=user, json={"resume_id": rid_resume, "target_ids": [tid]}).json()
+    _drain(client, since, ("build_revision_cards",))
+    rev = client.get(f"{API}/resume-revisions/{rev['id']}", headers=user).json()
+    kinds = [c["kind"] for c in rev["cards"]]
+    assert kinds[-1] == "trim" and kinds[-2] == "prune"            # 先補再刪，最後讓使用者自己說要刪什麼
+    prune = len(kinds) - 2
+    assert rev["cards"][prune]["quote"] == "負責訂單 API 開發" and [o["label"] for o in rev["cards"][prune]["options"]] == ["刪掉", "縮成一句", "保留"]
+
+    answers = {str(i): {"skipped": True} for i in range(len(kinds))}
+    answers[str(prune)] = {"choice": "刪掉"}
+    client.put(f"{API}/resume-revisions/{rev['id']}/answers", headers=user, json={"answers": answers})
+    client.post(f"{API}/resume-revisions/{rev['id']}/generate", headers=user)
+    _drain(client, since, ("build_revision",))
+    rev = client.get(f"{API}/resume-revisions/{rev['id']}", headers=user).json()
+    assert rev["status"] == "ready" and rev["review_status"] == "pending"     # 新版好了就排初篩檢查
+    removed = [ln for s in rev["result"]["sections"] for e in s["entries"] for ln in e["lines"] if ln["change"] == "remove"]
+    assert removed and removed[0]["text"] == "負責訂單 API 開發" and removed[0]["card"] == prune
+    d = client.get(f"{API}/resume-revisions/{rev['id']}/docx", headers=user)
+    import docx
+    assert "負責訂單 API 開發" not in "\n".join(p.text for p in docx.Document(io.BytesIO(d.content)).paragraphs)
+
+    _drain(client, since, ("review_revision",))
+    rev = client.get(f"{API}/resume-revisions/{rev['id']}", headers=user).json()
+    v = rev["review"]
+    assert rev["review_status"] == "ready" and not rev["review_stale"]
+    assert v["verdict"] in ("pass", "borderline", "reject") and 0 <= v["score_after"] <= 100
+    assert any(k["present"] is False for k in v["keywords"])                  # 職缺的 Kubernetes 履歷沒寫
+    assert any(i["perspective"] == "check" and i["title"] == "沒有 Email" for i in v["issues"])
+    assert any(i["line_id"] for i in v["issues"] if i["perspective"] != "check")   # 審閱指的那一條對應得到
+
+    # 改過之後提示重新檢查；重新檢查後不再過期
+    line = next(ln for s in rev["result"]["sections"] for e in s["entries"] for ln in e["lines"] if ln["change"] == "keep")
+    rev = client.put(f"{API}/resume-revisions/{rev['id']}/decisions", headers=user, json={"decisions": {line["id"]: {"text": "改過的內容"}}}).json()
+    assert rev["review_stale"]
+    rev = client.post(f"{API}/resume-revisions/{rev['id']}/review", headers=user).json()
+    assert rev["review_status"] == "pending"
+    _drain(client, since, ("review_revision",))
+    assert not client.get(f"{API}/resume-revisions/{rev['id']}", headers=user).json()["review_stale"]

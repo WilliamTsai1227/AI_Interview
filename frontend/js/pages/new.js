@@ -2,6 +2,7 @@
 import { get, post } from "../api.js";
 import { addTargetMenuItems, onAddTargetPick, openJd } from "../components/jd.js";
 import { openSettings } from "../components/settings.js";
+import { tourWelcome } from "../components/tours.js";
 import { h, icon, replace, skel } from "../dom.js";
 import { requestMic } from "../interview/recorder.js";
 import { renderSide } from "../shell.js";
@@ -190,6 +191,7 @@ export async function render(view, _arg, ctx) {
   }
 
   draw();
+  tourWelcome();          // 第一次使用：帶看整個網站
   await loadQuestions();
   if (!ctx.isCurrent()) return;
   draw();

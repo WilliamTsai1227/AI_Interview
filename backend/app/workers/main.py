@@ -50,6 +50,7 @@ HANDLERS = {
     "build_career_plan": career.handle_build,
     "build_revision_cards": revisions.handle_cards,
     "build_revision": revisions.handle_build,
+    "review_revision": revisions.handle_review,
     "synthesize_tts": interviews.handle_tts,
     "prepare_live": live.handle_prepare,
     "segment_live": live.handle_segment,

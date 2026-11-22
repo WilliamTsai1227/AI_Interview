@@ -2,6 +2,8 @@
 import { post, setLoggedOutHandler, setToken, tryRestoreSession } from "./api.js";
 import { openSearch } from "./components/search.js";
 import { openSettings } from "./components/settings.js";
+import { resetTours, startTour } from "./components/tour.js";
+import { WELCOME } from "./components/tours.js";
 import { $, icon, replace } from "./dom.js";
 import { renderLogin } from "./pages/login.js";
 import { route, startRouter } from "./router.js";
@@ -33,12 +35,14 @@ function bindShell() {
     { header: true, label: S.me.user.display_name, sub: S.me.user.email },
     { icon: "file", label: "履歷", v: "resume" },
     { icon: "gear", label: "設定", v: "general" },
+    { icon: "bulb", label: "使用教學", v: "tour" },
     { sep: true },
     { icon: isDark() ? "sun" : "moon", label: isDark() ? "切換為淺色" : "切換為深色", v: "theme" },
     { icon: "logout", label: "登出", v: "logout" },
   ], (v) => {
     closeDrawer();
     if (v === "theme") setTheme(isDark() ? "light" : "dark");
+    else if (v === "tour") replayTour();
     else if (v === "logout") logout();
     else openSettings(v);
   }, "up");
@@ -47,6 +51,13 @@ function bindShell() {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openSearch(); }
   });
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+}
+
+// 帳號選單「使用教學」：清掉看過的紀錄，回到新面試頁從頭播放（其他畫面的導覽之後第一次進去也會再出現）
+function replayTour() {
+  resetTours();
+  if ((location.hash || "#new") === "#new") startTour("welcome", WELCOME);
+  else location.hash = "#new";
 }
 
 export async function boot() {
