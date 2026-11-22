@@ -1,6 +1,6 @@
 // 面試畫面（依題目與 Live 共用）：左邊是 Ava 的即時人像與字幕，右邊是目前的問題、每題回答的評分與建議、對話紀錄。
 // 側欄在進入面試時由 router 自動收起；第一次在面試畫面點擊時進入瀏覽器全螢幕（之後按 Esc 或右上角按鈕可離開）。
-// 人像：後端有設定 Simli 時用擬真人像（startAvatar），連不上或中途斷線就換回瀏覽器內的插畫人像，面試照常進行。
+// 人像：平常是「沒開鏡頭」的頭貼；後端有設定 Simli 時，開始面試後換成擬真人像（startAvatar），連不上或中途斷線就換回頭貼，面試照常進行。
 import { get } from "../api.js";
 import { dots, h, icon, replace } from "../dom.js";
 import { mobile } from "../shell.js";
@@ -111,7 +111,7 @@ export function stage(view, sid) {
   // ---------- 擬真人像 ----------
   let simli = null, starting = null, voiceEl = null, voiceStream = null;
 
-  /** 換成擬真人像（已經在用就不動）。成功回傳 true；失敗保留插畫人像。 */
+  /** 換成擬真人像（已經在用就不動）。成功回傳 true；失敗保留頭貼。 */
   function startAvatar() {
     if (simli) return Promise.resolve(true);
     if (starting) return starting;
@@ -128,7 +128,7 @@ export function stage(view, sid) {
     return starting;
   }
 
-  /** 換回插畫人像（暫停、結束、Simli 斷線）。原本靜音的 Live 聲音恢復播放。 */
+  /** 換回頭貼（暫停、結束、Simli 斷線）。原本靜音的 Live 聲音恢復播放。 */
   function stopAvatar() {
     if (!simli) return;
     const sa = simli;
@@ -140,7 +140,7 @@ export function stage(view, sid) {
     if (voiceStream) avatar.attach(voiceStream);
   }
 
-  /** Live：Ava 的音軌。擬真人像在用時交給它對嘴並播出，原本的 <audio> 靜音；否則給插畫人像量音量。 */
+  /** Live：Ava 的音軌。擬真人像在用時交給它對嘴並播出，原本的 <audio> 靜音；否則給頭貼量音量。 */
   function voice(stream, audioEl) {
     voiceStream = stream;
     voiceEl = audioEl;

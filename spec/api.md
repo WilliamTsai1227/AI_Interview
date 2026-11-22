@@ -1132,7 +1132,7 @@ mode = adaptive 且 k < followup_target        → Follow-up Decider 判斷要�
 
 - 只接受 `ready`、`in_progress` 的場次；Live 的 Simli 連線最長到時間上限＋5 分鐘，依題目最長 1 小時。
 - 每場最多 20 次（重新整理、暫停後繼續都算），超過回 `429 RATE_LIMITED`。
-- 沒有設定或 Simli 失敗回 `503 AVATAR_UNAVAILABLE`；前端改用插畫人像。
+- 沒有設定或 Simli 失敗回 `503 AVATAR_UNAVAILABLE`；前端改用頭貼。
 ---
 
 ## 11. Reports（面試報告）

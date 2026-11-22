@@ -1,7 +1,7 @@
 // 面試官的擬真人像（Simli）：後端換 session token → 瀏覽器用 WebRTC（P2P）收 Simli 的影像與「對好嘴的聲音」。
 // Ava 的聲音（Live 的 GPT-Live 音軌、依題目的 TTS 音檔）經 AudioWorklet 轉成 PCM16 送給 Simli，
 // 原本的播放改成靜音，改由 Simli 的 <audio> 播出，畫面和聲音才會同步。
-// 介面和插畫人像（avatar.js）一樣：el / setState / destroy；另外有 start、attach（音軌）、route（<audio>）、interrupt。
+// 介面和頭貼（avatar.js）一樣：el / setState / destroy；另外有 start、attach（音軌）、route（<audio>）、interrupt。
 import { post } from "../api.js";
 import { h } from "../dom.js";
 
@@ -22,7 +22,7 @@ export class SimliAvatar {
     this.onFail = null;
   }
 
-  /** 連上 Simli；失敗或逾時會丟出錯誤（呼叫端改用插畫人像）。 */
+  /** 連上 Simli；失敗或逾時會丟出錯誤（呼叫端改用頭貼）。 */
   async start(sid) {
     const r = await post(`/interviews/${sid}/avatar/connect`, {});
     const { SimliClient, LogLevel } = await import("../vendor/simli-client.js");

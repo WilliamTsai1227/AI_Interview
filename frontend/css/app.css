@@ -619,7 +619,12 @@ details.cmore[open] summary > svg{transform:rotate(180deg)}
 .stage-l .vbar>.micbtn:focus-visible{outline:3px solid var(--ink-2);outline-offset:4px}
 .tile{position:relative;flex:1;min-height:0;border-radius:20px;overflow:hidden;
   background:radial-gradient(120% 90% at 50% 30%,#4a5468 0%,#262c38 55%,#171a21 100%);display:grid;place-items:end center}
-.ava-svg{width:auto;height:94%;max-width:100%;display:block}
+.ava-off{position:absolute;inset:0;display:grid;place-items:center;background:#2f3237}
+.ava-pic{position:relative;width:min(28vmin,150px);aspect-ratio:1}
+.ava-face{position:absolute;inset:0;border-radius:50%;display:grid;place-items:center;background:#7b5fc4;color:#fff;
+  font-size:min(12vmin,64px);font-weight:500;user-select:none}
+.ava-ring{position:absolute;inset:-8px;border-radius:50%;border:4px solid #8ab4f8;opacity:0;will-change:transform,opacity}
+@media (prefers-reduced-motion:reduce){.ava-ring{transform:none!important}}
 .simli-box{position:absolute;inset:0;background:#171a21}
 .simli-box video{width:100%;height:100%;object-fit:contain;display:block}
 .tile-top{position:absolute;left:14px;top:12px;display:flex;gap:8px;align-items:center}
