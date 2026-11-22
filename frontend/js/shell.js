@@ -20,7 +20,7 @@ export function setTheme(t) {
 }
 
 // ---------- 側欄 ----------
-// 以職缺為中心：新面試 → 職缺（直接列出，依最近練習排序）→ 面試報告、能力落差分析
+// 以職缺為中心：新面試 → 職缺（直接列出，依最近練習排序）→ 面試報告、履歷修改、能力落差分析
 const JOB_ROUTES = new Set(["targets", "questions", "prep"]);
 const MAX_JOBS = 6;
 export const mobile = () => matchMedia("(max-width:768px)").matches;
@@ -65,6 +65,7 @@ export function renderSide() {
 
   list.append(h("div", { class: "side-h", "aria-hidden": "true" }));
   list.append(navItem("report", "面試報告", "report", S.route === "report"));
+  list.append(navItem("revise", "履歷修改", "pencil", S.route === "revise"));
   list.append(navItem("career", "能力落差分析", "brief", S.route === "career"));
   if (feature("job_search")) list.append(navItem("jobs", "職缺搜尋", "search", S.route === "jobs"));
   if (S.me?.admin_console) list.append(navItem("admin", "管理後台", "lock", S.route === "admin"));

@@ -149,6 +149,14 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 | | GET | `/resumes/{id}/pages/{n}` | PDF 第 n 頁的圖片 | 設定・履歷、求職準備 |
 | | PATCH | `/resumes/{id}` | 設為主要履歷、改名 | 設定・履歷 |
 | | DELETE | `/resumes/{id}` | 刪除履歷 | 設定・履歷 |
+| Resume revisions | POST | `/resume-revisions` | 開始履歷修改（非同步產生問題卡片） | 履歷修改 |
+| | GET | `/resume-revisions` | 歷次修改 | 履歷修改 |
+| | GET | `/resume-revisions/{id}` | 狀態、卡片、回答、新版履歷 | 履歷修改 |
+| | PUT | `/resume-revisions/{id}/answers` | 存目前的回答（整份取代） | 履歷修改 |
+| | POST | `/resume-revisions/{id}/generate` | 答完 → 產生新版履歷；失敗時重試 | 履歷修改 |
+| | PUT | `/resume-revisions/{id}/decisions` | 逐條接受／還原／編輯 | 履歷修改 |
+| | GET | `/resume-revisions/{id}/docx` | 下載 Word（套用目前的決定） | 履歷修改 |
+| | POST | `/resume-revisions/{id}/save` | 存成新的一份履歷 | 履歷修改 |
 | Targets | GET | `/targets` | 目標職缺列表（含題數、題組狀態、最近練習） | 目標職缺、側欄、題庫生成、面試建議、新面試・職缺選單 |
 | | POST | `/targets` | 加入目標職缺（貼上 JD 或從職缺庫）＋自動出題＋面試建議 | 貼上新職缺、職缺詳情 |
 | | GET | `/targets/{id}` | 目標職缺詳情＋準備進度 | 目標職缺詳情 |
@@ -403,6 +411,44 @@ PDF 第 `n` 頁（從 0 開始，最多前 20 頁）的 WebP 圖片，約 2 倍�
 ### `DELETE /resumes/{id}`
 
 回 `204`。已被面試場次引用的履歷仍可刪除（場次保存的是快照），但原檔會從物件儲存刪除。
+
+### 5.2 履歷修改（[resume-revision.md](features/resume-revision.md)）
+
+狀態：`carding`（產生問題卡片）→ `answering` → `generating`（產生新版履歷）→ `ready`；任一步失敗為 `failed`。
+
+#### `POST /resume-revisions` → `202`
+
+```json
+{ "resume_id": "uuid", "target_ids": ["uuid"], "goal": "target|refresh|switch|first", "language": "zh|en", "length": "one|two", "correction": "" }
+```
+- 履歷要解析完成（解析中 `409 RESOURCE_NOT_READY`、失敗 `400`）。`target_ids` 選填、最多 3 個；沒選就做整體改善，不會出缺口卡。
+- 需要 token 額度；限流 `resume_revision`（每小時 10 次）。
+
+#### `GET /resume-revisions/{id}`
+
+```json
+{ "id": "…", "status": "answering", "setup": {…}, "resume": {"id": "…", "filename": "…"}, "jobs": [{"company_name": "…", "title": "…"}],
+  "cards": [{ "kind": "gap|quantify|clarify|missing", "context": "職缺要求 Kubernetes，你的履歷沒提到", "question": "你用過嗎？",
+              "options": [{"label": "工作上用過", "opens_detail": true}], "detail_prompt": "…", "example": "…" }],
+  "answers": { "0": {"choice": "工作上用過", "text": "…", "skipped": false} },
+  "result": { "name": "…", "headline": "…", "contact": "…", "summary": "…", "tips": ["…"],
+              "sections": [{ "title": "工作經歷", "entries": [{ "title": "後端工程師｜Acme", "meta": "2021/03 – 至今",
+                 "lines": [{ "id": "s1e0l0", "text": "…", "change": "keep|edit|new", "original": "…", "reason": "…", "card": 0 }] }] }] },
+  "decisions": { "s1e0l0": {"accept": false} }, "placeholders": 2, "saved_resume": null }
+```
+`placeholders`：套用決定後還有幾個 `[待補]`。
+
+#### `PUT /resume-revisions/{id}/answers`
+`{ "answers": { "卡片序號": {"choice", "text", "skipped"} } }`，只在 `answering` 可以改（否則 `409`）。不在選項裡的 `choice` 會被清成 `null`。
+
+#### `POST /resume-revisions/{id}/generate` → `202`
+`answering` 或 `failed` 時可以呼叫；卡片沒產生成功的 `failed` 會重產卡片。需要 token 額度。
+
+#### `PUT /resume-revisions/{id}/decisions`
+`{ "decisions": { "line_id": {"accept": true, "text": "改過的文字"} } }`，整份取代；只存還原或改過的。
+
+#### `GET /resume-revisions/{id}/docx`、`POST /resume-revisions/{id}/save`
+都套用目前的決定。`save` 的 body 是 `{ "set_primary": false }`：產生 Word 存成新的一份履歷（原本那份不動），走一般的解析流程；超過履歷份數上限回 `409`。
 
 ---
 

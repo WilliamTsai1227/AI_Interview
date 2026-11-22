@@ -1,4 +1,4 @@
-// Hash 路由：#new、#chat/{session}、#report[/{session}]、#targets[/{target}[/reports]]、#questions/{target}、#prep/{target}、#career、#jobs、#admin
+// Hash 路由：#new、#chat/{session}、#report[/{session}]、#targets[/{target}[/reports]]、#questions/{target}、#prep/{target}、#revise[/{revision}]、#career、#jobs、#admin
 // 職缺是導覽的中心：#questions/{target}（題庫）、#prep/{target}（面試建議）、#targets/{target}/reports（報告）都是職缺頁的分頁
 import { $, clear } from "./dom.js";
 import * as admin from "./pages/admin.js";
@@ -9,12 +9,13 @@ import * as newPage from "./pages/new.js";
 import * as prep from "./pages/prep.js";
 import * as questions from "./pages/questions.js";
 import * as report from "./pages/report.js";
+import * as revise from "./pages/revise.js";
 import * as targets from "./pages/targets.js";
 import { closeDrawer, renderSide } from "./shell.js";
 import { feature, S } from "./store.js";
 import { closeMenu, closeModal, confirmBox } from "./ui.js";
 
-const PAGES = { new: newPage, chat, career, report, questions, prep, targets, jobs, admin };
+const PAGES = { new: newPage, chat, career, revise, report, questions, prep, targets, jobs, admin };
 let cleanup = null;
 let seq = 0;
 let shown = location.hash;       // 目前畫面對應的網址（離開被取消時改回這個）

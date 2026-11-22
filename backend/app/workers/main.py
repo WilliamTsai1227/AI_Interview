@@ -30,6 +30,7 @@ from app.modules.preps import service as preps
 from app.modules.questions import service as questions
 from app.modules.reports import pipeline
 from app.modules.resumes import service as resumes
+from app.modules.revisions import service as revisions
 from app.workers import queue
 
 structlog.configure(processors=[structlog.processors.add_log_level, structlog.processors.TimeStamper(fmt="iso"),
@@ -47,6 +48,8 @@ HANDLERS = {
     "generate_prep": preps.handle_analyze,
     "extend_prep": preps.handle_extend,
     "build_career_plan": career.handle_build,
+    "build_revision_cards": revisions.handle_cards,
+    "build_revision": revisions.handle_build,
     "synthesize_tts": interviews.handle_tts,
     "prepare_live": live.handle_prepare,
     "segment_live": live.handle_segment,
