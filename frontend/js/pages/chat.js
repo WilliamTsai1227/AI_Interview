@@ -207,7 +207,7 @@ export async function render(view, sid, ctx) {
     await loadMe(); renderSide();
     head(); startClock(); startHeartbeat();
     ui.feedback.active(true);
-    if (s.avatar) await ui.startAvatar();           // 擬真人像：連不上就用插畫人像
+    if (s.avatar) await ui.startAvatar();           // 擬真人像：連不上就用頭貼
     if (!alive()) return;
     await askCurrent(r.intro);
   }

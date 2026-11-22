@@ -557,6 +557,10 @@ CREATE INDEX ix_resumes_user ON resumes(user_id, created_at DESC) WHERE deleted_
 CREATE UNIQUE INDEX uq_resumes_primary ON resumes(user_id) WHERE is_primary AND deleted_at IS NULL;
 ```
 
+**履歷修改**（[resume-revision.md](features/resume-revision.md)，migration 0017）：`resume_revisions` 一列是一次修改。
+卡片、回答、新版履歷、使用者的逐條決定都存成 jsonb（只有這個流程自己讀寫，不需要查詢內部欄位）；存成新履歷時在 `resumes` 新增一列，`saved_resume_id` 指過去。
+欄位見 [0017_resume_revisions.sql](../backend/migrations/0017_resume_revisions.sql)。
+
 ### 4.4 職缺
 
 ```sql

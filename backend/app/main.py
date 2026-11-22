@@ -25,6 +25,7 @@ from app.modules.preps.router import router as preps
 from app.modules.questions.router import router as questions
 from app.modules.reports.router import router as reports
 from app.modules.resumes.router import router as resumes
+from app.modules.revisions.router import router as revisions
 from app.modules.targets.router import router as targets
 from app.modules.uploads.router import router as uploads
 from app.modules.voice.router import router as voice
@@ -72,7 +73,7 @@ async def request_context(request: Request, call_next):
     return response
 
 
-for r in (auth, account, uploads, resumes, targets, questions, preps, career, jobs, interviews, reports, voice, mcp_connectors, admin_console, admin):
+for r in (auth, account, uploads, resumes, revisions, targets, questions, preps, career, jobs, interviews, reports, voice, mcp_connectors, admin_console, admin):
     app.include_router(r, prefix="/api/v1")
 
 

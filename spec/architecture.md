@@ -728,7 +728,7 @@ match main.followup_mode:
 
 模型名稱全部透過環境變數設定（`LLM_MODEL_REASONING`、`LLM_MODEL_FAST`、`STT_MODEL_FAST`、`STT_MODEL`、`TTS_MODEL`、`TTS_VOICE`、`EMBEDDING_MODEL`、`REALTIME_MODEL`、`LIVE_MODEL`、`LIVE_VOICE`、`LIVE_DELEGATE_MODEL`），不寫死在程式中。
 
-**擬真人像（Simli）**：設定 `SIMLI_API_KEY`（與選填的 `SIMLI_FACE_ID`）就啟用。後端 `POST /interviews/{id}/avatar/connect` 換 session token 與 ICE 伺服器（金鑰不給前端）；瀏覽器用 SDK 的 P2P 模式直連 Simli。Ava 的聲音經本站的 AudioWorklet（`frontend/js/interview/pcm-worklet.js`，CSP 不允許 blob: 程式，所以不用 SDK 內建的 `listenTo*`）轉成 PCM16 16kHz 送出，原本的聲音靜音、改由 Simli 播出對好嘴的聲音。SDK 打包在 `frontend/js/vendor/simli-client.js`（`simli-client@3.2.0`，用 esbuild 從 `export const { SimliClient, LogLevel } = pkg` 入口打包成 ES module），只在啟用時動態載入。連不上或斷線時換回插畫人像。
+**擬真人像（Simli）**：設定 `SIMLI_API_KEY`（與選填的 `SIMLI_FACE_ID`）就啟用。後端 `POST /interviews/{id}/avatar/connect` 換 session token 與 ICE 伺服器（金鑰不給前端）；瀏覽器用 SDK 的 P2P 模式直連 Simli。Ava 的聲音經本站的 AudioWorklet（`frontend/js/interview/pcm-worklet.js`，CSP 不允許 blob: 程式，所以不用 SDK 內建的 `listenTo*`）轉成 PCM16 16kHz 送出，原本的聲音靜音、改由 Simli 播出對好嘴的聲音。SDK 打包在 `frontend/js/vendor/simli-client.js`（`simli-client@3.2.0`，用 esbuild 從 `export const { SimliClient, LogLevel } = pkg` 入口打包成 ES module），只在啟用時動態載入。連不上或斷線時換回頭貼。
 
 ### 7.1 評分輸出範例
 

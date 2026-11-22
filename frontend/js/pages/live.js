@@ -12,6 +12,9 @@ import { closeModal, confirmBox, errorToast, openModal, setHead, toast } from ".
 const FLUSH_MS = 3000;
 const OVERTIME_SEC = 60;       // 超過時間上限這麼久就自動結束
 const END_DELAY_MS = 3500;     // Ava 呼叫 end_interview 後，等結語說完再斷線
+// end_interview 沒收到時的保險：提醒收尾後雙方都安靜這麼久就自動結束（時間已到就等短一點，讓結語播完）
+const WRAP_QUIET_MS = 15000;
+const TIME_UP_QUIET_MS = 8000;
 
 export async function render(view, sid, ctx) {
   const ui = stage(view, sid);
@@ -19,7 +22,7 @@ export async function render(view, sid, ctx) {
   const dock = $("#dock");
   const st = {
     s: null, local: "loading", note: "", stream: null, call: null, talking: null, clock: null, hb: null, flusher: null,
-    pending: [], events: [], bubbles: new Map(), done: new Set(), wrapped: false, ending: false, ended: false, left: false,
+    pending: [], events: [], bubbles: new Map(), done: new Set(), wrapped: false, ending: false, ended: false, left: false, lastTalk: 0,
     reportStop: null, reportReady: false,
   };
   const alive = () => ctx.isCurrent() && !st.left;
@@ -31,6 +34,7 @@ export async function render(view, sid, ctx) {
   const sys = (text) => { chatBox.append(h("div", { class: "sysm" }, text)); scrollEnd(); };
 
   function bubble(turn) {
+    st.lastTalk = Date.now();
     let el = st.bubbles.get(turn.seq);
     if (!el) {
       const tx = h("div", { class: "tx" });
@@ -103,6 +107,7 @@ export async function render(view, sid, ctx) {
   }
 
   const setLocal = (L, note = "") => {
+    if (L === "live" && st.local !== "live") st.lastTalk = Date.now();     // 剛接通（含暫停後回來）重新計算安靜時間
     st.local = L; st.note = note;
     if (L !== "live") ui.setState(["connecting", "preparing", "ending"].includes(L) ? "thinking" : "idle");
     else if (!st.talking) ui.setState("listening");
@@ -123,8 +128,12 @@ export async function render(view, sid, ctx) {
         st.wrapped = true;
         st.call.instruct(live().wrap_up_cue);
         st.events.push({ type: "live_wrap_up", at: new Date().toISOString() });
+        st.lastTalk = Date.now();
       }
-      if (r <= -OVERTIME_SEC && !st.ending) finish("completed");
+      const quiet = Date.now() - st.lastTalk;
+      if (st.wrapped && st.local === "live" && !st.ending && (quiet >= WRAP_QUIET_MS || (r <= 0 && quiet >= TIME_UP_QUIET_MS))) {
+        finish("completed");
+      } else if (r <= -OVERTIME_SEC && !st.ending) finish("completed");
     }, 1000);
     st.hb = setInterval(() => {
       if (!st.s || st.s.status !== "in_progress") return;
@@ -205,7 +214,7 @@ export async function render(view, sid, ctx) {
   async function connect() {
     if (!(await ensureMic())) { setLocal("error", "需要麥克風權限才能開始"); return; }
     setLocal("connecting");
-    if (st.s.avatar) await ui.startAvatar();       // 擬真人像先接上，Ava 第一句話就能對嘴；連不上就用插畫人像
+    if (st.s.avatar) await ui.startAvatar();       // 擬真人像先接上，Ava 第一句話就能對嘴；連不上就用頭貼
     if (!alive()) return;
     const next = Math.max(live().next_seq || 0, st.call?.seq || 0);
     st.call?.teardown();
