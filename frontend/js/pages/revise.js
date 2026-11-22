@@ -5,7 +5,7 @@ import { get, getBlob, post, put } from "../api.js";
 import { openJd } from "../components/jd.js";
 import { openSettings } from "../components/settings.js";
 import { dots, h, icon, replace } from "../dom.js";
-import { fmtDate, loadResumes, loadTargets, S } from "../store.js";
+import { fmtDate, fmtDay, loadResumes, loadTargets, S } from "../store.js";
 import { copyText, errorToast, openMenu, seg, setHead, toast } from "../ui.js";
 
 const GOALS = [
@@ -88,12 +88,16 @@ async function home(wrap, ctx) {
 // ---------- 階段 A：設定 ----------
 async function setup(wrap, ctx) {
   replace(wrap, h("div", { class: "center-load" }, dots()));
-  await Promise.all([loadResumes().catch(() => {}), loadTargets().catch(() => {})]);
+  const [, , profile] = await Promise.all([loadResumes().catch(() => {}), loadTargets().catch(() => {}), get("/career/profile").catch(() => null)]);
   if (!ctx.isCurrent()) return;
+  // GitHub：先帶入能力落差分析填過的作品集連結（repo 網址直接勾選、帳號拿來列出 repo）
+  const known = (profile?.portfolio_links || []).map(ghParse).filter(Boolean);
   const f = { goal: null, resumeId: (S.resumes || []).find((r) => r.is_primary && r.parse_status === "parsed")?.id || null,
-    confirm: null, correction: "", picked: new Set(), language: "zh", length: "one" };
+    confirm: null, correction: "", picked: new Set(), language: "zh", length: "one",
+    gh: { want: null, owner: known[0]?.owner || "", repos: null, max: 5, loading: false, error: "", paste: "",
+      picked: new Set(known.filter((x) => x.repo).map((x) => ghUrl(x.owner, x.repo))) } };
   const details = new Map();       // 履歷 id → 解析結果（確認卡用）
-  const STEPS = 5;
+  const STEPS = 6;
   let step = 0, busy = false;
   const go = (n) => { step = n; draw(); };
 
@@ -170,12 +174,15 @@ async function setup(wrap, ctx) {
         ],
         foot: [h("span", { class: "faint num" }, f.picked.size ? `已選 ${f.picked.size}/${MAX_JOBS}` : ""),
           next(true, f.picked.size ? "下一步" : "不選，整體改善")] }));
+    } else if (step === 4) {
+      drawGithub(base, next);
     } else {
       const start = async () => {
         busy = true; draw();
         try {
           const r = await post("/resume-revisions", { resume_id: f.resumeId, target_ids: [...f.picked], goal: f.goal || "refresh",
-            language: f.language, length: f.length, correction: f.confirm === "fix" ? f.correction : "" });
+            language: f.language, length: f.length, correction: f.confirm === "fix" ? f.correction : "",
+            portfolio_links: f.gh.want === "yes" ? [...f.gh.picked] : [] });
           location.hash = `#revise/${r.id}`;
         } catch (e) { busy = false; errorToast(e); draw(); }
       };
@@ -186,7 +193,65 @@ async function setup(wrap, ctx) {
         foot: [h("span"), next(true, busy ? "建立中⋯" : "開始問我問題", start)] }));
     }
   }
+
+  // GitHub 作品：輸入帳號 → 列出公開 repo 勾選；也可以直接貼 repo 網址
+  function drawGithub(base, next) {
+    const g = f.gh;
+    const full = g.picked.size >= g.max;
+    async function list() {
+      if (!g.owner.trim() || g.loading) return;
+      g.loading = true; g.error = ""; draw();
+      try { const r = await get(`/resume-revisions/github-repos?owner=${encodeURIComponent(g.owner.trim())}`); g.repos = r.repos; g.max = r.max; g.owner = r.owner; }
+      catch (e) { g.error = e.message; g.repos = null; }
+      g.loading = false; draw();
+    }
+    function addPaste() {
+      const t = ghParse(g.paste);
+      if (!t?.repo) { g.error = "請貼上 repo 的網址，例如 github.com/你的帳號/專案名稱"; draw(); return; }
+      if (!full) g.picked.add(ghUrl(t.owner, t.repo));
+      g.paste = ""; g.error = ""; draw();
+    }
+    const ownerIn = h("input", { class: "inp", placeholder: "GitHub 帳號，例如 octocat", value: g.owner, "aria-label": "GitHub 帳號",
+      oninput: (e) => { g.owner = e.target.value; }, onkeydown: (e) => { if (e.key === "Enter" && !e.isComposing) list(); } });
+    const pasteIn = h("input", { class: "inp", placeholder: "或直接貼 repo 網址", value: g.paste, "aria-label": "repo 網址",
+      oninput: (e) => { g.paste = e.target.value; }, onkeydown: (e) => { if (e.key === "Enter" && !e.isComposing) addPaste(); } });
+    const listed = new Set((g.repos || []).map((x) => x.url.toLowerCase()));
+    const extra = [...g.picked].filter((u) => !listed.has(u.toLowerCase()));      // 貼上的、或之前填過但不在清單裡的
+    const toggle = (u) => { g.picked.has(u) ? g.picked.delete(u) : g.picked.add(u); draw(); };
+    const repoOpt = (u, name, sub) => {
+      const on = g.picked.has(u);
+      const b = option(name, sub, on, () => toggle(u), true);
+      b.disabled = !on && full;
+      return b;
+    };
+    replace(wrap, card({ ...base, question: "有沒有 GitHub 作品要加進履歷？",
+      context: "Ava 會實際讀程式碼（README、架構、主要原始碼），把你做的事寫成專案經歷。只讀公開 repo，每個約 1–3 分鐘。",
+      body: [
+        h("div", { class: "rv-opts two" },
+          option("有，幫我讀", null, g.want === "yes", () => { g.want = "yes"; draw(); setTimeout(() => (g.repos ? null : wrap.querySelector(".rv-gh input")?.focus())); }),
+          option("沒有，跳過", null, g.want === "no", () => { g.want = "no"; setTimeout(() => go(5), 180); draw(); })),
+        g.want === "yes" ? h("div", { class: "rv-gh" },
+          h("div", { class: "rv-gh-row" }, ownerIn,
+            h("button", { class: "btn out", type: "button", disabled: g.loading, onclick: list }, g.loading ? dots() : "列出 repo")),
+          g.error ? h("p", { class: "rv-err" }, g.error) : null,
+          g.repos && !g.repos.length ? h("p", { class: "faint" }, "這個帳號沒有公開的 repo（fork 的不算）。") : null,
+          g.repos?.length || extra.length ? h("div", { class: "rv-opts rv-repos" },
+            extra.map((u) => repoOpt(u, u.replace("https://github.com/", ""), "你貼上的 repo")),
+            (g.repos || []).map((x) => repoOpt(x.url, x.name, [x.description, [x.language, x.stars ? `★ ${x.stars}` : null, x.pushed_at ? `${fmtDay(x.pushed_at)} 更新` : null]
+              .filter(Boolean).join("・")].filter(Boolean).join("　")))) : null,
+          h("div", { class: "rv-gh-row" }, pasteIn, h("button", { class: "btn out", type: "button", disabled: full, onclick: addPaste }, icon("plus", 15), "加入"))) : null,
+      ],
+      foot: [h("span", { class: "faint num" }, g.want === "yes" && g.picked.size ? `已選 ${g.picked.size}/${g.max}` : ""),
+        next(g.want === "no" || (g.want === "yes" && g.picked.size > 0))] }));
+  }
   draw();
+}
+
+const ghUrl = (owner, repo) => `https://github.com/${owner}/${repo}`;
+/** github.com/owner[/repo] → { owner, repo }；不是 GitHub 網址回傳 null。 */
+function ghParse(text) {
+  const m = String(text || "").trim().match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9-]{1,39})(?:\/([A-Za-z0-9._-]{1,100}?))?(?:\.git)?\/?(?:[?#].*)?$/i);
+  return m ? { owner: m[1], repo: m[2] || null } : null;
 }
 
 // ---------- #revise/{id} ----------
@@ -204,12 +269,18 @@ async function revision(wrap, id, ctx, later) {
     draw();
   });
 
-  let waiting = null;      // 目前顯示中的等待畫面（carding／generating）
+  let waiting = null;      // 目前顯示中的等待畫面（carding／generating ＋ 步驟）
   function draw() {
     if (!ctx.isCurrent()) return;
     // 等待中每 2 秒查一次狀態：狀態沒變就不重畫，否則卡片的進場動畫會一直重播、畫面一直跳
-    if (r.status === waiting) return refresh();
-    waiting = r.status === "carding" || r.status === "generating" ? r.status : null;
+    const key = `${r.status}:${r.stage || ""}`;
+    if (key === waiting) return refresh();
+    waiting = r.status === "carding" || r.status === "generating" ? key : null;
+    if (r.status === "carding" && r.stage === "portfolio") {
+      const names = (r.setup.portfolio_links || []).map((u) => u.split("/").pop());
+      replace(wrap, loadingCard("Ava 正在讀你的 GitHub", `正在讀 ${names.join("、")} 的程式碼，每個約 1–3 分鐘；讀完會接著準備問題。可以先離開，回來會接著進行。`));
+      return refresh();
+    }
     if (r.status === "carding") { replace(wrap, loadingCard("Ava 正在準備問題", r.jobs.length ? `正在比對你的履歷和 ${r.jobs.map((j) => j.company_name).join("、")} 的職缺要求⋯` : "正在看你的履歷哪裡可以寫得更好⋯")); return refresh(); }
     if (r.status === "generating") { replace(wrap, loadingCard("Ava 正在寫新版履歷", "依你的回答補進履歷、改寫成果，約 30–60 秒。")); return refresh(); }
     if (r.status === "failed") {
@@ -274,7 +345,7 @@ async function revision(wrap, id, ctx, later) {
     }
     drawOpts();
     detail.hidden = !showDetail();
-    replace(wrap, card({ step: idx, total: n, phase: { gap: "職缺要求", quantify: "補上數字", clarify: "說清楚角色", missing: "可能漏寫的" }[c.kind],
+    replace(wrap, card({ step: idx, total: n, phase: { gap: "職缺要求", quantify: "補上數字", clarify: "說清楚角色", missing: "可能漏寫的", portfolio: "GitHub 作品" }[c.kind],
       context: c.context, question: c.question, back: idx ? () => { idx -= 1; drawCard(); } : null,
       body: [c.options.length ? opts : null, detail, showDetail() && a.text.trim().length < 2 && c.options.length
         ? h("p", { class: "faint rv-hint" }, "可以只寫幾個字，Ava 會幫你整理成履歷的寫法；沒有數字就寫大概。") : null],
@@ -447,6 +518,10 @@ function result(wrap, r, ctx, setR) {
     res.tips.length || declined ? h("section", { class: "rv-tips" }, h("h2", null, "還可以再補強"),
       h("ul", null, res.tips.map((t) => h("li", null, t))),
       declined ? h("p", { class: "faint" }, "有些職缺要求你還沒有實戰經驗，履歷不會寫成你會。", h("a", { href: "#career" }, "去能力落差分析排準備計畫"), "。") : null) : null,
+    r.portfolio.length ? h("section", { class: "rv-tips" }, h("h2", null, "Ava 讀了你的 GitHub"),
+      h("ul", { class: "rv-gh-read" }, r.portfolio.map((e) => h("li", null,
+        h("a", { href: e.url, target: "_blank", rel: "noopener" }, e.name || e.url.replace("https://github.com/", "")),
+        h("span", { class: "faint" }, e.status === "ok" ? `　讀了 ${e.files_read} 個檔案${e.purpose ? `：${e.purpose}` : ""}` : `　沒有讀到：${e.error || "不支援的網址"}`))))) : null,
     h("div", { class: "row", style: "justify-content:center;margin-top:32px" }, h("a", { class: "linkb", href: "#revise" }, icon("left", 14), "回到履歷修改")));
   drawHead();
   drawDoc();

@@ -4,9 +4,12 @@ import json
 from pydantic import BaseModel, Field
 
 from app.ai import client
+from app.ai.agents.career import portfolio_text
 
-PV_CARDS = "revision_cards_v1"
-PV_RESUME = "revision_resume_v1"
+PV_CARDS = "revision_cards_v2"
+PV_RESUME = "revision_resume_v2"
+# GitHub 作品卡的選項：前兩個代表「要寫進履歷」
+PORTFOLIO_OPTIONS = [("加進去，我自己做的", True), ("加進去，團隊一起做的", True), ("不要放", False)]
 
 GOALS = {"target": "投特定職缺", "refresh": "整體更新履歷", "switch": "轉職到新的領域", "first": "找第一份工作"}
 LANGS = {"zh": "繁體中文", "en": "英文"}
@@ -22,6 +25,27 @@ def _jobs_text(jobs: list[dict]) -> str:
     return "\n".join(f"#{i} {j['company_name']}｜{j['title']}\n  工作內容：{'；'.join(j.get('duties') or [])[:400]}\n"
                      f"  要求：{'；'.join(j.get('requirements') or [])[:400]}\n  標籤：{', '.join(j.get('tags') or [])}"
                      for i, j in enumerate(jobs)) or "（使用者沒有選職缺：做整體改善，不要依任何職缺的要求去問或去改）"
+
+
+def _portfolio_section(portfolio: list[dict] | None) -> str:
+    return portfolio_text(portfolio) if portfolio else "（沒有提供 GitHub 作品）"
+
+
+def portfolio_cards(portfolio: list[dict] | None) -> list[dict]:
+    """每個讀到原始碼的 repo 一張確認卡（由程式產生，不交給模型，才不會漏掉）。"""
+    out = []
+    for e in portfolio or []:
+        if e.get("status") != "ok" or e.get("kind") != "repo":
+            continue
+        a, m = e["analysis"], e["repo"]
+        name = m["full_name"].split("/")[-1]
+        out.append({"kind": "portfolio", "repo": m["full_name"],
+                    "context": f"Ava 讀了 {name} 的 {len(e['files_read'])} 個檔案：{a['purpose']}"[:160],
+                    "question": f"要把 {name} 寫進履歷嗎？",
+                    "options": [{"label": lb, "opens_detail": od} for lb, od in PORTFOLIO_OPTIONS],
+                    "detail_prompt": "有沒有使用者、上線、得獎這類成果？或你負責哪一塊？",
+                    "example": "上線給 50 位朋友用；我負責後端和部署"})
+    return out
 
 
 def _resume_text(parsed: dict | None, raw: str | None) -> str:
@@ -56,10 +80,13 @@ CARDS_SYSTEM = """你是資深履歷顧問，要幫使用者把「做過、但�
 - clarify 卡：角色或範圍寫得模糊的地方（例如「參與」「負責」），問是自己做、主導還是協助。
 - missing 卡：最後放 1–2 張開放題，問可能漏寫的專案、獲獎、社群、證照，options 給空清單。
 - context 要具體指出依據（哪個職缺要求、履歷哪一條），不要寫內部編號 #0。
-- 不要問個資（電話、地址）、薪資、年齡等與履歷內容無關的問題。"""
+- 不要問個資（電話、地址）、薪資、年齡等與履歷內容無關的問題。
+- 【GitHub 作品】是系統實際讀過原始碼後的審閱結果。每個 repo 要不要寫進履歷，系統會另外問，你不要出關於「要不要放這個 repo」的卡片。
+  作品集已經證明的能力（有程式碼證據）不要再出 gap 卡問使用者會不會；可以出 quantify 卡問那個專案的使用者數、規模等程式碼看不出來的成果。"""
 
 
-async def build_cards(*, setup: dict, parsed: dict | None, raw: str | None, jobs: list[dict], user_id=None) -> CardsOut:
+async def build_cards(*, setup: dict, parsed: dict | None, raw: str | None, jobs: list[dict], portfolio: list[dict] | None = None,
+                      user_id=None) -> CardsOut:
     def fake() -> CardsOut:
         have = {s.lower() for s in (parsed or {}).get("skills") or []}
         missing = [t for j in jobs for t in j.get("tags") or [] if t.lower() not in have]
@@ -80,7 +107,8 @@ async def build_cards(*, setup: dict, parsed: dict | None, raw: str | None, jobs
                           options=[], detail_prompt="說說看是什麼、你做了什麼", example="用 FastAPI 做了一個 AI 模擬面試網站，有 50 位使用者"))
         return CardsOut(cards=cards)
 
-    user = f"【設定】\n{_setup_text(setup)}\n\n【履歷】\n{_resume_text(parsed, raw)}\n\n【想投的職缺】\n{_jobs_text(jobs)}"
+    user = (f"【設定】\n{_setup_text(setup)}\n\n【履歷】\n{_resume_text(parsed, raw)}\n\n【想投的職缺】\n{_jobs_text(jobs)}\n\n"
+            f"【GitHub 作品（系統已實際讀取原始碼）】\n{_portfolio_section(portfolio)}")
     return await client.structured(purpose="revision_cards", schema=CardsOut, system=CARDS_SYSTEM, user=user, fake=fake,
                                    tier="fast", prompt_version=PV_CARDS, user_id=user_id)
 
@@ -93,7 +121,8 @@ def answers_text(cards: list[dict], answers: dict) -> str:
             reply = "（跳過，沒有回答：不能當作有或沒有）"
         else:
             reply = "；".join(x for x in (a.get("choice"), (a.get("text") or "").strip()) if x)
-        out.append(f"卡片 {i}（{c['kind']}）{c['context']}\n  問：{c['question']}\n  答：{reply}")
+        repo = f"〔repo：{c['repo']}〕" if c.get("repo") else ""
+        out.append(f"卡片 {i}（{c['kind']}）{repo}{c['context']}\n  問：{c['question']}\n  答：{reply}")
     return "\n".join(out) or "（沒有卡片）"
 
 
@@ -136,11 +165,18 @@ RESUME_SYSTEM = """你是資深履歷顧問，要依使用者的原履歷、這�
 - 依設定的輸出語言寫（英文時，original 仍放原文）；篇幅一頁時要精簡，次要的經歷可以縮成一兩條。
 - 保留原履歷的重要資訊：學歷、工作期間、公司名稱、聯絡方式都不能弄丟或改錯。
 - 區塊順序：摘要 → 工作經歷 → 專案 → 技能 → 學歷（可以依目的調整，例如第一份工作把專案、學歷往前）。
-- reason、summary、tips 用繁體中文寫給使用者看；提到卡片時說「你在第 N 題的回答」，N 是卡片序號 + 1。"""
+- reason、summary、tips 用繁體中文寫給使用者看；提到卡片時說「你在第 N 題的回答」，N 是卡片序號 + 1。
+- 【GitHub 作品】是系統實際讀過原始碼的審閱結果，可以當作事實依據，但只有使用者在 portfolio 卡選了「加進去」的 repo 才能寫進履歷：
+  - 每個要放的 repo 在「專案」區塊寫成一個 entry：title 是專案名稱（可以加一句在做什麼），meta 寫主要技術；
+    lines 3–5 條（change=new，card=那張 portfolio 卡的序號），寫做了什麼、架構與技術選擇、工程實務（測試、CI、容器化等），要具體、用審閱裡的證據，不要寫空泛的「熟悉 Python」。
+  - 選「團隊一起做的」要寫出使用者負責的部分（看卡片回答）；沒說明時寫「參與」並避免說成一個人完成。
+  - 使用者數、上線、營收這類成果只能來自使用者的回答，程式碼看不出來的不要自己寫；沒有就不寫或留待補標記。
+  - 程式碼證明的技能可以補進「技能」區塊（change=edit 或 new，card=對應的 portfolio 卡）。
+  - 選「不要放」或跳過的 repo，不能出現在履歷裡。"""
 
 
 async def build_resume(*, setup: dict, parsed: dict | None, raw: str | None, jobs: list[dict], cards: list[dict], answers: dict,
-                       user_id=None) -> RevisionOut:
+                       portfolio: list[dict] | None = None, user_id=None) -> RevisionOut:
     def fake() -> RevisionOut:
         p = parsed or {}
         exp = [Entry(title=f"{e.get('title', '')}｜{e.get('org', '')}", meta=f"{e.get('start', '')} – {e.get('end') or '至今'}",
@@ -148,12 +184,21 @@ async def build_resume(*, setup: dict, parsed: dict | None, raw: str | None, job
                for e in p.get("experiences") or []]
         new = [Line(text=f"{c['question'].rstrip('？?')}：{(answers.get(str(i)) or {}).get('text', '').strip()}", change="new", original="",
                     reason=f"來自你在第 {i + 1} 題的回答", card=i)
-               for i, c in enumerate(cards) if ((answers.get(str(i)) or {}).get("text") or "").strip()]
+               for i, c in enumerate(cards) if c["kind"] != "portfolio" and ((answers.get(str(i)) or {}).get("text") or "").strip()]
+        reviews = {e["repo"]["full_name"]: e for e in portfolio or [] if e.get("status") == "ok" and e.get("kind") == "repo"}
+        keep_labels = {lb for lb, od in PORTFOLIO_OPTIONS if od}
+        projects = [Entry(title=c["repo"].split("/")[-1], meta="、".join(reviews[c["repo"]]["analysis"]["tech_stack"][:5]), lines=[
+            Line(text=x, change="new", original="", reason=f"來自 GitHub 原始碼，你在第 {i + 1} 題選了要放", card=i)
+            for x in [reviews[c["repo"]]["analysis"]["purpose"], *reviews[c["repo"]]["analysis"]["highlights"][:3]]])
+            for i, c in enumerate(cards) if c["kind"] == "portfolio" and c.get("repo") in reviews
+            and (answers.get(str(i)) or {}).get("choice") in keep_labels]
         sections = [Section(title="摘要", entries=[Entry(title="", meta="", lines=[
             Line(text=p.get("summary") or "[用一兩句話介紹你自己]", change="keep" if p.get("summary") else "new", original="",
                  reason="" if p.get("summary") else "原履歷沒有摘要", card=-1)])])]
         if exp or new:
             sections.append(Section(title="工作經歷", entries=exp + ([Entry(title="補充經歷", meta="", lines=new)] if new else [])))
+        if projects:
+            sections.append(Section(title="專案", entries=projects))
         if p.get("skills"):
             sections.append(Section(title="技能", entries=[Entry(title="", meta="", lines=[Line(text="、".join(p["skills"]), change="keep",
                                                                                               original="", reason="", card=-1)])]))
@@ -164,6 +209,7 @@ async def build_resume(*, setup: dict, parsed: dict | None, raw: str | None, job
                            summary=f"依你的 {len(new)} 個回答補進履歷（開發模式的假結果）。", tips=["補上待補的數字"] if not new else [])
 
     user = (f"【設定】\n{_setup_text(setup)}\n\n【原履歷】\n{_resume_text(parsed, raw)}\n\n【想投的職缺】\n{_jobs_text(jobs)}\n\n"
+            f"【GitHub 作品（系統已實際讀取原始碼）】\n{_portfolio_section(portfolio)}\n\n"
             f"【使用者對問題卡片的回答】\n{answers_text(cards, answers)}")
     return await client.structured(purpose="revision_resume", schema=RevisionOut, system=RESUME_SYSTEM, user=user, fake=fake,
                                    tier="reasoning", prompt_version=PV_RESUME, user_id=user_id)

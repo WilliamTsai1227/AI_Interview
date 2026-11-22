@@ -151,6 +151,7 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 | | DELETE | `/resumes/{id}` | 刪除履歷 | 設定・履歷 |
 | Resume revisions | POST | `/resume-revisions` | 開始履歷修改（非同步產生問題卡片） | 履歷修改 |
 | | GET | `/resume-revisions` | 歷次修改 | 履歷修改 |
+| | GET | `/resume-revisions/github-repos?owner=` | 列出 GitHub 帳號的公開 repo（勾選要讀哪些） | 履歷修改 |
 | | GET | `/resume-revisions/{id}` | 狀態、卡片、回答、新版履歷 | 履歷修改 |
 | | PUT | `/resume-revisions/{id}/answers` | 存目前的回答（整份取代） | 履歷修改 |
 | | POST | `/resume-revisions/{id}/generate` | 答完 → 產生新版履歷；失敗時重試 | 履歷修改 |
@@ -419,8 +420,11 @@ PDF 第 `n` 頁（從 0 開始，最多前 20 頁）的 WebP 圖片，約 2 倍�
 #### `POST /resume-revisions` → `202`
 
 ```json
-{ "resume_id": "uuid", "target_ids": ["uuid"], "goal": "target|refresh|switch|first", "language": "zh|en", "length": "one|two", "correction": "" }
+{ "resume_id": "uuid", "target_ids": ["uuid"], "goal": "target|refresh|switch|first", "language": "zh|en", "length": "one|two", "correction": "",
+  "portfolio_links": ["https://github.com/帳號/專案"] }
 ```
+- `portfolio_links` 選填：只收 GitHub repo 網址（其他網址、只有帳號的網址回 `400`），最多 `PORTFOLIO_MAX_REPOS`（預設 5）個。
+  有連結時 `stage` 先是 `portfolio`（讀原始碼並審閱），再是 `cards`；每個讀到的 repo 會多一張 `kind: "portfolio"` 的卡（帶 `repo`），排在最前面。
 - 履歷要解析完成（解析中 `409 RESOURCE_NOT_READY`、失敗 `400`）。`target_ids` 選填、最多 3 個；沒選就做整體改善，不會出缺口卡。
 - 需要 token 額度；限流 `resume_revision`（每小時 10 次）。
 
@@ -437,6 +441,11 @@ PDF 第 `n` 頁（從 0 開始，最多前 20 頁）的 WebP 圖片，約 2 倍�
   "decisions": { "s1e0l0": {"accept": false} }, "placeholders": 2, "saved_resume": null }
 ```
 `placeholders`：套用決定後還有幾個 `[待補]`。
+另外有 `stage`（`portfolio`／`cards`／`null`）與 `portfolio`：`[{ "url", "status": "ok|failed|skipped", "error", "name", "files_read", "purpose" }]`（只回摘要，完整審閱不回）。
+
+#### `GET /resume-revisions/github-repos?owner=帳號`
+`owner` 可以是帳號、`@帳號` 或個人頁網址。回 `{ "owner", "repos": [{name, url, description, language, stars, pushed_at}], "max": 5 }`（最近更新的 12 個、不含 fork）。
+帳號不存在或 GitHub 限流回 `400 GITHUB_UNAVAILABLE`；限流 `github_list`（每小時 30 次）。
 
 #### `PUT /resume-revisions/{id}/answers`
 `{ "answers": { "卡片序號": {"choice", "text", "skipped"} } }`，只在 `answering` 可以改（否則 `409`）。不在選項裡的 `choice` 會被清成 `null`。

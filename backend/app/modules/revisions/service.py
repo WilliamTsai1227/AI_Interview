@@ -14,16 +14,40 @@ from app.ai.agents import revision as rv
 from app.core import db, redis, storage
 from app.core.config import settings
 from app.core.errors import AppError, not_found
+from app.modules.career import github
+from app.modules.career import service as career
 from app.modules.uploads import service as uploads
 from app.workers.queue import enqueue, tx
 
 log = structlog.get_logger()
 MAX_TARGETS = 3
-MAX_CARDS = 10
+MAX_CARDS = 10              # Ava 產生的卡片上限（GitHub 作品卡另外算，每個 repo 一張）
 CHANGES = ("keep", "edit", "new")
 KINDS = ("gap", "quantify", "missing", "clarify")
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PLACEHOLDER = re.compile(r"\[[^\[\]\n]{1,40}\]")
+
+
+def _cards_job_queue(setup: dict) -> str:
+    # 要先深入讀 GitHub（每個 repo 最多約 3 分鐘）時放到 default 佇列，它的逾時比 interactive 長
+    return "default" if setup.get("portfolio_links") else "interactive"
+
+
+async def github_repos(user_id: UUID, owner: str) -> dict:
+    """列出 GitHub 帳號最近更新的公開 repo（不含 fork），給使用者勾選要讀哪些。"""
+    owner = owner.strip().removeprefix("@")
+    t = github.parse(owner) if "/" in owner or "." in owner else (owner, None)
+    if not t or not github.NAME.match(t[0]):
+        raise AppError(400, "VALIDATION_ERROR", "請輸入 GitHub 帳號或個人頁網址，例如 github.com/你的帳號", {"fields": {"owner": "invalid"}})
+    await redis.rate_limit("github_list", str(user_id))
+    try:
+        prof = await github.read_profile(t[0])
+    except github.ReadError as e:
+        raise AppError(400, "GITHUB_UNAVAILABLE", str(e).replace("找不到這個 repo，可能是私人 repo 或網址打錯", "找不到這個 GitHub 帳號"))
+    except Exception as e:
+        log.warning("github_list_failed", owner=t[0], error=repr(e))
+        raise AppError(503, "GITHUB_UNAVAILABLE", "連不到 GitHub，請稍後再試")
+    return {"owner": t[0], "repos": prof["repos"], "max": settings.portfolio_max_repos}
 
 
 # ---------- 建立 ----------
@@ -55,7 +79,7 @@ async def create(user_id: UUID, resume_id: UUID, target_ids: list[UUID], setup: 
         rid = await conn.fetchval(
             "INSERT INTO resume_revisions (user_id, resume_id, target_job_ids, setup) VALUES ($1,$2,$3,$4) RETURNING id",
             user_id, resume_id, job_ids, setup)
-        await enqueue(conn, "build_revision_cards", {"revision_id": str(rid)}, queue="interactive", dedupe_key=f"revision_cards:{rid}")
+        await enqueue(conn, "build_revision_cards", {"revision_id": str(rid)}, queue=_cards_job_queue(setup), dedupe_key=f"revision_cards:{rid}")
     return await get(user_id, rid)
 
 
@@ -98,8 +122,12 @@ async def _out(conn: db.Connection, r) -> dict:
     saved = await conn.fetchrow("SELECT id, filename, parse_status FROM resumes WHERE id = $1 AND deleted_at IS NULL",
                                 r["saved_resume_id"]) if r["saved_resume_id"] else None
     final = final_lines(r["result"], r["decisions"]) if r["result"] else None
+    # 讀了哪些 GitHub repo：只回摘要（完整審閱很長，只在產生卡片與履歷時用）
+    portfolio = [{"url": e["url"], "status": e["status"], "error": e.get("error"), "name": (e.get("repo") or {}).get("full_name"),
+                  "files_read": len(e.get("files_read") or []), "purpose": (e.get("analysis") or {}).get("purpose")}
+                 for e in r["portfolio"] or []]
     return {
-        "id": str(r["id"]), "status": r["status"], "setup": r["setup"], "error": r["error"],
+        "id": str(r["id"]), "status": r["status"], "stage": r["stage"], "setup": r["setup"], "error": r["error"], "portfolio": portfolio,
         "resume": {"id": str(resume["id"]), "filename": resume["filename"]} if resume else None,
         "jobs": [{"company_name": j["company_name"], "title": j["title"]} for j in jobs],
         "cards": r["cards"], "answers": r["answers"], "result": r["result"], "decisions": r["decisions"],
@@ -167,7 +195,8 @@ async def generate(user_id: UUID, rid: UUID) -> dict:
             raise AppError(409, "STATE_CONFLICT", "這次修改已經完成了")
         if r["status"] == "failed" and not r["cards"]:
             await conn.execute("UPDATE resume_revisions SET status = 'carding', error = NULL WHERE id = $1", rid)
-            await enqueue(conn, "build_revision_cards", {"revision_id": str(rid)}, queue="interactive", dedupe_key=f"revision_cards:{rid}")
+            await enqueue(conn, "build_revision_cards", {"revision_id": str(rid)}, queue=_cards_job_queue(r["setup"]),
+                          dedupe_key=f"revision_cards:{rid}")
         else:
             await conn.execute("UPDATE resume_revisions SET status = 'generating', error = NULL WHERE id = $1", rid)
             await enqueue(conn, "build_revision", {"revision_id": str(rid)}, queue="interactive", dedupe_key=f"revision:{rid}")
@@ -305,7 +334,7 @@ async def _inputs(conn: db.Connection, r) -> tuple[dict | None, str | None, list
 async def _fail(rid: UUID, e: Exception) -> None:
     log.warning("revision_failed", revision_id=str(rid), error=repr(e))
     async with db.connection() as conn:
-        await conn.execute("UPDATE resume_revisions SET status = 'failed', error = $2 WHERE id = $1", rid, str(e)[:300] or "產生失敗")
+        await conn.execute("UPDATE resume_revisions SET status = 'failed', stage = NULL, error = $2 WHERE id = $1", rid, str(e)[:300] or "產生失敗")
 
 
 async def handle_cards(payload: dict) -> None:
@@ -315,12 +344,22 @@ async def handle_cards(payload: dict) -> None:
         if not r:
             return
         parsed, raw, jobs = await _inputs(conn, r)
+    portfolio = r["portfolio"]
+    links = r["setup"].get("portfolio_links") or []
+    if links and portfolio is None:          # 重試時不重讀：已經讀過的結果存在 portfolio
+        async with db.connection() as conn:
+            await conn.execute("UPDATE resume_revisions SET stage = 'portfolio' WHERE id = $1", rid)
+        portfolio = await career.read_portfolio(links, r["user_id"])
+        async with db.connection() as conn:
+            await conn.execute("UPDATE resume_revisions SET portfolio = $2 WHERE id = $1", rid, portfolio)
+    async with db.connection() as conn:
+        await conn.execute("UPDATE resume_revisions SET stage = 'cards' WHERE id = $1", rid)
     try:
-        out = await rv.build_cards(setup=r["setup"], parsed=parsed, raw=raw, jobs=jobs, user_id=r["user_id"])
+        out = await rv.build_cards(setup=r["setup"], parsed=parsed, raw=raw, jobs=jobs, portfolio=portfolio, user_id=r["user_id"])
     except Exception as e:
         return await _fail(rid, e)
-    cards = []
-    for c in out.cards:
+    cards = rv.portfolio_cards(portfolio)
+    for c in out.cards[:MAX_CARDS]:
         kind = c.kind if c.kind in KINDS else "missing"
         if kind == "gap" and not jobs:          # 沒選職缺不該有缺口卡
             continue
@@ -330,8 +369,8 @@ async def handle_cards(payload: dict) -> None:
     if not cards:
         return await _fail(rid, RuntimeError("Ava 沒有想到要問的問題，請再試一次"))
     async with db.connection() as conn:
-        await conn.execute("UPDATE resume_revisions SET status = 'answering', cards = $2 WHERE id = $1 AND status = 'carding'",
-                           rid, cards[:MAX_CARDS])
+        await conn.execute("UPDATE resume_revisions SET status = 'answering', stage = NULL, cards = $2 WHERE id = $1 AND status = 'carding'",
+                           rid, cards)
 
 
 def _clean_result(out: rv.RevisionOut, n_cards: int) -> dict:
@@ -365,7 +404,7 @@ async def handle_build(payload: dict) -> None:
         parsed, raw, jobs = await _inputs(conn, r)
     try:
         out = await rv.build_resume(setup=r["setup"], parsed=parsed, raw=raw, jobs=jobs, cards=r["cards"] or [], answers=r["answers"],
-                                    user_id=r["user_id"])
+                                    portfolio=r["portfolio"], user_id=r["user_id"])
     except Exception as e:
         return await _fail(rid, e)
     async with db.connection() as conn:
