@@ -8,8 +8,8 @@
 
 | 區塊 | 頁面 | 頁面下的 inline 資料庫 | 對應 skill |
 |---|---|---|---|
-| 產品規劃 | https://app.notion.com/p/4192dbee50808007bbcdeebb491a53b6 | 5 個 | `/notion-product` |
-| 系統設計 | https://app.notion.com/p/3f52dbee508080388c8ef0a08cf657b6 | 6 個 | `/notion-design` |
+| 產品規劃 | https://app.notion.com/p/4192dbee50808007bbcdeebb491a53b6 | 7 個 | `/notion-product` |
+| 系統設計 | https://app.notion.com/p/3f52dbee508080388c8ef0a08cf657b6 | 7 個 | `/notion-design` |
 | 系統開發 | https://app.notion.com/p/3f62dbee508080f3a37bc4aaee31aed2 | 3 個 | `/notion-dev` |
 | 系統測試 | https://app.notion.com/p/4192dbee5080805e9df8e02743f4b837 | 4 個 | `/notion-test` |
 
@@ -32,6 +32,9 @@
 | 系統設計 | MinIO | `collection://3f62dbee-5080-8053-a7d0-000b3bf89d6a` | `Name` | — | 物件儲存與上傳（目前 1 列） |
 | 系統設計 | 部署與架構 | `collection://4152dbee-5080-800e-bee5-000bb1a226c9` | `Name` | — | 架構總覽、Compose、k3s、不停機部署、上雲規劃（一個主題一列） |
 | 系統設計 | 問題 | `collection://3f52dbee-5080-80ba-bc7a-000b0e573b70` | `Name` | — | 設計問答與決策紀錄，標題是問句（例：「部署資料庫要拉出去嗎？」） |
+| 產品規劃 | AI 功能成本 | `collection://4212dbee-5080-816b-b8d6-000bd9e6c367` | `Name` | `模型`（relation → 系統設計「AI 模型」）、`等級`（fast／reasoning／語音／向量）、`產品區塊`、`使用者在等`（是／間接／否）、`觸發時機`、`為什麼用這個模型`、`程式 purpose`、`大約耗時` | 每個會呼叫 AI 的產品功能一列（對應 `client.structured(purpose=…)` 等）；新增 AI 功能或換模型時更新 |
+| 產品規劃 | UIUX 設計 | `collection://4212dbee-5080-8174-9582-000b0620670c` | `Name` | `類型`（Skill／靈感網站／UX 原則／總覽）、`狀態`（已安裝／參考中）、`用途`、`怎麼用`、`連結`（URL） | 改善易用性用的工具與參考：一個 skill、靈感網站或 UX 原則一列，另有一列 `00 總覽`（已安裝 skill 一覽、Claude 建議、下一步） |
+| 系統設計 | AI 模型 | `collection://4212dbee-5080-81a0-89bb-000bac487957` | `Name` | `類型`、`狀態`（使用中／已設定未使用）、`設定變數`、`計價單位`、`輸入價格`、`快取輸入價格`、`輸出價格`、`價格備註`、`價格查詢日期`、`用在哪些功能`（relation 反向） | 一個 OpenAI 模型一列（標題是模型 ID），另有一列 `00 總覽`（兩種文字模型的取捨、價格比較）；價格從 developers.openai.com/api/docs/pricing 查，更新時一併改查詢日期 |
 | 系統測試 | API | `collection://4192dbee-5080-8083-822a-000b66e10284` | `Name` | — | 一個 API 種類一列；每列頁面裡有 inline 資料庫「測試項目」 |
 | 系統測試 | 資安測試 | `collection://4192dbee-5080-8083-99b0-000b7af0109c` | `Name` | — | 一種資安檢測類別一列；每列頁面裡有「測試項目」 |
 | 系統測試 | 附載測試 | `collection://4192dbee-5080-8097-befc-000b48068034` | `Name` | — | 一種效能測試情境一列（smoke／load／stress…）；每列頁面裡有「測試項目」 |
