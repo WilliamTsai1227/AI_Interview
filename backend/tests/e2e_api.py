@@ -165,7 +165,7 @@ def main():
     t3 = a.req("POST", "/targets", json={"job_post_id": j["id"]})
     assert t2["id"] == t3["id"]
     a.req("DELETE", f"/targets/{t2['id']}")
-    print("✓ jobs search + add catalog job as target + archive")
+    print("✓ jobs search + add catalog job as target + delete")
 
     a.req("DELETE", f"/interviews/{sid}")
     a.req("GET", f"/interviews/{sid}/report", expect=(404,))
