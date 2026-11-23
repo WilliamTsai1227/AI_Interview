@@ -3,7 +3,7 @@ import { del, get, post } from "../api.js";
 import { h, icon } from "../dom.js";
 import { renderSide } from "../shell.js";
 import { ago, loadMe, loadTargets, pickTarget } from "../store.js";
-import { closeModal, errorToast, logo, openModal, toast } from "../ui.js";
+import { closeModal, confirmBox, errorToast, logo, openModal, toast } from "../ui.js";
 
 const MODE = { onsite: "進辦公室", hybrid: "混合辦公", remote: "完全遠端" };
 
@@ -64,14 +64,16 @@ export async function openJob(jobId, { onChange } = {}) {
       ? h("div", { style: "text-align:center;margin-top:14px" },
         h("button", { class: "linkb", type: "button", onclick: () => { closeModal(); location.hash = `#targets/${j.target_id}`; } }, "查看準備進度"), "・",
         h("button", { class: "linkb", type: "button", onclick: async () => {
+          const ok = await confirmBox({ title: "刪除這個職缺？", text: "這個職缺的題庫、面試建議、所有面試紀錄、報告和錄音都會永久刪除，無法復原。", ok: "刪除", danger: true });
+          if (!ok) return;
           try {
             await del(`/targets/${j.target_id}`);
             await loadTargets();
             closeModal();
-            toast("已從我的職缺移出，題庫會保留，重新加入就能找回");
+            toast("已刪除這個職缺");
             onChange?.();
           } catch (e) { errorToast(e); }
-        } }, "從我的職缺移出"))
+        } }, "刪除這個職缺"))
       : h("p", { class: "faint", style: "text-align:center;margin-top:14px" },
         "練習後會自動加入我的職缺，Ava 會先幫你出好題目。職缺庫只有摘要，到原始職缺頁複製完整內容貼上，題目會更準。"),
   ] });

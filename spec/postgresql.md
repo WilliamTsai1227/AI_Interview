@@ -664,7 +664,7 @@ CREATE TABLE target_jobs (
   UNIQUE (user_id, job_post_id)
 );
 CREATE INDEX ix_target_jobs_user ON target_jobs(user_id, last_practiced_at DESC NULLS LAST) WHERE status = 'active';
--- 「移出目標職缺」= status 改為 archived；題組與報告都保留，重新加入就能找回
+-- 「刪除目標職缺」= 硬刪除 target_jobs 及其面試紀錄（使用者貼上的職缺連 job_posts 一起刪）；archived 只剩舊資料
 
 -- 職缺解讀（0020）：Ava 用白話說明職缺實際在做什麼、想找什麼人、要拿哪些經驗證明。跟職缺走，所有使用者共用。
 -- 另開一張表不寫進 job_posts：寫入 job_posts 會更新 updated_at，讓面試建議誤判職缺有改
@@ -1360,7 +1360,7 @@ RETURNING id, status;   -- status = completed 的排 build_report
 | `job_ingest_runs` | 13 個月 | 每日清理 |
 | 下架的平台職缺（`status = closed`） | 90 天 | 已被設為目標職缺的保留（練習紀錄需要），其餘硬刪除 |
 | 刪除帳號 | 立即 | 硬刪除 `users`（CASCADE）＋刪除 `users/{id}/` 下所有物件；log 中的 `user_id` 設為 NULL |
-| 移出目標職缺 | 保留 | `target_jobs.status = archived`，題組、面試建議、報告都保留，重新加入即恢復 |
+| 刪除目標職缺 | 立即 | 硬刪除 `interview_sessions`（該職缺的）與 `target_jobs`（CASCADE 題組、面試建議）＋刪除作答錄音；使用者貼上的職缺連 `job_posts` 一起刪 |
 
 ---
 

@@ -95,5 +95,5 @@ async def retry_insight(target_id: UUID, user: CurrentUser = Depends(require_tok
 
 @router.delete("/{target_id}", status_code=204)
 async def delete(target_id: UUID, user: CurrentUser = Depends(current_user)):
-    await service.archive(user.id, target_id)
+    await service.delete(user.id, target_id)
     return Response(status_code=204)

@@ -1,5 +1,5 @@
 // 我的職缺：列表 → 職缺頁（分頁：總覽／題庫／面試建議／報告）。這裡負責「總覽」與「報告」分頁；
-// 總覽＝下一步、職缺內容、編輯原文與重新出題、移出。題庫在 questions.js，面試建議在 prep.js。
+// 總覽＝下一步、職缺內容、編輯原文與重新出題、刪除職缺。題庫在 questions.js，面試建議在 prep.js。
 import { del, get, patch, post } from "../api.js";
 import { addTargetMenuItems, onAddTargetPick, openJd } from "../components/jd.js";
 import { jobType, sourceButton, sourceLine } from "../components/job.js";
@@ -222,16 +222,16 @@ async function detail(view, tid, ctx) {
       j.tags.length ? h("div", { class: "row", style: "margin-top:16px" }, j.tags.map((x) => h("span", { class: "tagx" }, x))) : null,
       raw,
       h("div", { style: "text-align:center;margin-top:36px" }, h("button", { class: "linkb", type: "button", onclick: async () => {
-        const ok = await confirmBox({ title: "從我的職缺移出？", text: "題庫、面試建議和報告都會保留，之後重新加入就能找回。", ok: "移出" });
+        const ok = await confirmBox({ title: "刪除這個職缺？", text: "這個職缺的題庫、面試建議、所有面試紀錄、報告和錄音都會永久刪除，無法復原。", ok: "刪除", danger: true });
         if (!ok) return;
         try {
           await del(`/targets/${tid}`);
           await Promise.all([loadTargets(), loadMe()]);
           renderSide();
           location.hash = "#targets";
-          toast("已從我的職缺移出");
+          toast("已刪除這個職缺");
         } catch (e) { errorToast(e); }
-      } }, "從我的職缺移出")));
+      } }, "刪除這個職缺")));
   }
 
   draw();

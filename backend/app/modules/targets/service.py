@@ -5,13 +5,17 @@
 """
 from uuid import UUID
 
+import structlog
+
 from app.ai import text
-from app.core import db, redis
+from app.core import db, redis, storage
 from app.core.errors import AppError, not_found
 from app.modules.jobs import insight
 from app.modules.jobs import service as jobs
 from app.modules.resumes import service as resumes
 from app.workers.queue import enqueue, tx
+
+log = structlog.get_logger()
 
 INITIAL_QUESTIONS = 8
 
@@ -267,12 +271,33 @@ async def regenerate(user_id: UUID, target_id: UUID) -> dict:
     return target_out(r, detail=True)
 
 
-async def archive(user_id: UUID, target_id: UUID) -> None:
+async def delete(user_id: UUID, target_id: UUID) -> None:
+    """從我的職缺移出 = 永久刪除：題庫、面試建議、這個職缺的所有面試紀錄與報告、作答錄音都一起刪掉。
+    使用者自己貼上的職缺連 job_posts 也刪；平台職缺本身保留（其他人還在用）。"""
     async with db.transaction() as conn:
-        await fetch(conn, user_id, target_id)
+        t = await conn.fetchrow("SELECT job_post_id FROM target_jobs WHERE id = $1 AND user_id = $2 FOR UPDATE",
+                                target_id, user_id)
+        if not t:
+            raise not_found("找不到這個目標職缺")
         active = await conn.fetchval(
             "SELECT id FROM interview_sessions WHERE target_job_id = $1 AND status IN ('preparing','ready','in_progress','paused')",
             target_id)
         if active:
             raise AppError(409, "ACTIVE_SESSION_EXISTS", "這個職缺還有未結束的面試", {"session_id": str(active)})
-        await conn.execute("UPDATE target_jobs SET status = 'archived' WHERE id = $1", target_id)
+        keys = [r["audio_key"] for r in await conn.fetch(
+            """SELECT a.audio_key FROM answer_attempts a JOIN interview_sessions s ON s.id = a.session_id
+                WHERE s.target_job_id = $1 AND a.audio_key IS NOT NULL""", target_id)]
+        await conn.execute(
+            """UPDATE upload_tickets SET attempt_id = NULL WHERE attempt_id IN
+                 (SELECT a.id FROM answer_attempts a JOIN interview_sessions s ON s.id = a.session_id
+                   WHERE s.target_job_id = $1)""", target_id)
+        # 面試紀錄沒有 ON DELETE CASCADE 到 target_jobs，要先刪；題庫、面試建議會跟著 target_jobs 一起刪
+        await conn.execute("DELETE FROM interview_sessions WHERE target_job_id = $1", target_id)
+        await conn.execute("DELETE FROM target_jobs WHERE id = $1", target_id)
+        await conn.execute("DELETE FROM job_posts WHERE id = $1 AND source = 'user' AND owner_user_id = $2",
+                           t["job_post_id"], user_id)
+    for i in range(0, len(keys), 500):
+        try:
+            await storage.delete(*keys[i:i + 500])
+        except Exception as e:
+            log.warning("audio_delete_failed", error=str(e))
