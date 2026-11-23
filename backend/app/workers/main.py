@@ -25,6 +25,7 @@ from app.core.migrate import ensure_partitions
 from app.modules.career import service as career
 from app.modules.interviews import live
 from app.modules.interviews import service as interviews
+from app.modules.jobs import insight as job_insight
 from app.modules.jobs import service as jobs
 from app.modules.preps import service as preps
 from app.modules.questions import service as questions
@@ -43,6 +44,7 @@ _stopping = False       # 進入關閉流程後才取消的工作是「交還」
 HANDLERS = {
     "parse_resume": resumes.handle_parse,
     "parse_job": jobs.handle_parse_job,
+    "job_insight": job_insight.handle,
     "generate_questions": questions.handle_generate,
     "build_rubric": questions.handle_build_rubric,
     "generate_prep": preps.handle_analyze,

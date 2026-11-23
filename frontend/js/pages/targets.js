@@ -53,9 +53,10 @@ async function detail(view, tid, ctx) {
 
   // 重新出題後：Ava 解析與出題期間每 4 秒更新一次（編輯原文時不打斷）
   const busy = () => t.question_set.status === "preparing" || (t.job.source === "user" && ["pending", "parsing"].includes(t.job.parse_status));
+  const insightBusy = () => ["pending", "running"].includes(t.job.insight?.status);
   const poll = () => {
     clearTimeout(timer);
-    if (!busy()) return;
+    if (!busy() && !insightBusy()) return;
     timer = setTimeout(async () => {
       if (!ctx.isCurrent()) return;
       if (editing) { poll(); return; }
@@ -147,6 +148,37 @@ async function detail(view, tid, ctx) {
       h("div", { class: "bd" }, body));
   }
 
+  async function retryInsight() {
+    try { t = await post(`/targets/${tid}/insight`); draw(); poll(); } catch (e) { errorToast(e); }
+  }
+
+  /** Ava 的職缺解讀：白話說明這個職缺在做什麼、想找什麼人、要拿哪些經驗證明，讓使用者知道要準備哪些故事。 */
+  function insightSection() {
+    const ins = t.job.insight || { status: "pending" };
+    const head = h("h2", null, "Ava 怎麼看這個職缺");
+    if (ins.status === "failed") return [head, h("div", { class: "err-box", role: "status" },
+      h("div", { class: "t" }, h("b", null, "Ava 沒有解讀成功"), h("div", { class: "muted" }, "可能是 AI 服務暫時忙碌。題庫和面試建議不受影響。")),
+      h("button", { class: "btn out sm", type: "button", onclick: retryInsight }, icon("redo"), "再試一次"))];
+    if (ins.status !== "ready" || !ins.data) return [head, h("p", { class: "muted row", style: "gap:8px" }, dots(), "Ava 正在讀這個職缺，整理公司實際想找什麼樣的人⋯")];
+    const d = ins.data;
+    const must = d.experiences.filter((e) => e.kind === "must"), plus = d.experiences.filter((e) => e.kind !== "must");
+    const expList = (title, xs) => xs.length ? h("div", null, h("div", { class: "sub-h" }, title),
+      h("ul", { class: "ins-exp" }, xs.map((e) => h("li", null, e.text, h("span", { class: "faint" }, e.proof))))) : null;
+    return [head,
+      h("p", { class: "ins-essence" }, d.essence),
+      d.persona.length ? [h("div", { class: "sub-h" }, "他們想找的人"), h("ul", null, d.persona.map((x) => h("li", null, x)))] : null,
+      h("div", { class: "sub-h" }, "這份工作的重點"),
+      h("div", { class: "ins-focus" }, d.focus.map((f, i) => h("section", { class: "ins-card" },
+        h("h3", null, h("span", { class: "num" }, i + 1), f.title),
+        f.quote ? h("blockquote", null, f.quote) : null,
+        h("p", null, f.meaning),
+        f.evidence.length ? [h("div", { class: "lbl" }, "面試官想聽到你做過"), h("ul", null, f.evidence.map((x) => h("li", null, x)))] : null,
+        f.story ? h("div", { class: "ins-story" }, icon("bulb", 16), h("span", null, h("b", null, "準備這個故事："), f.story)) : null))),
+      must.length || plus.length ? h("div", { class: "grid2" }, expList("必備經驗", must), expList("加分經驗", plus)) : null,
+      d.signals.length ? [h("div", { class: "sub-h" }, "字裡行間"), h("ul", null, d.signals.map((x) => h("li", null, x)))] : null,
+      h("p", { class: "faint", style: "margin-top:14px" }, "Ava 依職缺內容推論，僅供準備參考。")];
+  }
+
   /** 總覽的「下一步」：只講狀態和接下來要做什麼（入口在上面的分頁）。 */
   function nextBox() {
     const lr = t.last_report, p = t.prep;
@@ -182,6 +214,8 @@ async function detail(view, tid, ctx) {
       h("h2", null, "關於這個職缺"),
       j.parse_status !== "parsed" && j.source === "user" ? h("p", { class: "muted" }, j.parse_status === "failed" ? "Ava 沒有解析成功，題目會依你貼上的原文出。" : "Ava 正在整理職缺內容⋯")
         : h("p", { class: "muted" }, j.summary || j.about || ""),
+      j.parse_status !== "parsed" && j.source === "user" ? null : insightSection(),
+      h("h2", null, "職缺列出的內容"),
       h("div", { class: "grid2" },
         h("div", null, h("div", { class: "sub-h" }, "工作內容"), h("ul", null, (j.duties || []).map((d) => h("li", null, d)))),
         h("div", null, h("div", { class: "sub-h" }, "條件要求"), h("ul", null, (j.requirements || []).map((d) => h("li", null, d))))),

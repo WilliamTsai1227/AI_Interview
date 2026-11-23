@@ -912,3 +912,17 @@ button.rv-issue:hover{background:var(--surface-2)}
 .tour-dots i.done{background:var(--ink-3)}
 .tour-dots i.on{width:18px;border-radius:999px;background:var(--ink)}
 @media (prefers-reduced-motion:reduce){.tour-spot{transition:none}.tour-pop{animation:none}}
+
+/* 職缺總覽：Ava 的職缺解讀 */
+.ins-essence{font-size:1.02rem;line-height:1.75;margin-top:6px}
+.ins-focus{display:flex;flex-direction:column;gap:12px;margin-top:10px}
+.ins-card{border:1px solid var(--line-2);border-radius:16px;padding:16px 18px}
+.ins-card h3{font-size:1rem;font-weight:600;display:flex;align-items:center;gap:10px;margin:0}
+.ins-card h3 .num{flex:none;width:22px;height:22px;border-radius:999px;background:var(--surface);color:var(--ink-2);font-size:.78rem;display:inline-flex;align-items:center;justify-content:center}
+.ins-card blockquote{margin:10px 0 0;padding-left:12px;border-left:2px solid var(--line-2);color:var(--ink-3);font-size:.86rem;line-height:1.6}
+.ins-card p{margin-top:10px;line-height:1.7}
+.ins-card .lbl{font-size:.8rem;color:var(--ink-3);margin-top:12px}
+.ins-card ul{margin-top:4px}
+.ins-story{display:flex;gap:8px;align-items:flex-start;margin-top:12px;padding:10px 12px;border-radius:12px;background:var(--surface);font-size:.92rem;line-height:1.6}
+.ins-story svg{flex:none;margin-top:3px;color:var(--ink-2)}
+.ins-exp li span{display:block;font-size:.84rem;margin-top:2px}

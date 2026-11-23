@@ -88,6 +88,11 @@ async def regenerate(target_id: UUID, user: CurrentUser = Depends(require_tokens
     return await service.regenerate(user.id, target_id)
 
 
+@router.post("/{target_id}/insight")
+async def retry_insight(target_id: UUID, user: CurrentUser = Depends(require_tokens)):
+    return await service.retry_insight(user.id, target_id)
+
+
 @router.delete("/{target_id}", status_code=204)
 async def delete(target_id: UUID, user: CurrentUser = Depends(current_user)):
     await service.delete(user.id, target_id)

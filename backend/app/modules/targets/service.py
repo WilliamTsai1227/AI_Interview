@@ -10,6 +10,7 @@ import structlog
 from app.ai import text
 from app.core import db, redis, storage
 from app.core.errors import AppError, not_found
+from app.modules.jobs import insight
 from app.modules.jobs import service as jobs
 from app.modules.resumes import service as resumes
 from app.workers.queue import enqueue, tx
@@ -30,9 +31,11 @@ SELECT t.*, j.source, j.company_name, j.title, j.location_text, j.city, j.tags, 
        (SELECT count(*) FILTER (WHERE c.is_checked) FROM prep_checklist_items c WHERE c.prep_id = p.id) AS checklist_done,
        (SELECT count(*) FROM prep_checklist_items c WHERE c.prep_id = p.id) AS checklist_total,
        lr.session_id AS last_session_id, lr.overall_score AS last_score, lr.ended_at AS last_ended_at,
-       (SELECT count(*) FROM question_generations g WHERE g.set_id = qs.id AND g.status IN ('pending','running')) AS gen_running
+       (SELECT count(*) FROM question_generations g WHERE g.set_id = qs.id AND g.status IN ('pending','running')) AS gen_running,
+       ji.status AS insight_status, ji.insight
   FROM target_jobs t
   JOIN job_posts j ON j.id = t.job_post_id
+  LEFT JOIN job_insights ji ON ji.job_post_id = t.job_post_id
   LEFT JOIN resumes r ON r.id = t.resume_id AND r.deleted_at IS NULL
   LEFT JOIN question_sets qs ON qs.target_job_id = t.id
   LEFT JOIN interview_preps p ON p.target_job_id = t.id
@@ -54,6 +57,7 @@ def target_out(r, detail: bool = False) -> dict:
     if detail:
         job.update({"about": r["about"], "summary": r["summary"], "duties": r["duties"] or [],
                     "requirements": r["requirements"] or [],
+                    "insight": insight.out(r["insight_status"], r["insight"]),
                     # 平台職缺的原文只給 AI 用，不回傳給前端；使用者自己貼的才回傳
                     "raw_text": r["raw_text"] if r["source"] == "user" else None})
     set_status = r["set_status"] or "preparing"
@@ -91,7 +95,23 @@ async def list_(user_id: UUID) -> list[dict]:
 
 async def get(user_id: UUID, target_id: UUID) -> dict:
     async with db.connection() as conn:
-        return target_out(await fetch(conn, user_id, target_id), detail=True)
+        r = await fetch(conn, user_id, target_id)
+    if r["insight_status"] is None and (r["source"] != "user" or r["parse_status"] in ("parsed", "failed")):
+        # 這個功能上線前加入的職缺：第一次打開時補產生解讀
+        async with tx() as conn:
+            await insight.start(conn, user_id, r["job_post_id"])
+            r = await fetch(conn, user_id, target_id)
+    return target_out(r, detail=True)
+
+
+async def retry_insight(user_id: UUID, target_id: UUID) -> dict:
+    async with tx() as conn:
+        r = await fetch(conn, user_id, target_id)
+        if r["insight_status"] != "failed":
+            raise AppError(409, "STATE_CONFLICT", "職缺解讀不需要重新產生")
+        await insight.start(conn, user_id, r["job_post_id"], force=True)
+        r = await fetch(conn, user_id, target_id)
+    return target_out(r, detail=True)
 
 
 async def _create_children(conn: db.Connection, user_id: UUID, target_id: UUID, job_id: UUID,
@@ -102,11 +122,11 @@ async def _create_children(conn: db.Connection, user_id: UUID, target_id: UUID, 
         "INSERT INTO interview_preps (user_id, target_job_id, job_post_id, resume_id) VALUES ($1, $2, $3, $4) RETURNING id",
         user_id, target_id, job_id, resume_id)
     if job_ready:
-        await _start_initial(conn, user_id, set_id, prep_id, resume_id)
+        await _start_initial(conn, user_id, set_id, prep_id, resume_id, job_id)
 
 
 async def _start_initial(conn: db.Connection, user_id: UUID, set_id: UUID, prep_id: UUID, resume_id: UUID | None,
-                         replace: bool = False) -> None:
+                         job_id: UUID, replace: bool = False) -> None:
     from app.modules.preps import service as preps
     from app.modules.questions import service as questions
     await questions.start_generation(conn, user_id, set_id, {"categories": [], "difficulty": "medium",
@@ -114,17 +134,19 @@ async def _start_initial(conn: db.Connection, user_id: UUID, set_id: UUID, prep_
                                                              "replace_ai": replace})
     await preps.start_generation(conn, prep_id, "analyze",
                                  {"resume_id": str(resume_id) if resume_id else None, "initial": True}, quiet=True)
+    # 職缺解讀跟職缺走：平台職缺已經有人產生過就直接共用；依新內容重新出題時重新產生
+    await insight.start(conn, user_id, job_id, force=replace)
 
 
 async def after_job_ready(conn: db.Connection, target_id: UUID, replace: bool = False) -> None:
     t = await conn.fetchrow(
         """
-        SELECT t.user_id, t.resume_id, qs.id AS set_id, p.id AS prep_id FROM target_jobs t
+        SELECT t.user_id, t.resume_id, t.job_post_id, qs.id AS set_id, p.id AS prep_id FROM target_jobs t
           JOIN question_sets qs ON qs.target_job_id = t.id JOIN interview_preps p ON p.target_job_id = t.id
          WHERE t.id = $1
         """, target_id)
     if t:
-        await _start_initial(conn, t["user_id"], t["set_id"], t["prep_id"], t["resume_id"], replace)
+        await _start_initial(conn, t["user_id"], t["set_id"], t["prep_id"], t["resume_id"], t["job_post_id"], replace)
 
 
 async def create(user_id: UUID, raw_text: str | None, job_post_id: UUID | None, resume_id: UUID | None,
