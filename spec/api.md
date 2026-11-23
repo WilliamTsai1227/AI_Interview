@@ -163,6 +163,7 @@ Redis 不可用時 fail-open，改用程序內記憶體計數。
 | | POST | `/targets` | 加入目標職缺（貼上 JD 或從職缺庫）＋自動出題＋面試建議 | 貼上新職缺、職缺詳情 |
 | | GET | `/targets/{id}` | 目標職缺詳情＋準備進度 | 目標職缺詳情 |
 | | PATCH | `/targets/{id}` | 換預設履歷、修正職缺內容 | 新面試・履歷選單、面試建議・依據卡片 |
+| | POST | `/targets/{id}/insight` | 職缺解讀失敗時重新產生 | 目標職缺詳情・Ava 怎麼看這個職缺 |
 | | DELETE | `/targets/{id}` | 移出目標職缺（資料保留） | 目標職缺詳情 |
 | Questions | GET | `/targets/{id}/questions` | 題組 | 題庫生成、新面試・本次題目 |
 | | POST | `/targets/{id}/questions/generate` | 依需求生成題目 | 題庫生成・輸入框 |
@@ -527,7 +528,29 @@ PDF 第 `n` 頁（從 0 開始，最多前 20 頁）的 WebP 圖片，約 2 倍�
 
 ### `GET /targets/{id}`
 
-目標職缺物件，`job` 內含完整職缺內容（`about`、`duties`、`requirements`、`salary_text`…）。
+目標職缺物件，`job` 內含完整職缺內容（`about`、`duties`、`requirements`、`salary_text`…）與 `insight`（職缺解讀）。
+
+`job.insight`：Ava 用白話說明這個職缺實際在做什麼、想找什麼樣的人、要拿哪些經驗證明，讓使用者知道要準備哪些故事。
+跟職缺走，不看履歷（同一個平台職缺所有人共用一份）；和履歷的比對在面試建議。
+
+```json
+{ "status": "ready",          // pending | running | ready | failed；只有 ready 才有 data
+  "data": {
+    "essence": "這個職缺到底在做什麼（一段話）",
+    "persona": ["他們想找的人…"],
+    "focus": [{ "title": "把 AI 平台建起來並維運", "quote": "Build and operate the AI infrastructure",
+                "meaning": "白話解讀", "evidence": ["面試官想聽到你做過的事"], "story": "講一次你…" }],
+    "experiences": [{ "text": "需要的經驗", "kind": "must", "proof": "沒有正職經驗時怎麼證明" }],   // kind: must | plus，must 在前
+    "signals": ["字裡行間的訊號"] } }
+```
+
+- 加入目標職缺、職缺解析完成後自動產生（背景工作 `job_insight`）；依新內容重新出題時重新產生。
+- 這個功能上線前加入的職缺：第一次 `GET` 時補產生。
+- 前端在 `pending`／`running` 時輪詢；`failed` 時顯示「再試一次」。
+
+### `POST /targets/{id}/insight`
+
+職缺解讀失敗（`status = failed`）時重新產生，回目標職缺物件（`insight.status = pending`）。其他狀態回 `409 STATE_CONFLICT`。會使用 AI 額度。
 
 ### `PATCH /targets/{id}`
 

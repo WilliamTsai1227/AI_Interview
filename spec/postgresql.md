@@ -666,6 +666,18 @@ CREATE TABLE target_jobs (
 CREATE INDEX ix_target_jobs_user ON target_jobs(user_id, last_practiced_at DESC NULLS LAST) WHERE status = 'active';
 -- 「移出目標職缺」= status 改為 archived；題組與報告都保留，重新加入就能找回
 
+-- 職缺解讀（0020）：Ava 用白話說明職缺實際在做什麼、想找什麼人、要拿哪些經驗證明。跟職缺走，所有使用者共用。
+-- 另開一張表不寫進 job_posts：寫入 job_posts 會更新 updated_at，讓面試建議誤判職缺有改
+CREATE TABLE job_insights (
+  job_post_id     uuid PRIMARY KEY REFERENCES job_posts(id) ON DELETE CASCADE,
+  status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','ready','failed')),
+  insight         jsonb,             -- {essence, persona[], focus[{title, quote, meaning, evidence[], story}], experiences[{text, kind, proof}], signals[]}
+  prompt_version  text,
+  error           text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE job_matches (
   resume_id    uuid NOT NULL REFERENCES resumes(id) ON DELETE CASCADE,
   job_post_id  uuid NOT NULL REFERENCES job_posts(id) ON DELETE CASCADE,
