@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     live_wrap_up_sec: int = 90            # 剩這麼多秒時提醒 Ava 收尾；超過上限 60 秒自動結束
     # 面試官的擬真人像（Simli，依分鐘計費）：後端用金鑰換 5 分鐘有效的 session token 給瀏覽器；空白＝用瀏覽器內的插畫人像
     simli_api_key: str = ""
-    simli_face_id: str = "14c60d62-6ebf-424d-b626-1f4f91c33b04"   # Simli 預設臉（Anna）；後台可以換其他臉
+    simli_face_id: str = "084479bf-de7c-4df0-8d9c-5484193ecd27"   # Simli 預設臉 Mei（華人女性，像 HR）；後台可以換其他臉
     simli_url: str = "https://api.simli.ai"
 
     # 面試
