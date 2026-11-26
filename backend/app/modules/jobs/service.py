@@ -9,7 +9,7 @@ from app.core.errors import not_found
 from app.workers.queue import enqueue, tx
 
 SITE_LABEL = {"104": "104 人力銀行", "cake": "CakeResume", "linkedin": "LinkedIn", "yourator": "Yourator",
-              "greenhouse": "Greenhouse", "lever": "Lever", "company": "公司官網", "demo": "範例資料"}
+              "greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby", "company": "公司官網", "demo": "範例資料"}
 FILTERS = {"foreign": "j.is_foreign", "english": "j.work_language = 'en'", "remote": "j.work_mode = 'remote'",
            "hybrid": "j.work_mode = 'hybrid'"}
 

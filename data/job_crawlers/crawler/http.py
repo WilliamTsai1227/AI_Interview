@@ -81,7 +81,8 @@ class Fetcher:
             time.sleep(delay - gap)
         self._last[host] = time.monotonic()
 
-    def _raw(self, url: str, check_robots: bool = True) -> Response:
+    def _raw(self, url: str, check_robots: bool = True, accept: str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+             max_bytes: int = 5_000_000) -> Response:
         p = urlsplit(url)
         if p.scheme not in ("https", "http") or (p.scheme == "http" and not self.cfg.allow_http):
             raise BlockedError(f"不支援的網址：{url}")
@@ -90,12 +91,10 @@ class Fetcher:
         if check_robots and not self.allowed(url):
             raise BlockedError(f"robots.txt 不允許：{url}")
         self._wait(p.netloc)
-        req = urllib.request.Request(url, headers={"User-Agent": self.cfg.user_agent,
-                                                   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                                                   "Accept-Encoding": "gzip"})
+        req = urllib.request.Request(url, headers={"User-Agent": self.cfg.user_agent, "Accept": accept, "Accept-Encoding": "gzip"})
         try:
             with urllib.request.urlopen(req, timeout=self.cfg.timeout_sec) as r:
-                body = r.read(5_000_000)
+                body = r.read(max_bytes)
                 status, ctype, final = r.status, r.headers.get("Content-Type", ""), r.geturl()
                 if r.headers.get("Content-Encoding") == "gzip" or url.endswith(".gz"):
                     try:
@@ -120,6 +119,16 @@ class Fetcher:
             raise BlockedError(reason)
         if r.status == 429:
             self._blocked[host] = f"網站要求降低頻率（429），停止抓取（{host}）"
+            raise BlockedError(self._blocked[host])
+        return r
+
+    def get_api(self, url: str) -> Response:
+        """招募系統（Greenhouse、Lever、Ashby）官方文件化的公開職缺 API：本來就是給程式讀的，不看 robots.txt
+        （Ashby 的 API 網域連 robots.txt 都回 401），也不算進每站頁數上限（一家公司一個請求）；限速、表明身分、遇到 429 停止照舊。"""
+        host = urlsplit(url).netloc
+        r = self._raw(url, check_robots=False, accept="application/json", max_bytes=30_000_000)
+        if r.status == 429:
+            self._blocked[host] = f"職缺 API 要求降低頻率（429），停止抓取（{host}）"
             raise BlockedError(self._blocked[host])
         return r
 

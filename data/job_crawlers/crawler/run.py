@@ -1,6 +1,7 @@
 """爬蟲主流程。
 
 crawl：每家公司 → 徵才頁＋sitemap 找職缺頁 → 讀 JobPosting → 正規化 → （選用）AI 摘要 → 寫入 job_posts
+       有 ats 的公司改讀招募系統的公開職缺 API（crawler/ats.py），並把職缺板上已經消失的職缺下架
 verify：檢查已上架職缺的原始網址：404／410 或已過截止日 → 下架；超過 30 天沒再抓到 → 下架
 
 本機：python -m crawler.run crawl [--sources sources/companies.json] [--limit 3]
@@ -14,6 +15,7 @@ import time
 from pathlib import Path
 
 from . import db
+from .ats import crawl_board
 from .config import Config
 from .discover import candidate_links, sitemap_urls
 from .http import BlockedError, Fetcher
@@ -91,11 +93,15 @@ def crawl(cfg: Config, sources: list[dict], deadline: float | None = None) -> di
             if deadline and time.monotonic() > deadline:
                 stats["companies"][src["name"]] = {"skipped": "時間不夠，下次再抓"}
                 continue
-            jobs, issues = crawl_company(fetcher, cfg, src)
+            complete = False
+            if src.get("ats"):
+                jobs, issues, complete = crawl_board(fetcher, src)
+            else:
+                jobs, issues = crawl_company(fetcher, cfg, src)
             stats["fetched"] += len(jobs)
             per = {"jobs": len(jobs), "inserted": 0, "updated": 0, "issues": issues[:10]}
             for j in jobs:
-                row = db.existing(conn, j["source_url_norm"], j["external_ref"])
+                row = db.existing(conn, j["source_url_norm"], j["external_ref"], j.get("source_site", db.SOURCE_SITE))
                 summ = None
                 if not (row and row[2]):          # 新職缺或還沒有摘要才花錢做摘要
                     summ = summarize(cfg, j["title"], j["company_name"], j.get("description", ""))
@@ -106,6 +112,9 @@ def crawl(cfg: Config, sources: list[dict], deadline: float | None = None) -> di
                 stats["valid"] += 1
                 if result == "inserted":
                     stats["published" if j["review_status"] == "published" else "review"] += 1
+            if complete:
+                per["closed"] = db.close_missing(conn, src["ats"], src["board"], [j["external_ref"] for j in jobs])
+                stats["closed"] += per["closed"]
             stats["companies"][src["name"]] = per
             log.info("company %s: %s", src["name"], per)
     except Exception as e:      # 記錄失敗原因，不吞掉已寫入的資料

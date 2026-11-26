@@ -1,13 +1,95 @@
 {
-  "_說明": "要爬的公司官網徵才頁。只會讀取網頁上公開給搜尋引擎的 schema.org JobPosting 結構化資料，並遵守 robots.txt。enabled=false 的不會執行。",
+  "_說明": "要抓的公司。有 ats 的讀招募系統（Greenhouse、Lever、Ashby）的公開職缺 API，只收台灣地點的職缺；沒有 ats 的讀公司官網徵才頁上公開給搜尋引擎的 schema.org JobPosting 結構化資料，並遵守 robots.txt。enabled=false 的不會執行。",
   "_欄位": {
     "name": "代號（英數，唯一），Lambda 事件可用 companies 指定",
-    "company_name": "顯示名稱（結構化資料沒有公司名稱時使用）",
-    "careers_url": "徵才首頁（https）",
+    "company_name": "顯示名稱",
+    "ats": "選填：greenhouse／lever／ashby；填了就讀招募系統的 API，不用 careers_url",
+    "board": "ats 的職缺板代號，例如 job-boards.greenhouse.io/appier 的 appier、jobs.lever.co/pinkoi 的 pinkoi",
+    "foreign": "選填：true 表示外商（職缺搜尋的「外商」分頁）",
+    "careers_url": "沒有 ats 時必填：徵才首頁（https）",
     "sitemaps": "選填：額外的 sitemap 網址；robots.txt 宣告的 sitemap 會自動讀",
     "enabled": "true／false"
   },
   "companies": [
+    {
+      "name": "appier",
+      "company_name": "Appier",
+      "ats": "greenhouse",
+      "board": "appier",
+      "foreign": false,
+      "enabled": true
+    },
+    {
+      "name": "dcard",
+      "company_name": "Dcard",
+      "ats": "greenhouse",
+      "board": "dcard",
+      "foreign": false,
+      "enabled": true
+    },
+    {
+      "name": "binance",
+      "company_name": "Binance",
+      "ats": "greenhouse",
+      "board": "binance",
+      "foreign": true,
+      "enabled": true
+    },
+    {
+      "name": "okx",
+      "company_name": "OKX",
+      "ats": "greenhouse",
+      "board": "okx",
+      "foreign": true,
+      "enabled": true
+    },
+    {
+      "name": "canonical",
+      "company_name": "Canonical",
+      "ats": "greenhouse",
+      "board": "canonical",
+      "foreign": true,
+      "enabled": true
+    },
+    {
+      "name": "agoda",
+      "company_name": "Agoda",
+      "ats": "greenhouse",
+      "board": "agoda",
+      "foreign": true,
+      "enabled": true
+    },
+    {
+      "name": "ubiquiti",
+      "company_name": "Ubiquiti",
+      "ats": "greenhouse",
+      "board": "ubiquiti",
+      "foreign": true,
+      "enabled": true
+    },
+    {
+      "name": "pinkoi",
+      "company_name": "Pinkoi",
+      "ats": "lever",
+      "board": "pinkoi",
+      "foreign": false,
+      "enabled": true
+    },
+    {
+      "name": "spotify",
+      "company_name": "Spotify",
+      "ats": "lever",
+      "board": "spotify",
+      "foreign": true,
+      "enabled": true
+    },
+    {
+      "name": "example-ashby",
+      "company_name": "範例公司（Ashby）",
+      "ats": "ashby",
+      "board": "example",
+      "enabled": false
+    },
     {
       "name": "example-company",
       "company_name": "範例公司",

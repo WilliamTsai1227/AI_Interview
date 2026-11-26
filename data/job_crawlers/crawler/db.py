@@ -10,6 +10,8 @@ from urllib.parse import unquote, urlsplit
 import pg8000.native
 
 SOURCE_SITE = "company"     # 主系統顯示為「公司官網」
+ATS_SITES = ("greenhouse", "lever", "ashby")      # 招募系統的公開職缺 API（crawler/ats.py）；external_ref = {board}:{職缺 id}
+CATALOG_SITES = (SOURCE_SITE, *ATS_SITES)
 
 
 def connect(database_url: str) -> pg8000.native.Connection:
@@ -41,11 +43,11 @@ def category_ids(conn) -> dict[str, str]:
     return {code: str(i) for i, code in conn.run("SELECT id, code FROM job_categories")}
 
 
-def existing(conn, url_norm: str, external_ref: str):
+def existing(conn, url_norm: str, external_ref: str, site: str = SOURCE_SITE):
     rows = conn.run(
         """SELECT id, review_status, summary IS NOT NULL FROM job_posts
             WHERE deleted_at IS NULL AND (source_url_norm = :u OR (source_site = :s AND external_ref = :x)) LIMIT 1""",
-        u=url_norm, s=SOURCE_SITE, x=external_ref)
+        u=url_norm, s=site, x=external_ref)
     return rows[0] if rows else None
 
 
@@ -55,13 +57,14 @@ def search_text(company: str, title: str, tags: list[str]) -> str:
 
 def upsert(conn, j: dict, cat_ids: dict, run_id, summary: dict | None) -> str:
     """新職缺：用推算的審核狀態；已存在：更新事實欄位，保留管理者的審核結果。回傳 inserted / updated。"""
-    row = existing(conn, j["source_url_norm"], j["external_ref"])
+    site = j.get("source_site", SOURCE_SITE)
+    row = existing(conn, j["source_url_norm"], j["external_ref"], site)
     params = dict(
         title=j["title"], company=j["company_name"], url=j["source_url"], url_norm=j["source_url_norm"],
         ext=j["external_ref"], city=j["city"], loc=j["location_text"], mode=j["work_mode"], etype=j["employment_type"],
         sal=j["salary_text"], smin=j["salary_min"], smax=j["salary_max"], sper=j["salary_period"], tags=j["tags"],
         cat=cat_ids.get(j["category_code"]), sen=j["seniority"], lang=j["work_language"], posted=j["posted_at"],
-        conf=j["ai_confidence"], run=run_id, st=search_text(j["company_name"], j["title"], j["tags"]),
+        conf=j["ai_confidence"], foreign=bool(j.get("is_foreign")), run=run_id, st=search_text(j["company_name"], j["title"], j["tags"]),
         raw=j.get("description") or None,     # 原文：只給 AI 出題與分析用，主系統 API 不回傳
         summary=(summary or {}).get("summary"), duties=json.dumps((summary or {}).get("duties", []), ensure_ascii=False),
         reqs=json.dumps((summary or {}).get("requirements", []), ensure_ascii=False))
@@ -71,7 +74,7 @@ def upsert(conn, j: dict, cat_ids: dict, run_id, summary: dict | None) -> str:
                       location_text = :loc, work_mode = COALESCE(:mode, work_mode), employment_type = :etype,
                       salary_text = :sal, salary_min = :smin, salary_max = :smax, salary_period = :sper,
                       tags = CAST(:tags AS text[]), category_id = COALESCE(category_id, CAST(:cat AS uuid)),
-                      seniority = COALESCE(seniority, :sen), work_language = :lang, posted_at = COALESCE(:posted, posted_at),
+                      seniority = COALESCE(seniority, :sen), work_language = :lang, is_foreign = :foreign, posted_at = COALESCE(:posted, posted_at),
                       ai_confidence = :conf, ingest_run_id = :run, search_text = :st, fetched_at = now(),
                       last_verified_at = now(), status = 'active', raw_text = COALESCE(:raw, raw_text),
                       summary = COALESCE(CAST(:summary AS text), summary),
@@ -82,12 +85,12 @@ def upsert(conn, j: dict, cat_ids: dict, run_id, summary: dict | None) -> str:
     conn.run(
         """INSERT INTO job_posts (source, source_site, external_ref, company_name, title, source_url, source_url_norm,
                   city, location_text, work_mode, employment_type, salary_text, salary_min, salary_max, salary_period,
-                  tags, category_id, seniority, work_language, posted_at, ai_confidence, review_status, review_reasons,
+                  tags, category_id, seniority, work_language, is_foreign, posted_at, ai_confidence, review_status, review_reasons,
                   ingest_run_id, search_text, fetched_at, last_verified_at, summary, duties, requirements, raw_text)
            VALUES ('catalog', :site, :ext, :company, :title, :url, :url_norm, :city, :loc, :mode, :etype, :sal, :smin,
-                   :smax, :sper, CAST(:tags AS text[]), CAST(:cat AS uuid), :sen, :lang, :posted, :conf, :review,
+                   :smax, :sper, CAST(:tags AS text[]), CAST(:cat AS uuid), :sen, :lang, :foreign, :posted, :conf, :review,
                    CAST(:reasons AS jsonb), :run, :st, now(), now(), :summary, CAST(:duties AS jsonb), CAST(:reqs AS jsonb), :raw)""",
-        site=SOURCE_SITE, review=j["review_status"], reasons=json.dumps(j["review_reasons"], ensure_ascii=False), **params)
+        site=site, review=j["review_status"], reasons=json.dumps(j["review_reasons"], ensure_ascii=False), **params)
     return "inserted"
 
 
@@ -108,8 +111,19 @@ def close_job(conn, job_id) -> None:
 
 
 def close_stale(conn, days: int = 30) -> int:
-    """超過 N 天沒有再被抓到的職缺下架。"""
+    """超過 N 天沒有再被抓到的職缺下架（官網與招募系統來源都算）。"""
     rows = conn.run(
-        """UPDATE job_posts SET status = 'closed' WHERE source = 'catalog' AND source_site = :s AND status = 'active'
-              AND fetched_at < now() - make_interval(days => :d) RETURNING id""", s=SOURCE_SITE, d=days)
+        """UPDATE job_posts SET status = 'closed' WHERE source = 'catalog' AND source_site = ANY(CAST(:s AS text[]))
+              AND status = 'active' AND fetched_at < now() - make_interval(days => :d) RETURNING id""",
+        s=list(CATALOG_SITES), d=days)
+    return len(rows)
+
+
+def close_missing(conn, site: str, board: str, seen_refs: list[str]) -> int:
+    """招募系統的職缺板是完整清單：這次沒出現的職缺就是已經關閉，直接下架。只在完整讀到職缺板時呼叫。"""
+    rows = conn.run(
+        """UPDATE job_posts SET status = 'closed', last_verified_at = now()
+            WHERE source = 'catalog' AND source_site = :s AND status = 'active' AND deleted_at IS NULL
+              AND external_ref LIKE :prefix AND NOT (external_ref = ANY(CAST(:seen AS text[]))) RETURNING id""",
+        s=site, prefix=board.replace("%", r"\%").replace("_", r"\_") + ":%", seen=seen_refs)
     return len(rows)
