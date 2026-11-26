@@ -1,12 +1,15 @@
 # 職缺爬蟲（AWS Lambda）
 
-讀取**公司官網徵才頁**上提供給搜尋引擎的 [schema.org JobPosting](https://schema.org/JobPosting) 結構化資料（`<script type="application/ld+json">`），整理後寫進主系統 PostgreSQL 的 `job_posts`，網站的「職缺搜尋」頁就會出現這些職缺。
+兩種來源，整理後都寫進主系統 PostgreSQL 的 `job_posts`，網站的「職缺搜尋」頁就會出現這些職缺：
+
+1. **招募系統的公開職缺 API**（主要來源）：Greenhouse、Lever、Ashby 給程式讀取的官方公開 API，一家公司一個請求就拿到全部職缺，只收地點在台灣的職缺。見下方〈招募系統（ATS）來源〉。
+2. **公司官網徵才頁**上提供給搜尋引擎的 [schema.org JobPosting](https://schema.org/JobPosting) 結構化資料（`<script type="application/ld+json">`）。
 
 ## 原則
 
 | 原則 | 做法 |
 |---|---|
-| 只抓允許的內容 | 每個網站先讀 robots.txt；不允許的路徑不抓；連 robots.txt 都被擋就整個網站不抓 |
+| 只抓允許的內容 | 每個網站先讀 robots.txt；不允許的路徑不抓；連 robots.txt 都被擋就整個網站不抓。招募系統的官方公開 API 本來就是給程式讀的，不看 robots.txt（Ashby 的 API 網域連 robots.txt 都回 401），其餘規則照舊 |
 | 不繞過防護 | 遇到 Cloudflare 等機器人驗證、或 429，立即停止抓這個網站並記錄原因；**不使用無頭瀏覽器偽裝、驗證碼破解或代理輪換** |
 | 禮貌 | 每個網站至少間隔 2 秒（robots.txt 有 Crawl-delay 就照它）、每站頁數上限、User-Agent 表明身分與聯絡方式；Lambda 同時只跑一個 |
 | 原文只給 AI 用 | 網站顯示：職稱、公司、地點、薪資、雇用型態、刊登日期、原始網址、技術標籤；有 OpenAI 金鑰時另有 AI 以自己的話寫的摘要與重點。**原始職缺描述存在 `raw_text`，只給 Ava 出題與分析使用，主系統 API 不回傳、網站不顯示** |
@@ -23,13 +26,15 @@ job_crawlers/
 ├── crawler/
 │   ├── config.py         環境變數設定
 │   ├── http.py           禮貌抓取：robots.txt、限速、身分、偵測機器人驗證即停止
+│   ├── ats.py            招募系統公開職缺 API（Greenhouse、Lever、Ashby）→ JobPosting；只留台灣職缺
 │   ├── discover.py       找職缺頁：徵才頁上的連結＋robots.txt 宣告的 sitemap（只限同網域）
 │   ├── jsonld.py         從 HTML 取出 JobPosting（支援 @graph、陣列）
 │   ├── normalize.py      轉成 job_posts 欄位：城市、薪資、雇用型態、分類、資歷、標籤、審核判斷
 │   ├── summarize.py      選用：OpenAI 寫摘要（不轉貼原文）
 │   ├── db.py             寫入 PostgreSQL（pg8000，純 Python）：新增或更新、執行紀錄、下架
 │   └── run.py            主流程（也可在本機執行）
-├── sources/companies.json   要爬的公司清單
+├── sources/companies.json   要抓的公司清單（招募系統代號或官網徵才頁）
+├── tests/                單元測試（不連網路、不碰資料庫）
 ├── template.yaml         AWS SAM：Lambda＋每日排程
 └── build.sh              打包成 build/ 與 job_crawler.zip
 ```
@@ -38,21 +43,53 @@ job_crawlers/
 
 | 欄位 | 值 |
 |---|---|
-| `source` / `source_site` | `catalog` / `company`（介面顯示「公司官網」） |
-| `external_ref` | JobPosting 的 `identifier`，沒有就用網址雜湊 |
+| `source` / `source_site` | `catalog` / `company`（介面顯示「公司官網」）；招募系統來源是 `greenhouse`、`lever`、`ashby` |
+| `external_ref` | JobPosting 的 `identifier`，沒有就用網址雜湊；招募系統來源是 `{board}:{職缺 id}` |
+| `is_foreign` | 公司清單的 `foreign`（職缺搜尋的「外商」分頁） |
 | 去重 | 正規化網址（去掉 utm 等追蹤參數）或 `(source_site, external_ref)`：已存在就更新事實欄位，**保留管理者的審核結果** |
 | `job_ingest_runs` | 每次執行的抓取數、上架數、送審數、下架數、錯誤 |
-| 下架 | verify 模式：原始頁 404／410、或 `validThrough` 已過 → `closed`；超過 30 天沒再抓到 → `closed` |
+| 下架 | verify 模式：原始頁 404／410、或 `validThrough` 已過 → `closed`；超過 30 天沒再抓到 → `closed`。招募系統來源在 crawl 時就處理：完整讀到職缺板後，這次沒出現的職缺直接 `closed`（API 失敗、404 時不動） |
 
-## 新增要爬的公司
+## 招募系統（ATS）來源
 
-編輯 `sources/companies.json`：
+| 招募系統 | API | 職缺板代號在哪 |
+|---|---|---|
+| Greenhouse | `boards-api.greenhouse.io/v1/boards/{board}/jobs?content=true` | `job-boards.greenhouse.io/{board}` |
+| Lever | `api.lever.co/v0/postings/{board}?mode=json` | `jobs.lever.co/{board}` |
+| Ashby | `api.ashbyhq.com/posting-api/job-board/{board}?includeCompensation=true` | `jobs.ashbyhq.com/{board}` |
+
+- **只收台灣**：外商的職缺板多半是全球職缺。地點欄位有台灣（或台灣城市）才收；Greenhouse 的地點欄位沒寫地理位置時（例如只寫公司名），辦公室**全部**在台灣才收——有些公司（Canonical）每個職缺都掛全球辦公室，不能只看辦公室有沒有台北。多國職缺（例如「Hong Kong; Singapore; Taiwan」）會收。
+- **分類**：只看職稱和部門。描述開頭常是公司簡介（例如「用 AI 的 SaaS 公司」），會把業務職缺誤判成機器學習。對不上技術分類的歸「其他」，照樣上架。
+- **下架**：每次 crawl 讀到完整職缺板後，比對這家公司已上架的職缺，沒再出現的就下架。
+
+目前清單（2026-11-27 實測都有台灣職缺，共約 220 筆）：Greenhouse 的 Appier、Dcard、Binance、OKX、Canonical、Agoda、Ubiquiti；Lever 的 Pinkoi、Spotify。Ashby 試過約 30 家（OpenAI、Notion、Linear⋯）目前都沒有台灣職缺，程式已支援，清單留一筆停用的範例。
+
+## 新增要抓的公司
+
+編輯 `sources/companies.json`。用招募系統的公司（徵才頁網址是 `job-boards.greenhouse.io/…`、`jobs.lever.co/…`、`jobs.ashbyhq.com/…`）：
+
+```json
+{ "name": "acme", "company_name": "Acme", "ats": "greenhouse", "board": "acme", "foreign": true, "enabled": true }
+```
+
+其他公司，讀官網徵才頁：
 
 ```json
 { "name": "acme", "company_name": "Acme 股份有限公司", "careers_url": "https://careers.acme.com/", "enabled": true }
 ```
 
-先在本機試跑，看結果的 `issues`。最常見的是「沒有找到 schema.org JobPosting 結構化資料」，代表這家公司的官網沒有提供，就無法用這個方式取得。
+先在本機試跑（`../scheduler/run.sh crawl acme`），看結果的 `issues`：
+
+- 「找不到這個職缺板」：`board` 代號打錯，或公司換了招募系統。
+- 「這家公司目前沒有台灣的職缺」：讀到了，只是沒有台灣地點的職缺。
+- 「沒有找到 schema.org JobPosting 結構化資料」：官網沒有提供，就無法用這個方式取得。
+
+## 測試
+
+```bash
+cd data/job_crawlers
+../../backend/.venv/bin/python -m pytest -q tests      # 招募系統 API 的轉換、只收台灣、分類、失敗時不下架
+```
 
 ## 本機執行
 
