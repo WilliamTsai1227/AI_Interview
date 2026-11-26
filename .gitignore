@@ -5,3 +5,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 node_modules/
+
+# Playwright MCP 截圖與操作紀錄
+.playwright-mcp/
