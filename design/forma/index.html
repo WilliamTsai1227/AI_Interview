@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#F4F3ED" />
+    <meta
+      name="description"
+      content="forma. — 為下一次面試，留一點思考的空間。AI 面試與職涯準備設計原型。"
+    />
+    <title>forma. — 面試準備，重新想像</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23F4F3ED'/%3E%3Ctext x='7' y='26' font-family='Georgia' font-size='32' fill='%23BD442E'%3Ef%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="forma.css" />
+    <script src="forma.js" defer></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">跳到主要內容</a>
+    <header class="masthead">
+      <a href="#overview" class="wordmark" aria-label="forma. 首頁"
+        >forma<span>.</span></a
+      >
+      <span class="brand-note">給下一步，一點形狀。</span>
+      <button
+        class="menu-toggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="navigation"
+      >
+        選單 <span aria-hidden="true">＋</span>
+      </button>
+      <nav id="navigation" aria-label="主要導覽">
+        <a href="#overview">總覽</a><a href="#tools">準備工具</a
+        ><a href="#practice">模擬面試</a><a href="#history">練習紀錄</a>
+      </nav>
+      <button
+        class="search-toggle icon-button"
+        type="button"
+        aria-label="搜尋工具，Command 或 Control K"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.4"
+          aria-hidden="true"
+        >
+          <circle cx="10.5" cy="10.5" r="6.5" />
+          <path d="m16 16 5 5" /></svg
+        ><kbd>⌘ K</kbd>
+      </button>
+      <button class="account" type="button" aria-label="查看原型說明">W</button>
+    </header>
+    <div class="edition">
+      <span>你的職涯準備工作室</span><span>2026 / VOL. 01</span>
+    </div>
+    <main id="main" tabindex="-1"></main>
+    <footer>
+      <a class="wordmark" href="#overview">forma<span>.</span></a>
+      <p>每一次練習，都更接近自己的樣子。</p>
+      <a href="#identity">視覺規範 <span aria-hidden="true">↗</span></a
+      ><span class="prototype-tag">互動設計原型・示範資料</span>
+    </footer>
+    <dialog id="search-dialog" aria-labelledby="search-title">
+      <div class="dialog-head">
+        <h2 id="search-title">找一個起點。</h2>
+        <button
+          type="button"
+          class="icon-button close-dialog"
+          aria-label="關閉搜尋"
+        >
+          ✕
+        </button>
+      </div>
+      <label for="global-search">搜尋準備工具</label
+      ><input
+        id="global-search"
+        type="search"
+        placeholder="試試「履歷」或「面試」"
+        autocomplete="off"
+      />
+      <div id="search-results" aria-live="polite"></div>
+    </dialog>
+    <dialog id="tool-dialog" aria-labelledby="tool-title"></dialog>
+    <dialog id="about-dialog" aria-labelledby="about-title">
+      <div class="dialog-head">
+        <h2 id="about-title">關於這份原型</h2>
+        <button
+          class="icon-button close-dialog"
+          type="button"
+          aria-label="關閉說明"
+        >
+          ✕
+        </button>
+      </div>
+      <p>
+        forma. 是 AI Interview 的全新視覺提案。所有職缺、分數、AI
+        回覆與面試內容均為示範，未串接正式 API。
+      </p>
+      <p>
+        操作紀錄只保留在目前的瀏覽器分頁，關閉分頁後即清除；不會修改正式帳號資料。
+      </p>
+      <a href="#identity" class="text-link close-about">查看完整視覺規範 ↗</a>
+    </dialog>
+    <div id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

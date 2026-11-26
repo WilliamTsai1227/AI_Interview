@@ -1,0 +1,301 @@
+/* Visual treatment ONLY. Layout, navigation, selectors and behavior belong to
+   the unchanged frontend/css/app.css and frontend/js modules. */
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:wght@400;500;600&display=swap");
+
+:root,
+:root[data-theme="light"] {
+  --bg: #f4f3ed;
+  --side: #ecebe4;
+  --surface: #ebeae2;
+  --surface-2: #dddcd2;
+  --code: #f9f8f3;
+  --pop: #fbfaf5;
+  --ink: #24251f;
+  --ink-2: #595c51;
+  --ink-3: #66695e;
+  --inv: #24251f;
+  --inv-ink: #f4f3ed;
+  --line: #dad9cf;
+  --line-2: #c8c7bb;
+  --hover: rgba(36, 37, 31, 0.045);
+  --active: rgba(189, 68, 46, 0.065);
+  --mark: rgba(189, 68, 46, 0.13);
+  --accent: #bd442e;
+  --accent-wash: #f0e5dd;
+  --shadow: 0 0 0 1px var(--line-2);
+  --scrim: rgba(36, 37, 31, 0.32);
+  --font:
+    "DM Sans", "Noto Sans TC", -apple-system, BlinkMacSystemFont, "PingFang TC",
+    sans-serif;
+  --editorial-font: "Noto Serif TC", "Songti TC", Georgia, serif;
+}
+:root[data-theme="dark"] {
+  --bg: #24251f;
+  --side: #1e201a;
+  --surface: #303229;
+  --surface-2: #44473b;
+  --code: #292b23;
+  --pop: #303229;
+  --ink: #f4f3ed;
+  --ink-2: #d0d0c3;
+  --ink-3: #b0b3a2;
+  --inv: #f4f3ed;
+  --inv-ink: #24251f;
+  --line: #414438;
+  --line-2: #5a5e4e;
+  --hover: rgba(244, 243, 237, 0.05);
+  --active: rgba(237, 139, 116, 0.1);
+  --mark: rgba(237, 139, 116, 0.2);
+  --accent: #ed8b74;
+  --accent-wash: #43332a;
+  --shadow: 0 0 0 1px var(--line-2);
+  --scrim: rgba(0, 0, 0, 0.5);
+}
+/* Keep the original 260px sidebar and centered task layout. */
+.side-top {
+  border-bottom: 1px solid var(--line);
+}
+.brand {
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.brand > svg {
+  color: var(--accent);
+}
+.side-scroll {
+  padding-top: 14px;
+}
+.nav-i {
+  border-radius: 7px;
+}
+.nav-i.on {
+  color: var(--accent);
+  box-shadow: inset 2px 0 var(--accent);
+}
+.nav-i.on > svg {
+  color: var(--accent);
+}
+.nav-job .jl {
+  background: var(--bg);
+  box-shadow: none;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  font-family: Georgia, serif;
+  font-weight: 400;
+}
+.nav-live {
+  background: var(--bg);
+  border-radius: 9px;
+}
+.live-dot {
+  background: var(--accent);
+}
+.side-h {
+  font-size: 0.73rem;
+  letter-spacing: 0.025em;
+}
+.av {
+  background: var(--accent);
+  color: var(--bg);
+}
+.head {
+  border-bottom: 1px solid var(--line);
+}
+.title {
+  font-size: 0.9rem;
+}
+.title svg {
+  color: var(--accent);
+}
+/* Keep page titles in the original frontend font stack. Sizes, weights,
+   spacing and line heights come directly from the unchanged app.css. */
+h1 {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+    "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+}
+.hello + p {
+  font-size: 0.87rem;
+  line-height: 1.9;
+}
+.setup {
+  border-radius: 12px;
+  background: var(--code);
+}
+.setup .su-row {
+  padding-top: 15px;
+  padding-bottom: 15px;
+}
+.su-row .k {
+  color: var(--ink-3);
+  font-size: 0.8rem;
+}
+.su-row .v {
+  font-size: 0.9rem;
+}
+.picker b {
+  font-weight: 500;
+}
+.btn.pri {
+  background: var(--inv);
+  color: var(--inv-ink);
+}
+.start .btn.pri {
+  border: 1px solid var(--inv);
+  box-shadow: inset 0 -3px var(--accent);
+}
+.start .btn.pri svg {
+  color: var(--inv-ink);
+}
+.btn.out,
+.pill {
+  background: transparent;
+}
+.linkb:hover,
+.qprev-h a:hover {
+  color: var(--accent);
+}
+.seg {
+  background: var(--surface);
+}
+.qprev {
+  padding: 18px 20px;
+  background: transparent;
+}
+.qprev-h {
+  padding-bottom: 12px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--line);
+}
+.qprev-h a {
+  color: var(--accent);
+}
+.qprev li {
+  padding-top: 11px;
+  padding-bottom: 11px;
+  font-size: 0.88rem;
+}
+.qprev li + li {
+  border-top: 1px solid var(--line);
+}
+.qprev li .n {
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-size: 1rem;
+  color: var(--accent);
+}
+.qprev li .c {
+  font-size: 0.7rem;
+}
+.start .faint {
+  font-size: 0.75rem;
+}
+.tabs {
+  border-color: var(--line-2);
+}
+.tabs a.on,
+.tabs button.on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.jhd {
+  border-color: var(--line-2);
+}
+.ins-card,
+.basis,
+.nextbox,
+.acc,
+.qrow,
+.rv-card,
+.rv-opt,
+.codebox,
+.composer {
+  border-radius: 10px;
+  box-shadow: none;
+}
+.ins-card,
+.rv-card,
+.codebox,
+.composer {
+  background: var(--code);
+}
+.ins-card blockquote,
+.doc blockquote {
+  border-left-color: var(--accent);
+}
+.ins-story {
+  background: var(--surface);
+  border-radius: 6px;
+}
+.ins-card h3 .num {
+  color: var(--accent);
+  background: transparent;
+  font-family: Georgia, serif;
+  font-size: 1rem;
+}
+.ins-essence {
+  font-family: var(--editorial-font);
+  line-height: 1.95;
+}
+.big > b {
+  font-family: Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.045em;
+  color: var(--accent);
+}
+.bar i {
+  background: var(--accent);
+}
+.hrow {
+  border-color: var(--line);
+  border-radius: 5px;
+}
+.hs > b {
+  font-family: Georgia, serif;
+  font-weight: 400;
+}
+.rv-opt.on {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+.rv-prog i {
+  background: var(--accent);
+}
+.gap-tabs .on {
+  color: var(--accent);
+}
+.menu,
+.modal {
+  box-shadow: var(--shadow);
+  border-radius: 12px;
+}
+.menu .mh,
+.sub-h {
+  color: var(--ink-2);
+}
+.search {
+  border-radius: 9px;
+}
+:focus-visible {
+  outline-color: var(--accent);
+}
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+@media (max-width: 768px) {
+  .setup .su-row {
+    padding-top: 13px;
+    padding-bottom: 13px;
+  }
+  .qprev {
+    padding: 15px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

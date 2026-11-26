@@ -1,5 +1,9 @@
 # AI Interview 設計稿與設計規範
 
+> **最新方向：保留原始 UIUX，只轉換風格。** 請先看 [forma-preserved/README.md](forma-preserved/README.md) 與 [實際預覽截圖](forma-preserved/preview-editorial.png)。此版直接使用原本 frontend 頁面，加上可切換的簡潔樣式；原始側欄、職缺分頁、表單與操作順序保留。下方 forma. 頂部導覽版及 v1–v3B 為先前方案，保留比較。
+
+> **目前新增方向：forma. / Editorial Minimalism**。新版為獨立互動原型，入口 [forma/index.html](forma/index.html)，執行與設計規範見 [forma/README.md](forma/README.md)。保留 AI 面試產品定位，改用米白、朱紅、頂部導覽、巨型標題與直角細線結構。下方 v1–v3B 與 `.fig` 皆為歷史方案，保留比較；正式前端尚未修改。
+
 > 狀態：**設計稿，尚未實作**。正式前端 `frontend/`、後端與資料庫都沒有修改。
 > 可編輯原檔：[ai-career-coach.fig](ai-career-coach.fig)（用 OpenPencil 開啟）
 

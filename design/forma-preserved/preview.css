@@ -1,0 +1,46 @@
+/* Preview controls only. These remain identical in both visual treatments. */
+.preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+  flex: none;
+}
+.preview-label {
+  color: var(--ink-3);
+  font-size: 11px;
+  margin-right: 7px;
+}
+.preview-controls button {
+  font-size: 11px;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  min-height: 30px;
+}
+.preview-controls button[aria-pressed="true"] {
+  border-color: var(--line-2);
+  background: var(--surface);
+}
+.preview-controls button:hover {
+  background: var(--hover);
+}
+.preview-disclaimer {
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--ink-3);
+  padding: 9px 18px 13px;
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 768px) {
+  .preview-label {
+    display: none;
+  }
+  .preview-controls {
+    margin-right: 0;
+    gap: 1px;
+  }
+  .preview-controls button {
+    padding: 5px 7px;
+  }
+}
