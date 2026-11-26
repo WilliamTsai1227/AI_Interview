@@ -34,6 +34,15 @@ def _drain(client, since: dt.datetime) -> None:
             return
 
 
+def _db_now(client) -> dt.datetime:
+    """起點用資料庫的時鐘：background_jobs.created_at 是資料庫的 now()，Docker VM 和主機的時鐘可能差幾毫秒，
+    用主機時間當起點會漏掉剛建立的工作。"""
+    async def q():
+        async with db.connection() as conn:
+            return await conn.fetchval("SELECT clock_timestamp()")
+    return client.portal.call(q)
+
+
 def _sql(client, sql: str, *args):
     async def q():
         async with db.connection() as conn:
@@ -42,7 +51,7 @@ def _sql(client, sql: str, *args):
 
 
 def test_insight_generated_after_parse_and_on_regenerate(client, dev_ai):
-    since = dt.datetime.now(dt.timezone.utc)
+    since = _db_now(client)
     user, _ = register(client, f"ins-{uuid.uuid4().hex[:8]}@example.com")
     tid = client.post(f"{API}/targets", headers=user, json={"raw_text": JD}).json()["id"]
     _drain(client, since)
@@ -58,7 +67,7 @@ def test_insight_generated_after_parse_and_on_regenerate(client, dev_ai):
 
     # 依新內容重新出題 → 解讀重新產生
     client.patch(f"{API}/targets/{tid}", headers=user, json={"raw_text": JD + "\n- Terraform"})
-    since = dt.datetime.now(dt.timezone.utc)
+    since = _db_now(client)
     assert client.post(f"{API}/targets/{tid}/regenerate", headers=user).status_code == 202
     _drain(client, since)
     t = client.get(f"{API}/targets/{tid}", headers=user).json()
@@ -66,7 +75,7 @@ def test_insight_generated_after_parse_and_on_regenerate(client, dev_ai):
 
 
 def test_insight_failure_can_retry_and_old_jobs_backfill(client, dev_ai, monkeypatch):
-    since = dt.datetime.now(dt.timezone.utc)
+    since = _db_now(client)
     user, _ = register(client, f"ins-{uuid.uuid4().hex[:8]}@example.com")
     tid = client.post(f"{API}/targets", headers=user, json={"raw_text": JD}).json()["id"]
 
@@ -79,7 +88,7 @@ def test_insight_failure_can_retry_and_old_jobs_backfill(client, dev_ai, monkeyp
 
     monkeypatch.undo()
     monkeypatch.setattr(settings, "openai_api_key", "")
-    since = dt.datetime.now(dt.timezone.utc)
+    since = _db_now(client)
     r = client.post(f"{API}/targets/{tid}/insight", headers=user)
     assert r.status_code == 200 and r.json()["job"]["insight"]["status"] == "pending"
     assert client.post(f"{API}/targets/{tid}/insight", headers=user).status_code == 409
@@ -88,7 +97,7 @@ def test_insight_failure_can_retry_and_old_jobs_backfill(client, dev_ai, monkeyp
 
     # 功能上線前加入的職缺（沒有解讀）：第一次打開時補產生
     _sql(client, "DELETE FROM job_insights WHERE job_post_id = (SELECT job_post_id FROM target_jobs WHERE id = $1)", uuid.UUID(tid))
-    since = dt.datetime.now(dt.timezone.utc)
+    since = _db_now(client)
     assert client.get(f"{API}/targets/{tid}", headers=user).json()["job"]["insight"]["status"] == "pending"
     _drain(client, since)
     assert client.get(f"{API}/targets/{tid}", headers=user).json()["job"]["insight"]["status"] == "ready"
