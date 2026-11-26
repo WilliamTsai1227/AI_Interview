@@ -25,7 +25,8 @@ _SIMLI = _origin(settings.simli_url).replace("https://", "wss://", 1) if setting
 CSP = "; ".join([
     "default-src 'self'",
     "script-src 'self'",
-    "style-src 'self' 'unsafe-inline'",          # 前端用 style 屬性排版；樣式無法執行程式
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",   # 前端用 style 屬性排版；樣式無法執行程式。字型 CSS 來自 Google Fonts
+    "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob:",
     f"media-src 'self' blob: {_S3}".strip(),
     f"connect-src 'self' {_S3} {_SIMLI}".strip(),

@@ -27,7 +27,7 @@ function general() {
   const p = prefs();
   return [
     h("div", { class: "srow" }, h("span", null, "主題"),
-      select([["", "跟隨系統"], ["dark", "深色"], ["light", "淺色"]], S.theme || "", (v) => setTheme(v || null), "主題")),
+      select([["light", "淺色"], ["dark", "深色"], ["system", "跟隨系統"]], S.theme || "light", (v) => setTheme(v), "主題")),
     h("div", { class: "srow" }, h("span", null, "預設面試長度"),
       select(Object.entries(MODES).map(([k, m]) => [k, `${m.name} ${m.n} 題`]), p.default_length, (v) => savePrefs({ default_length: v }), "預設面試長度")),
     h("div", { class: "srow" }, h("span", null, "預設面試語言"),

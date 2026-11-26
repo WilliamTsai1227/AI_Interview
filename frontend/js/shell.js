@@ -4,13 +4,13 @@ import { feature, S } from "./store.js";
 import { openMenu } from "./ui.js";
 
 // ---------- 主題 ----------
-export const isDark = () => (S.theme ? S.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches);
+// 預設淺色；「跟隨系統」要使用者自己選
+export const isDark = () => S.theme === "dark" || (S.theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
 export function applyTheme() {
-  if (S.theme) document.documentElement.setAttribute("data-theme", S.theme);
-  else document.documentElement.removeAttribute("data-theme");
+  document.documentElement.setAttribute("data-theme", S.theme || "light");
   replace($("#themeBtn"), icon(isDark() ? "sun" : "moon"));
   // 手機網址列顏色跟著頁面背景（手動切換主題時 meta 的 media 條件不會跟著變）
-  const bg = isDark() ? "#212121" : "#ffffff";
+  const bg = isDark() ? "#24251f" : "#f4f3ed";
   document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", bg));
 }
 export function setTheme(t) {
